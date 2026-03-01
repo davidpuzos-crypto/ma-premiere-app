@@ -183,18 +183,22 @@
     </div>
   </nav>
 
-  <!-- APP LAYOUT : colonne gauche (jauge + sidebar IG) + contenu principal -->
-  <div class="app-layout">
+  <!-- APP LAYOUT : bandeau tableau de bord + espace de travail -->
 
-    <!-- ── COLONNE GAUCHE ── -->
-    <aside class="left-col">
+  <!-- Barre de chargement Firestore (pleine largeur) -->
+  <div id="dataLoadingBar" class="data-loading-bar hidden"></div>
 
-      <!-- Jauge de progression principale — style "carnet dessiné à l'encre" -->
-      <div class="gauge-card">
+  <!-- ══════════════════════════════════════════════════════════
+       ZONE 1 — TABLEAU DE BORD
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="dashboard-banner">
+    <div class="dashboard-inner">
+
+      <!-- Colonne gauche : jauge + date + partage -->
+      <div class="db-gauge-col">
         <div class="gauge-wrap">
           <svg class="gauge-svg" viewBox="0 0 200 200" aria-hidden="true">
             <defs>
-              <!-- Filtre "dessiné à la main" : légère distorsion de l'encre -->
               <filter id="roughen" x="-5%" y="-5%" width="110%" height="110%">
                 <feTurbulence type="fractalNoise" baseFrequency="0.025"
                               numOctaves="3" seed="7" result="noise"/>
@@ -202,15 +206,12 @@
                                    scale="2" xChannelSelector="R" yChannelSelector="G"/>
               </filter>
             </defs>
-            <!-- Piste -->
             <circle class="gauge-track" cx="100" cy="100" r="80" filter="url(#roughen)"/>
-            <!-- Remplissage (progression) -->
             <circle class="gauge-fill" id="gaugeFill" cx="100" cy="100" r="80" filter="url(#roughen)"/>
-            <!-- Marqueurs de jalons (petits points d'encre) -->
-            <circle cx="100" cy="20"  r="3.5" fill="#B5883E" opacity=".65"/>
-            <circle cx="180" cy="100" r="3.5" fill="#B5883E" opacity=".65"/>
-            <circle cx="100" cy="180" r="3.5" fill="#B5883E" opacity=".65"/>
-            <circle cx="20"  cy="100" r="3.5" fill="#B5883E" opacity=".65"/>
+            <circle cx="100" cy="20"  r="3.5" fill="#B5883E" opacity=".55"/>
+            <circle cx="180" cy="100" r="3.5" fill="#B5883E" opacity=".55"/>
+            <circle cx="100" cy="180" r="3.5" fill="#B5883E" opacity=".55"/>
+            <circle cx="20"  cy="100" r="3.5" fill="#B5883E" opacity=".55"/>
           </svg>
           <div class="gauge-center">
             <div class="gauge-pct" id="gaugePct">0%</div>
@@ -218,18 +219,17 @@
           </div>
         </div>
 
-        <!-- Barres de jalons (25 / 50 / 75 / 100 %) -->
-        <div class="milestone-bar">
+        <div class="milestone-bar" style="width:190px;">
           <div class="ms-pip" id="ms25"  title="25%"></div>
           <div class="ms-pip" id="ms50"  title="50%"></div>
           <div class="ms-pip" id="ms75"  title="75%"></div>
           <div class="ms-pip" id="ms100" title="100%"></div>
         </div>
 
-        <div class="gauge-meta">
-          <div class="meta-label">Date de début</div>
-          <div class="meta-val" id="startDateDisplay">—</div>
-          <button class="btn-tiny" onclick="openStartDateModal()">✏ Modifier</button>
+        <div class="db-meta">
+          <span class="db-meta-label">Début&nbsp;</span>
+          <span class="db-meta-val" id="startDateDisplay">—</span>
+          <button class="btn-tiny db-meta-btn" onclick="openStartDateModal()">✏</button>
         </div>
 
         <button id="shareIgBtn" class="btn-share-ig" onclick="generateInstagramPost()">
@@ -237,115 +237,69 @@
         </button>
       </div>
 
-      <!-- Sidebar Instagram -->
-      <div class="ig-sidebar-card">
-        <div class="ig-sidebar-icon">✨</div>
-        <div class="ig-sidebar-handle">Journal d'une Doctorante</div>
-        <p class="ig-sidebar-sub">
-          La communauté des doctorant·es francophones qui avancent ensemble, une page à la fois.
-        </p>
+      <!-- Divider vertical -->
+      <div class="db-divider"></div>
 
-        <a href="https://www.instagram.com/journal.dune.doctorante/"
-           class="btn-instagram" target="_blank" rel="noopener noreferrer">
-          <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor">
-            <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
-          </svg>
-          Suivre sur Instagram
-        </a>
+      <!-- Colonne droite : stat vedette + grille de stats -->
+      <div class="db-stats-col">
 
-        <div class="ig-sidebar-sep"></div>
-        <p class="ig-sidebar-tagline">
-          « Chaque page rédigée est une victoire à partager. »
-        </p>
-      </div>
-
-    </aside><!-- /left-col -->
-
-    <!-- ── CONTENU PRINCIPAL ── -->
-    <main class="main-col">
-
-      <!-- Barre de chargement Firestore -->
-      <div id="dataLoadingBar" class="data-loading-bar hidden"></div>
-
-      <!-- Jauge compacte (visible uniquement sur mobile, cachée sur desktop) -->
-      <div class="gauge-card-mobile mobile-only">
-        <div class="gauge-wrap">
-          <svg class="gauge-svg" viewBox="0 0 200 200" aria-hidden="true">
-            <defs>
-              <filter id="roughen2" x="-5%" y="-5%" width="110%" height="110%">
-                <feTurbulence type="fractalNoise" baseFrequency="0.025" numOctaves="3" seed="7" result="noise"/>
-                <feDisplacementMap in="SourceGraphic" in2="noise" scale="2" xChannelSelector="R" yChannelSelector="G"/>
-              </filter>
-            </defs>
-            <circle class="gauge-track" cx="100" cy="100" r="80" filter="url(#roughen2)"/>
-            <circle class="gauge-fill" id="gaugeFillMobile" cx="100" cy="100" r="80" filter="url(#roughen2)"/>
-          </svg>
-          <div class="gauge-center">
-            <div class="gauge-pct" id="gaugePctMobile">0%</div>
-            <div class="gauge-lbl">Avancement</div>
+        <!-- Stat vedette : date de fin -->
+        <div class="db-featured">
+          <div class="db-feat-icon">🔮</div>
+          <div class="db-feat-body">
+            <div class="db-feat-val ink-text" id="sEndDate">—</div>
+            <div class="db-feat-lbl">Date de fin estimée</div>
+            <div class="db-feat-sub" id="sEndMsg">À ce rythme…</div>
           </div>
         </div>
-        <div style="flex:1;min-width:0;">
-          <div class="milestone-bar" id="milestoneMobile" style="margin-bottom:10px;">
-            <div class="ms-pip" id="ms25m"  title="25%"></div>
-            <div class="ms-pip" id="ms50m"  title="50%"></div>
-            <div class="ms-pip" id="ms75m"  title="75%"></div>
-            <div class="ms-pip" id="ms100m" title="100%"></div>
+
+        <!-- Grille des 5 autres stats -->
+        <div class="stats-grid">
+          <div class="stat-card sc-blue">
+            <div class="stat-icon">📄</div>
+            <div class="stat-val" id="sTotal">0</div>
+            <div class="stat-lbl">Pages objectif</div>
           </div>
-          <div class="gauge-meta" style="text-align:left;">
-            <div class="meta-label">Date de début</div>
-            <div class="meta-val" id="startDateDisplayMobile">—</div>
-            <button class="btn-tiny" onclick="openStartDateModal()">✏ Modifier</button>
+          <div class="stat-card sc-green">
+            <div class="stat-icon">✍️</div>
+            <div class="stat-val" id="sWritten">0</div>
+            <div class="stat-lbl">Pages rédigées</div>
+          </div>
+          <div class="stat-card sc-amber">
+            <div class="stat-icon">🎯</div>
+            <div class="stat-val" id="sRemaining">0</div>
+            <div class="stat-lbl">Pages restantes</div>
+          </div>
+          <div class="stat-card sc-violet">
+            <div class="stat-icon">⚡</div>
+            <div class="stat-val" id="sVelocity">—</div>
+            <div class="stat-lbl">Pages / jour</div>
+            <div class="stat-sub" id="sDays"></div>
+          </div>
+          <div class="stat-card sc-teal">
+            <div class="stat-icon">📚</div>
+            <div class="stat-val" id="sChapters">0</div>
+            <div class="stat-lbl">Chapitres</div>
+            <div class="stat-sub" id="sSections"></div>
           </div>
         </div>
-      </div>
 
-      <!-- Grille de statistiques -->
-      <div class="stats-grid">
-        <div class="stat-card sc-blue">
-          <div class="stat-icon">📄</div>
-          <div class="stat-val" id="sTotal">0</div>
-          <div class="stat-lbl">Pages objectif</div>
-        </div>
-        <div class="stat-card sc-green">
-          <div class="stat-icon">✍️</div>
-          <div class="stat-val" id="sWritten">0</div>
-          <div class="stat-lbl">Pages rédigées</div>
-        </div>
-        <div class="stat-card sc-amber">
-          <div class="stat-icon">🎯</div>
-          <div class="stat-val" id="sRemaining">0</div>
-          <div class="stat-lbl">Pages restantes</div>
-        </div>
-        <div class="stat-card sc-violet">
-          <div class="stat-icon">⚡</div>
-          <div class="stat-val" id="sVelocity">—</div>
-          <div class="stat-lbl">Pages / jour</div>
-          <div class="stat-sub" id="sDays"></div>
-        </div>
-        <div class="stat-card sc-teal">
-          <div class="stat-icon">📚</div>
-          <div class="stat-val" id="sChapters">0</div>
-          <div class="stat-lbl">Chapitres</div>
-          <div class="stat-sub" id="sSections"></div>
-        </div>
-        <div class="stat-card sc-magic">
-          <div class="stat-icon">🔮</div>
-          <div class="stat-val ink-text" id="sEndDate">—</div>
-          <div class="stat-lbl">Date de fin estimée</div>
-          <div class="stat-sub" id="sEndMsg">À ce rythme…</div>
-        </div>
-      </div>
+      </div><!-- /db-stats-col -->
+    </div><!-- /dashboard-inner -->
+  </section>
 
-      <!-- Section chapitres -->
-      <div class="section-header">
-        <h2 class="section-title">📚 Mes Chapitres</h2>
-        <button class="btn btn-primary" onclick="openAddChapterModal()">＋ Ajouter un chapitre</button>
-      </div>
-      <div id="chaptersContainer"></div>
+  <!-- ══════════════════════════════════════════════════════════
+       ZONE 2 — ESPACE DE TRAVAIL (Chapitres)
+  ═══════════════════════════════════════════════════════════ -->
+  <main class="workspace">
 
-    </main><!-- /main-col -->
-  </div><!-- /app-layout -->
+    <div class="section-header">
+      <h2 class="section-title">📚 Mes Chapitres</h2>
+      <button class="btn btn-primary" onclick="openAddChapterModal()">＋ Ajouter un chapitre</button>
+    </div>
+    <div id="chaptersContainer"></div>
+
+  </main><!-- /workspace -->
 
   <!-- FOOTER -->
   <footer>

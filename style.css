@@ -343,20 +343,9 @@ header {
 .mobile-menu-sep { height: 1px; background: var(--border); margin: 4px 0; }
 
 /* ============================================================
-   APP LAYOUT — sidebar gauche + contenu principal
+   APP LAYOUT — bandeau tableau de bord + espace de travail
 ============================================================ */
 .app-wrapper { display: flex; flex-direction: column; min-height: 100vh; }
-.app-layout {
-  display: grid;
-  grid-template-columns: 260px 1fr;
-  gap: 24px;
-  max-width: 1220px;
-  margin: 0 auto;
-  padding: 28px 20px 0;
-  flex: 1;
-}
-.left-col { display: flex; flex-direction: column; gap: 20px; }
-.main-col { min-width: 0; padding-bottom: 60px; }
 
 /* Firestore loading bar */
 .data-loading-bar {
@@ -364,41 +353,143 @@ header {
   background: linear-gradient(90deg, var(--ink) 25%, var(--gold) 50%, var(--ink) 75%);
   background-size: 200% 100%;
   animation: shimmer 1.4s ease-in-out infinite;
-  border-radius: 2px; margin-bottom: 20px;
 }
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
 /* ============================================================
-   GAUGE CARD — style "carnet de bord"
+   ZONE 1 — TABLEAU DE BORD (bannière pleine largeur)
 ============================================================ */
-.gauge-card {
-  background: var(--card);
-  background-image: repeating-linear-gradient(
-    transparent, transparent 27px,
-    rgba(196,168,130,.14) 27px, rgba(196,168,130,.14) 28px
-  );
-  border-left: 3px solid var(--gold-light);
-  border-radius: 0 var(--radius) var(--radius) 0;
-  padding: 24px 20px;
-  box-shadow: var(--shadow);
-  display: flex; flex-direction: column;
-  align-items: center; gap: 16px;
-  position: relative;
+.dashboard-banner {
+  background: var(--text);
+  background-image:
+    radial-gradient(ellipse 700px 400px at 85% 10%, rgba(181,136,62,.18), transparent),
+    radial-gradient(ellipse 500px 600px at 5%  90%, rgba(43,76,126,.18),  transparent),
+    repeating-linear-gradient(transparent, transparent 27px, rgba(253,250,245,.03) 27px, rgba(253,250,245,.03) 28px);
+  padding: 32px 20px;
 }
-/* Ink blot decoration */
-.gauge-card::after {
-  content: '';
-  position: absolute; top: -12px; right: -12px;
-  width: 80px; height: 60px; border-radius: 50%;
-  background: radial-gradient(ellipse, rgba(43,76,126,.07), transparent 70%);
-  pointer-events: none;
+.dashboard-inner {
+  max-width: 1040px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 36px;
 }
 
+/* Gauge column (left) */
+.db-gauge-col {
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+  flex-shrink: 0;
+}
+
+/* Vertical divider */
+.db-divider {
+  width: 1px; align-self: stretch; flex-shrink: 0;
+  background: rgba(253,250,245,.10);
+}
+
+/* Stats column (right) */
+.db-stats-col {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 16px;
+}
+
+/* Featured stat block (date de fin) */
+.db-featured {
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 20px;
+  background: rgba(181,136,62,.12);
+  border: 1px solid rgba(181,136,62,.28);
+  border-radius: var(--radius);
+}
+.db-feat-icon { font-size: 1.7rem; flex-shrink: 0; }
+.db-feat-val  {
+  font-family: var(--font-heading);
+  font-size: 1.45rem; font-weight: 800; line-height: 1.1;
+  color: #B5883E;
+}
+.db-feat-lbl { font-size: .68rem; color: rgba(245,237,224,.5); text-transform: uppercase; letter-spacing: .5px; margin-top: 3px; }
+.db-feat-sub { font-size: .75rem; color: rgba(245,237,224,.7); margin-top: 2px; }
+
+/* Stats grid inside the dark banner */
+.dashboard-banner .stats-grid {
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 10px; margin-bottom: 0;
+}
+.dashboard-banner .stat-card {
+  background: rgba(253,250,245,.07);
+  border: 1px solid rgba(253,250,245,.10);
+  border-left: 3px solid rgba(253,250,245,.16);
+  box-shadow: none;
+}
+.dashboard-banner .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 18px rgba(0,0,0,.3); }
+.dashboard-banner .stat-val { color: #F5EDE0; }
+.dashboard-banner .stat-lbl { color: rgba(245,237,224,.52); }
+.dashboard-banner .stat-sub { color: rgba(245,237,224,.48); }
+.dashboard-banner .sc-blue   { border-left-color: rgba(43,76,126,.9); }
+.dashboard-banner .sc-green  { border-left-color: rgba(74,123,90,.9); }
+.dashboard-banner .sc-amber  { border-left-color: rgba(200,155,60,.9); }
+.dashboard-banner .sc-violet { border-left-color: rgba(123,94,167,.9); }
+.dashboard-banner .sc-teal   { border-left-color: rgba(58,125,140,.9); }
+
+/* Gauge overrides for dark background */
+.dashboard-banner .gauge-track { stroke: rgba(253,250,245,.14); }
+.dashboard-banner .gauge-fill  { stroke: #B5883E; }
+.dashboard-banner .gauge-pct   { color: #F5EDE0; }
+.dashboard-banner .gauge-lbl   { color: rgba(245,237,224,.5); }
+.dashboard-banner .ms-pip            { background: rgba(253,250,245,.14); }
+.dashboard-banner .ms-pip.r25        { background: var(--rust); }
+.dashboard-banner .ms-pip.r50        { background: var(--gold); }
+.dashboard-banner .ms-pip.r75        { background: #6488c8; }
+.dashboard-banner .ms-pip.r100       { background: var(--success); }
+
+/* Start-date meta row */
+.db-meta {
+  display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
+  font-size: .76rem; color: rgba(245,237,224,.5);
+  text-transform: uppercase; letter-spacing: .4px;
+}
+.db-meta-val {
+  font-family: var(--font-heading);
+  font-size: .88rem; font-weight: 600; color: rgba(245,237,224,.82);
+  text-transform: none; letter-spacing: 0;
+}
+.btn-tiny {
+  font-size: .7rem; padding: 3px 10px; border-radius: 6px;
+  background: transparent; border: 1px solid var(--border-mid);
+  cursor: pointer; font-family: var(--font-body); font-weight: 600;
+  color: var(--ink); margin-top: 0;
+}
+.btn-tiny:hover { background: var(--ink-light); }
+.dashboard-banner .btn-tiny {
+  color: rgba(245,237,224,.7); border-color: rgba(253,250,245,.22); margin-top: 0;
+}
+.dashboard-banner .btn-tiny:hover { background: rgba(253,250,245,.1); color: #F5EDE0; }
+
+/* Share button inside dark banner */
+.dashboard-banner .btn-share-ig {
+  background: rgba(181,136,62,.15);
+  border-color: rgba(181,136,62,.55);
+  color: #F5EDE0;
+}
+.dashboard-banner .btn-share-ig:hover { background: rgba(181,136,62,.30); opacity: 1; }
+
+/* ============================================================
+   ZONE 2 — ESPACE DE TRAVAIL (Chapitres)
+============================================================ */
+.workspace {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 20px 60px;
+  width: 100%;
+}
+
+/* ============================================================
+   GAUGE STYLES (communs à la bannière et à l'écran auth)
+============================================================ */
 .gauge-wrap { position: relative; width: 190px; height: 190px; }
 .gauge-svg  { width: 100%; height: 100%; transform: rotate(-90deg); }
 .gauge-track {
-  fill: none; stroke: var(--border-mid); stroke-width: 10;
-  stroke-linecap: round;
+  fill: none; stroke: var(--border-mid); stroke-width: 10; stroke-linecap: round;
 }
 .gauge-fill {
   fill: none; stroke: var(--ink); stroke-width: 10; stroke-linecap: round;
@@ -412,53 +503,17 @@ header {
 }
 .gauge-pct {
   font-family: var(--font-heading);
-  font-size: 2.6rem; font-weight: 800; line-height: 1;
-  color: var(--text);
+  font-size: 2.6rem; font-weight: 800; line-height: 1; color: var(--text);
 }
 .gauge-lbl { font-size: .68rem; color: var(--text-muted); margin-top: 4px; font-weight: 500; letter-spacing: .5px; text-transform: uppercase; }
 
 /* Milestone bar */
-.milestone-bar { width: 100%; display: flex; gap: 5px; }
+.milestone-bar { display: flex; gap: 5px; }
 .ms-pip { flex: 1; height: 5px; border-radius: 3px; background: var(--border); transition: background .6s; }
 .ms-pip.r25  { background: var(--rust); }
 .ms-pip.r50  { background: var(--gold); }
 .ms-pip.r75  { background: var(--ink); }
 .ms-pip.r100 { background: var(--success); }
-
-/* Start date meta */
-.gauge-meta { text-align: center; }
-.gauge-meta .meta-label { font-size: .7rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; }
-.gauge-meta .meta-val   { font-family: var(--font-heading); font-size: .92rem; font-weight: 600; margin-top: 3px; color: var(--text); }
-.btn-tiny {
-  margin-top: 6px; font-size: .7rem; padding: 3px 10px; border-radius: 6px;
-  background: transparent; color: var(--ink); border: 1px solid var(--border-mid);
-  cursor: pointer; font-family: var(--font-body); font-weight: 600;
-}
-.btn-tiny:hover { background: var(--ink-light); }
-
-/* ============================================================
-   INSTAGRAM SIDEBAR CARD
-============================================================ */
-.ig-sidebar-card {
-  background: var(--card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 22px 18px;
-  box-shadow: var(--shadow);
-  text-align: center;
-}
-.ig-sidebar-icon { font-size: 2rem; margin-bottom: 8px; }
-.ig-sidebar-handle {
-  font-family: var(--font-heading);
-  font-size: 1rem; font-weight: 700; font-style: italic;
-  color: var(--text); margin-bottom: 2px;
-}
-.ig-sidebar-sub { font-size: .77rem; color: var(--text-muted); margin-bottom: 14px; line-height: 1.5; }
-.ig-sidebar-sep { height: 1px; background: var(--border); margin: 14px 0; }
-.ig-sidebar-tagline {
-  font-size: .73rem; color: var(--text-muted); font-style: italic;
-  line-height: 1.4; margin-bottom: 12px;
-}
 
 /* ============================================================
    STATS GRID
@@ -739,24 +794,31 @@ footer {
 ::-webkit-scrollbar-thumb { background: var(--border-mid); border-radius: 3px; }
 
 /* ============================================================
-   RESPONSIVE — Tablet (≤ 960px)
+   RESPONSIVE — Tablet (≤ 900px)
 ============================================================ */
-@media (max-width: 960px) {
-  .app-layout { grid-template-columns: 220px 1fr; gap: 18px; }
+@media (max-width: 900px) {
+  .dashboard-inner { gap: 24px; }
+  .dashboard-banner .stats-grid { grid-template-columns: repeat(auto-fill, minmax(95px, 1fr)); }
+  .db-feat-val { font-size: 1.25rem; }
 }
 
 /* ============================================================
-   RESPONSIVE — Mobile (≤ 768px)
+   RESPONSIVE — Mobile (≤ 680px)
+   Le bandeau passe en colonne : jauge centrée → stats dessous
 ============================================================ */
-@media (max-width: 768px) {
-  /* Layout: stack columns */
-  .app-layout { grid-template-columns: 1fr; padding: 16px 14px 0; }
+@media (max-width: 680px) {
+  /* Dashboard banner : empiler jauge + stats */
+  .dashboard-banner { padding: 24px 16px 20px; }
+  .dashboard-inner  { flex-direction: column; gap: 20px; align-items: stretch; }
+  .db-gauge-col     { flex-direction: row; justify-content: center; align-items: center;
+                      gap: 20px; flex-wrap: wrap; }
+  .db-divider       { width: 100%; height: 1px; align-self: auto; }
+  .db-stats-col     { gap: 12px; }
+  .dashboard-banner .stats-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
 
-  /* Hide desktop sidebar on mobile (accessible via mobile menu) */
-  .left-col { display: none; }
-
-  /* Show mobile gauge card inside main col on mobile */
-  .mobile-gauge-wrap { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+  /* Smaller gauge on mobile */
+  .dashboard-banner .gauge-wrap { width: 150px; height: 150px; }
+  .dashboard-banner .gauge-pct  { font-size: 2rem; }
 
   /* Show hamburger, hide desktop action buttons */
   .hamburger-btn { display: flex; align-items: center; }
@@ -766,11 +828,11 @@ footer {
   header { padding: 11px 16px; gap: 8px; }
   .brand-name { font-size: 1rem; }
   #motivQuote { display: none; }
-  .ig-badge   { display: none; }    /* hidden in header on mobile — visible in mobile menu */
+  .ig-badge   { display: none; }
   .user-badge { display: none; }
 
-  /* Stats grid: 2 cols on mobile */
-  .stats-grid { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 18px; }
+  /* Workspace */
+  .workspace { padding: 20px 14px 40px; }
 
   /* Chapters: full width */
   .chapter-header { padding: 13px 14px; gap: 9px; }
@@ -778,30 +840,16 @@ footer {
   .ss-progress-row { flex-wrap: wrap; gap: 6px; }
   .prog-track { flex-basis: 100%; }
 
-  /* Mobile gauge (inside main col on small screens) */
-  .gauge-card-mobile {
-    display: flex; background: var(--card);
-    border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 18px; box-shadow: var(--shadow);
-    flex-direction: row; align-items: center; gap: 18px; margin-bottom: 18px;
-  }
-  .gauge-card-mobile .gauge-wrap { width: 120px; height: 120px; flex-shrink: 0; }
-  .gauge-card-mobile .gauge-pct { font-size: 1.8rem; }
-  .gauge-card-mobile .gauge-meta { text-align: left; }
-  .gauge-card-mobile .milestone-bar { width: 160px; }
-
   /* Footer */
   footer { padding: 24px 16px; }
   .footer-ig-link { font-size: .78rem; }
 }
 
 /* ============================================================
-   RESPONSIVE — Small Mobile (≤ 400px)
+   RESPONSIVE — Very small (≤ 400px)
 ============================================================ */
 @media (max-width: 400px) {
-  .stats-grid { grid-template-columns: 1fr; }
-  .gauge-card-mobile { flex-direction: column; }
-  .gauge-card-mobile .milestone-bar { width: 100%; }
+  .dashboard-banner .stats-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
 /* ============================================================
