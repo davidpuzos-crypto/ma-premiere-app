@@ -3,6 +3,7 @@ import {
   getAuth,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   GoogleAuthProvider,
   signInWithPopup,
   signOut,
@@ -85,10 +86,17 @@ function authErrorMsg(code) {
 function showAuthError(msg) {
   const el = document.getElementById('authError');
   el.textContent = msg;
+  el.classList.remove('auth-success');
   el.classList.add('show');
 }
+function showAuthSuccess(msg) {
+  const el = document.getElementById('authError');
+  el.textContent = msg;
+  el.classList.add('show', 'auth-success');
+}
 function clearAuthError() {
-  document.getElementById('authError').classList.remove('show');
+  const el = document.getElementById('authError');
+  el.classList.remove('show', 'auth-success');
 }
 function authBtnLabel() {
   return _authMode === 'signin' ? 'Se connecter' : 'Créer mon compte';
@@ -107,12 +115,35 @@ function switchAuthTab(mode) {
   document.getElementById('tabSignin').classList.toggle('active', mode === 'signin');
   document.getElementById('tabSignup').classList.toggle('active', mode === 'signup');
   document.getElementById('authSubmitBtn').textContent = authBtnLabel();
+  document.getElementById('forgotPasswordRow').style.display  = mode === 'signin' ? '' : 'none';
+  document.getElementById('confirmPasswordRow').style.display = mode === 'signup' ? '' : 'none';
+  if (mode === 'signup') document.getElementById('authPasswordConfirm').value = '';
   clearAuthError();
+}
+
+async function handleForgotPassword() {
+  const email = document.getElementById('authEmail').value.trim();
+  if (!email) {
+    showAuthError('Entrez votre adresse email pour recevoir le lien de réinitialisation.');
+    return;
+  }
+  clearAuthError();
+  try {
+    await sendPasswordResetEmail(auth, email);
+    showAuthSuccess('Email de réinitialisation envoyé ! Vérifiez votre boîte mail.');
+  } catch (e) {
+    showAuthError(authErrorMsg(e.code));
+  }
 }
 
 async function handleAuthSubmit() {
   const email    = document.getElementById('authEmail').value.trim();
   const password = document.getElementById('authPassword').value;
+  if (_authMode === 'signup') {
+    const confirm = document.getElementById('authPasswordConfirm').value;
+    if (!confirm) { showAuthError('Veuillez confirmer votre mot de passe.'); return; }
+    if (password !== confirm) { showAuthError('Les mots de passe ne correspondent pas.'); return; }
+  }
   if (!email || !password) { showAuthError('Veuillez remplir tous les champs.'); return; }
   clearAuthError();
   setAuthBtnLoading(true);
@@ -157,7 +188,10 @@ function showScreen(id) {
 }
 
 function populateAppHeader(user) {
-  document.getElementById('userEmail').textContent = user.displayName || user.email;
+  const name = user.displayName || user.email;
+  document.getElementById('userEmail').textContent = name;
+  const mob = document.getElementById('userEmailMobile');
+  if (mob) mob.textContent = name;
   document.getElementById('motivQuote').textContent = QUOTES[Math.floor(Math.random() * QUOTES.length)];
 }
 
@@ -270,16 +304,24 @@ function updateDashboard() {
   const vel       = (!state.startDate || written === 0) ? 0 : written / daysSince(state.startDate);
   const days      = state.startDate ? daysSince(state.startDate) : 0;
 
-  // Circular gauge
-  const CIRC = 502.65; // 2π × 80
-  document.getElementById('gaugeFill').style.strokeDashoffset = CIRC - (progress / 100) * CIRC;
+  // Circular gauge (desktop + mobile)
+  const CIRC   = 502.65; // 2π × 80
+  const offset = CIRC - (progress / 100) * CIRC;
+  document.getElementById('gaugeFill').style.strokeDashoffset = offset;
   setText('gaugePct', progress + '%');
+  const mob = document.getElementById('gaugeFillMobile');
+  if (mob) mob.style.strokeDashoffset = offset;
+  setText('gaugePctMobile', progress + '%');
+  setText('startDateDisplayMobile', state.startDate ? formatDateFr(state.startDate) : 'Non définie');
 
-  // Milestone pips
+  // Milestone pips (desktop + mobile)
   const pipClass = { 25: 'r25', 50: 'r50', 75: 'r75', 100: 'r100' };
   Object.entries(pipClass).forEach(([ms, cls]) => {
-    const el = document.getElementById('ms' + ms);
-    if (el) el.className = 'ms-pip' + (progress >= Number(ms) ? ' ' + cls : '');
+    const suffix = (progress >= Number(ms) ? ' ' + cls : '');
+    const el  = document.getElementById('ms'  + ms);
+    const elm = document.getElementById('ms'  + ms + 'm');
+    if (el)  el.className  = 'ms-pip' + suffix;
+    if (elm) elm.className = 'ms-pip' + suffix;
   });
 
   // Stats
@@ -716,13 +758,28 @@ function confirmReset() {
 }
 
 /* ============================================================
+   MOBILE MENU
+============================================================ */
+function toggleMobileMenu() {
+  const menu    = document.getElementById('mobileMenu');
+  const overlay = document.getElementById('mobileOverlay');
+  const btn     = document.querySelector('.hamburger-btn');
+  const isOpen  = menu.classList.contains('open');
+  menu.classList.toggle('open', !isOpen);
+  overlay.classList.toggle('show', !isOpen);
+  if (btn) btn.setAttribute('aria-expanded', String(!isOpen));
+}
+
+/* ============================================================
    EXPOSE FUNCTIONS TO WINDOW
    (required because <script type="module"> is scoped —
     onclick attributes in HTML need global function references)
 ============================================================ */
 Object.assign(window, {
   // Auth
-  switchAuthTab, handleAuthSubmit, googleSignIn, signOutUser,
+  switchAuthTab, handleAuthSubmit, handleForgotPassword, googleSignIn, signOutUser,
+  // Mobile nav
+  toggleMobileMenu,
   // Modals
   openModal, closeModal,
   // Start date
