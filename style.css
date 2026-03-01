@@ -34,6 +34,9 @@
   --success-light: #D8EDDF;
   --warning:       #C89B3C;
   --danger:        #C24B4B;
+  --danger-light:  #fef2f2;
+  --danger-border: #fecaca;
+  --danger-text:   #dc2626;
 
   /* Bordures & Ombres */
   --border:        #DDD0BB;
@@ -162,7 +165,7 @@ a { color: var(--ink); }
 .google-btn {
   width: 100%; padding: 11px;
   border: 1.5px solid var(--border); border-radius: var(--radius-sm);
-  background: #fff; display: flex; align-items: center; justify-content: center;
+  background: var(--card); display: flex; align-items: center; justify-content: center;
   gap: 10px; font-family: var(--font-body); font-size: .88rem;
   font-weight: 600; color: var(--text); cursor: pointer; transition: all .2s;
 }
@@ -170,8 +173,8 @@ a { color: var(--ink); }
 
 .auth-error {
   margin-top: 12px; padding: 10px 14px;
-  background: #fef2f2; border: 1px solid #fecaca;
-  border-radius: var(--radius-sm); color: #dc2626;
+  background: var(--danger-light); border: 1px solid var(--danger-border);
+  border-radius: var(--radius-sm); color: var(--danger-text);
   font-size: .82rem; font-weight: 500; display: none;
 }
 .auth-error.show { display: block; }
