@@ -11,6 +11,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,800;1,400;1,600&family=Source+Sans+3:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 
+  <!-- html2canvas : capture DOM en image PNG -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
+
   <link rel="stylesheet" href="style.css" />
 </head>
 <body class="app-wrapper">
@@ -158,6 +161,10 @@
         Suivre sur Instagram
       </a>
 
+      <button class="btn-share-ig" onclick="generateInstagramPost(); toggleMobileMenu()">
+        📸 Partager mon avancée
+      </button>
+
       <div class="mobile-menu-sep"></div>
 
       <button class="btn btn-neutral" onclick="exportData(); toggleMobileMenu()">⬇ Exporter mes données</button>
@@ -222,6 +229,10 @@
           <div class="meta-val" id="startDateDisplay">—</div>
           <button class="btn-tiny" onclick="openStartDateModal()">✏ Modifier</button>
         </div>
+
+        <button id="shareIgBtn" class="btn-share-ig" onclick="generateInstagramPost()">
+          📸 Partager mon avancée
+        </button>
       </div>
 
       <!-- Sidebar Instagram -->
@@ -419,6 +430,56 @@
 
 <!-- Toasts -->
 <div id="toastBox"></div>
+
+<!-- ============================================================
+     INSTAGRAM POST TEMPLATE — off-screen, capturé par html2canvas
+============================================================ -->
+<div id="igPostCard">
+  <div class="igp-bg">
+
+    <!-- En-tête de marque -->
+    <div class="igp-header">
+      <span class="igp-logo">📖</span>
+      <span class="igp-brand">Journal d'une Doctorante</span>
+    </div>
+
+    <!-- Jauge circulaire SVG -->
+    <div class="igp-gauge-wrap">
+      <svg class="igp-gauge-svg" viewBox="0 0 200 200" aria-hidden="true">
+        <circle class="igp-track" cx="100" cy="100" r="80"/>
+        <circle class="igp-fill"  id="igpFill" cx="100" cy="100" r="80"/>
+      </svg>
+      <div class="igp-center">
+        <div class="igp-pct" id="igpPct">0%</div>
+        <div class="igp-avancement">Avancement</div>
+      </div>
+    </div>
+
+    <!-- Accroche -->
+    <div class="igp-headline">J'avance dans ma thèse !</div>
+
+    <!-- Statistiques -->
+    <div class="igp-stats">
+      <div class="igp-stat">
+        <span class="igp-stat-num" id="igpWritten">0</span>
+        <span class="igp-stat-label">pages rédigées</span>
+      </div>
+      <div class="igp-stat-sep">·</div>
+      <div class="igp-stat">
+        <span class="igp-stat-num" id="igpRemaining">0</span>
+        <span class="igp-stat-label">pages restantes</span>
+      </div>
+    </div>
+
+    <!-- Message dynamique -->
+    <div class="igp-message" id="igpMessage">Plus que 0 pages !</div>
+
+    <!-- Séparateur + branding -->
+    <div class="igp-divider"></div>
+    <div class="igp-footer">Créé avec l'outil gratuit @JournalDuneDoctorante</div>
+
+  </div>
+</div>
 
 <script type="module" src="app.js"></script>
 </body>

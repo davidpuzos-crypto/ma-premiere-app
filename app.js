@@ -758,6 +758,66 @@ function confirmReset() {
 }
 
 /* ============================================================
+   INSTAGRAM POST GENERATOR
+   Injecte les données actuelles dans le modèle off-screen #igPostCard,
+   attend le chargement des polices, capture via html2canvas,
+   puis déclenche le téléchargement PNG.
+============================================================ */
+async function generateInstagramPost() {
+  const total     = totalPages();
+  const written   = writtenPages();
+  const remaining = Math.max(0, total - written);
+  const pct       = total === 0 ? 0 : Math.min(100, Math.round(written / total * 100));
+
+  // Injecter les données dans le modèle
+  document.getElementById('igpPct').textContent       = pct + '%';
+  document.getElementById('igpWritten').textContent   = written;
+  document.getElementById('igpRemaining').textContent = remaining;
+  document.getElementById('igpMessage').textContent   =
+    remaining > 0
+      ? `Plus que ${remaining} page${remaining > 1 ? 's' : ''} !`
+      : 'Thèse terminée ! 🎉';
+
+  // Mettre à jour la jauge SVG
+  const CIRC = 502.65; // 2π × r80 (cohérent avec la jauge principale)
+  document.getElementById('igpFill').style.strokeDashoffset = CIRC * (1 - pct / 100);
+
+  // Désactiver tous les boutons "Partager" pendant la génération
+  const btns = document.querySelectorAll('.btn-share-ig');
+  btns.forEach(b => { b.disabled = true; b.textContent = 'Génération…'; });
+
+  try {
+    // Attendre que toutes les polices Web (Playfair Display…) soient prêtes
+    await document.fonts.ready;
+    // Laisser le navigateur le temps de rendre le DOM mis à jour
+    await new Promise(r => setTimeout(r, 180));
+
+    const canvas = await window.html2canvas(document.getElementById('igPostCard'), {
+      width:           1080,
+      height:          1080,
+      scale:           1,
+      useCORS:         true,
+      allowTaint:      true,
+      backgroundColor: null,
+      logging:         false,
+    });
+
+    // Déclencher le téléchargement PNG
+    const a = Object.assign(document.createElement('a'), {
+      download: 'mon-avancement-these.png',
+      href:     canvas.toDataURL('image/png'),
+    });
+    a.click();
+    toast('📸 Image téléchargée ! Partagez-la sur Instagram.', 'success');
+  } catch (err) {
+    console.error('html2canvas error:', err);
+    toast('Erreur lors de la génération de l\'image.', '');
+  } finally {
+    btns.forEach(b => { b.disabled = false; b.textContent = '📸 Partager mon avancée'; });
+  }
+}
+
+/* ============================================================
    MOBILE MENU
 ============================================================ */
 function toggleMobileMenu() {
@@ -792,6 +852,8 @@ Object.assign(window, {
   updateWritten, updateTarget,
   // Data
   exportData, importData, confirmReset,
+  // Instagram post generator
+  generateInstagramPost,
 });
 
 /* ============================================================
