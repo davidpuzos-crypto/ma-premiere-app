@@ -157,7 +157,10 @@ function showScreen(id) {
 }
 
 function populateAppHeader(user) {
-  document.getElementById('userEmail').textContent = user.displayName || user.email;
+  const name = user.displayName || user.email;
+  document.getElementById('userEmail').textContent = name;
+  const mob = document.getElementById('userEmailMobile');
+  if (mob) mob.textContent = name;
   document.getElementById('motivQuote').textContent = QUOTES[Math.floor(Math.random() * QUOTES.length)];
 }
 
@@ -270,16 +273,24 @@ function updateDashboard() {
   const vel       = (!state.startDate || written === 0) ? 0 : written / daysSince(state.startDate);
   const days      = state.startDate ? daysSince(state.startDate) : 0;
 
-  // Circular gauge
-  const CIRC = 502.65; // 2π × 80
-  document.getElementById('gaugeFill').style.strokeDashoffset = CIRC - (progress / 100) * CIRC;
+  // Circular gauge (desktop + mobile)
+  const CIRC   = 502.65; // 2π × 80
+  const offset = CIRC - (progress / 100) * CIRC;
+  document.getElementById('gaugeFill').style.strokeDashoffset = offset;
   setText('gaugePct', progress + '%');
+  const mob = document.getElementById('gaugeFillMobile');
+  if (mob) mob.style.strokeDashoffset = offset;
+  setText('gaugePctMobile', progress + '%');
+  setText('startDateDisplayMobile', state.startDate ? formatDateFr(state.startDate) : 'Non définie');
 
-  // Milestone pips
+  // Milestone pips (desktop + mobile)
   const pipClass = { 25: 'r25', 50: 'r50', 75: 'r75', 100: 'r100' };
   Object.entries(pipClass).forEach(([ms, cls]) => {
-    const el = document.getElementById('ms' + ms);
-    if (el) el.className = 'ms-pip' + (progress >= Number(ms) ? ' ' + cls : '');
+    const suffix = (progress >= Number(ms) ? ' ' + cls : '');
+    const el  = document.getElementById('ms'  + ms);
+    const elm = document.getElementById('ms'  + ms + 'm');
+    if (el)  el.className  = 'ms-pip' + suffix;
+    if (elm) elm.className = 'ms-pip' + suffix;
   });
 
   // Stats
@@ -716,6 +727,19 @@ function confirmReset() {
 }
 
 /* ============================================================
+   MOBILE MENU
+============================================================ */
+function toggleMobileMenu() {
+  const menu    = document.getElementById('mobileMenu');
+  const overlay = document.getElementById('mobileOverlay');
+  const btn     = document.querySelector('.hamburger-btn');
+  const isOpen  = menu.classList.contains('open');
+  menu.classList.toggle('open', !isOpen);
+  overlay.classList.toggle('show', !isOpen);
+  if (btn) btn.setAttribute('aria-expanded', String(!isOpen));
+}
+
+/* ============================================================
    EXPOSE FUNCTIONS TO WINDOW
    (required because <script type="module"> is scoped —
     onclick attributes in HTML need global function references)
@@ -723,6 +747,8 @@ function confirmReset() {
 Object.assign(window, {
   // Auth
   switchAuthTab, handleAuthSubmit, googleSignIn, signOutUser,
+  // Mobile nav
+  toggleMobileMenu,
   // Modals
   openModal, closeModal,
   // Start date
