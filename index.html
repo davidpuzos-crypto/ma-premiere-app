@@ -58,6 +58,21 @@
                onkeydown="if(event.key==='Enter') handleAuthSubmit()" />
       </div>
 
+      <!-- Mot de passe oublié (connexion uniquement) -->
+      <div id="forgotPasswordRow">
+        <button type="button" class="forgot-link" onclick="handleForgotPassword()">
+          Mot de passe oublié ?
+        </button>
+      </div>
+
+      <!-- Confirmation du mot de passe (inscription uniquement) -->
+      <div class="form-group" id="confirmPasswordRow" style="display:none">
+        <label class="form-label" for="authPasswordConfirm">Confirmer le mot de passe</label>
+        <input type="password" id="authPasswordConfirm" class="form-control"
+               placeholder="••••••••"
+               onkeydown="if(event.key==='Enter') handleAuthSubmit()" />
+      </div>
+
       <button class="btn btn-primary" id="authSubmitBtn"
               style="width:100%;justify-content:center;"
               onclick="handleAuthSubmit()">

@@ -3,6 +3,7 @@ import {
   getAuth,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
+  sendPasswordResetEmail,
   GoogleAuthProvider,
   signInWithPopup,
   signOut,
@@ -85,10 +86,17 @@ function authErrorMsg(code) {
 function showAuthError(msg) {
   const el = document.getElementById('authError');
   el.textContent = msg;
+  el.classList.remove('auth-success');
   el.classList.add('show');
 }
+function showAuthSuccess(msg) {
+  const el = document.getElementById('authError');
+  el.textContent = msg;
+  el.classList.add('show', 'auth-success');
+}
 function clearAuthError() {
-  document.getElementById('authError').classList.remove('show');
+  const el = document.getElementById('authError');
+  el.classList.remove('show', 'auth-success');
 }
 function authBtnLabel() {
   return _authMode === 'signin' ? 'Se connecter' : 'Créer mon compte';
@@ -107,12 +115,35 @@ function switchAuthTab(mode) {
   document.getElementById('tabSignin').classList.toggle('active', mode === 'signin');
   document.getElementById('tabSignup').classList.toggle('active', mode === 'signup');
   document.getElementById('authSubmitBtn').textContent = authBtnLabel();
+  document.getElementById('forgotPasswordRow').style.display  = mode === 'signin' ? '' : 'none';
+  document.getElementById('confirmPasswordRow').style.display = mode === 'signup' ? '' : 'none';
+  if (mode === 'signup') document.getElementById('authPasswordConfirm').value = '';
   clearAuthError();
+}
+
+async function handleForgotPassword() {
+  const email = document.getElementById('authEmail').value.trim();
+  if (!email) {
+    showAuthError('Entrez votre adresse email pour recevoir le lien de réinitialisation.');
+    return;
+  }
+  clearAuthError();
+  try {
+    await sendPasswordResetEmail(auth, email);
+    showAuthSuccess('Email de réinitialisation envoyé ! Vérifiez votre boîte mail.');
+  } catch (e) {
+    showAuthError(authErrorMsg(e.code));
+  }
 }
 
 async function handleAuthSubmit() {
   const email    = document.getElementById('authEmail').value.trim();
   const password = document.getElementById('authPassword').value;
+  if (_authMode === 'signup') {
+    const confirm = document.getElementById('authPasswordConfirm').value;
+    if (!confirm) { showAuthError('Veuillez confirmer votre mot de passe.'); return; }
+    if (password !== confirm) { showAuthError('Les mots de passe ne correspondent pas.'); return; }
+  }
   if (!email || !password) { showAuthError('Veuillez remplir tous les champs.'); return; }
   clearAuthError();
   setAuthBtnLoading(true);
@@ -746,7 +777,7 @@ function toggleMobileMenu() {
 ============================================================ */
 Object.assign(window, {
   // Auth
-  switchAuthTab, handleAuthSubmit, googleSignIn, signOutUser,
+  switchAuthTab, handleAuthSubmit, handleForgotPassword, googleSignIn, signOutUser,
   // Mobile nav
   toggleMobileMenu,
   // Modals
