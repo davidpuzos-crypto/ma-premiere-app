@@ -280,14 +280,25 @@ function addDaysToNow(days) {
 /* ============================================================
    CALCULATIONS
 ============================================================ */
-const totalPages   = () => state.chapters.reduce((s, ch) => s + ch.subsections.reduce((a, ss) => a + (ss.targetPages  || 0), 0), 0);
-const writtenPages = () => state.chapters.reduce((s, ch) => s + ch.subsections.reduce((a, ss) => a + (ss.writtenPages || 0), 0), 0);
+const totalPages   = () => state.chapters.reduce((s, ch) =>
+  ch.subsections.length === 0
+    ? s + (ch.targetPages  || 0)
+    : s + ch.subsections.reduce((a, ss) => a + (ss.targetPages  || 0), 0), 0);
+const writtenPages = () => state.chapters.reduce((s, ch) =>
+  ch.subsections.length === 0
+    ? s + (ch.writtenPages || 0)
+    : s + ch.subsections.reduce((a, ss) => a + (ss.writtenPages || 0), 0), 0);
 
 function ssProgress(ss) {
   return ss.targetPages > 0 ? Math.min(100, Math.round((ss.writtenPages / ss.targetPages) * 100)) : 0;
 }
 
 function chapterStats(ch) {
+  if (ch.subsections.length === 0) {
+    const tP = ch.targetPages  || 0;
+    const wP = ch.writtenPages || 0;
+    return { tP, wP, prog: tP === 0 ? 0 : Math.min(100, Math.round((wP / tP) * 100)) };
+  }
   const tP = ch.subsections.reduce((s, ss) => s + (ss.targetPages  || 0), 0);
   const wP = ch.subsections.reduce((s, ss) => s + (ss.writtenPages || 0), 0);
   return { tP, wP, prog: tP === 0 ? 0 : Math.min(100, Math.round((wP / tP) * 100)) };
@@ -441,6 +452,7 @@ function toast(msg, type) {
 function render() {
   renderChapters();
   updateDashboard();
+  initSortable(); // must come after renderChapters() so DOM elements exist
 }
 
 function renderChapters() {
@@ -456,18 +468,40 @@ function renderChapters() {
       </div>`;
     return;
   }
-  c.innerHTML = state.chapters.map((ch, i) => buildChapterHTML(ch, i)).join('');
+  c.innerHTML = state.chapters.map(ch => buildChapterHTML(ch)).join('');
 }
 
-function buildChapterHTML(ch, idx) {
+function buildChapterHTML(ch) {
   const { tP, wP, prog } = chapterStats(ch);
-  const isDone = prog >= 100;
-  const isExp  = ch.expanded !== false;
+  const isDone  = prog >= 100;
+  const isExp   = ch.expanded !== false;
+  const hasS    = ch.subsections.length > 0;
+  const stats   = hasS
+    ? `${wP} / ${tP} pages &mdash; ${prog}%&nbsp;&middot;&nbsp;${ch.subsections.length} sous-section${ch.subsections.length !== 1 ? 's' : ''}`
+    : `${wP} / ${tP} pages &mdash; ${prog}%`;
+  const body = hasS
+    ? `<div class="ss-list" id="ssl-${ch.id}">${ch.subsections.map(ss => buildSsHTML(ss, ch.id)).join('')}</div>`
+    : `<div class="ch-direct-pages">
+        <div class="ss-progress-row">
+          <div class="prog-track">
+            <div class="prog-fill${isDone ? ' done' : ''}" id="chbar-${ch.id}" style="width:${prog}%"></div>
+          </div>
+          <div class="pages-row">
+            <input type="number" class="pages-input" value="${ch.writtenPages || 0}" min="0"
+                   oninput="updateChWritten('${ch.id}',this.value)" title="Pages rédigées" />
+            <span>/</span>
+            <input type="number" class="pages-input" value="${ch.targetPages || 0}" min="1"
+                   oninput="updateChTarget('${ch.id}',this.value)" title="Objectif" />
+            <span>p.</span>
+          </div>
+          <div class="prog-pct${isDone ? ' done' : ''}" id="chpct-${ch.id}">${prog}%</div>
+        </div>
+      </div>`;
   return `
 <div class="chapter-card${isDone ? ' completed' : ''}${isExp ? ' expanded' : ''}" id="ch-${ch.id}">
   <div class="chapter-header" onclick="toggleChapter('${ch.id}')">
+    <span class="ch-drag-handle" onclick="event.stopPropagation()" title="Déplacer">⋮⋮</span>
     <span class="ch-arrow">▶</span>
-    <span class="ch-num">Ch.&nbsp;${idx + 1}</span>
     <div class="ch-info">
       <div class="ch-title-row">
         <div class="ch-title" style="flex:1;min-width:0;">
@@ -482,14 +516,14 @@ function buildChapterHTML(ch, idx) {
       <div class="ch-progress-bar">
         <div class="ch-progress-fill${isDone ? ' done' : ''}" style="width:${prog}%"></div>
       </div>
-      <div class="ch-stats">${wP} / ${tP} pages &mdash; ${prog}%&nbsp;&middot;&nbsp;${ch.subsections.length} sous-section${ch.subsections.length !== 1 ? 's' : ''}</div>
+      <div class="ch-stats">${stats}</div>
     </div>
     <div class="ch-actions" onclick="event.stopPropagation()">
       <button class="btn btn-icon btn-danger-soft" title="Supprimer" onclick="deleteChapter('${ch.id}')">🗑</button>
     </div>
   </div>
   <div class="chapter-body">
-    ${ch.subsections.map(ss => buildSsHTML(ss, ch.id)).join('')}
+    ${body}
     <button class="add-ss-btn" onclick="openAddSsModal('${ch.id}')">＋ Ajouter une sous-section</button>
   </div>
 </div>`;
@@ -501,6 +535,7 @@ function buildSsHTML(ss, chId) {
   return `
 <div class="subsection" id="ss-${ss.id}">
   <div class="ss-header">
+    <span class="ss-drag-handle" title="Déplacer">⋮⋮</span>
     <div class="ss-dot${isDone ? ' done' : ''}"></div>
     <div class="ss-title">
       <input class="editable" value="${esc(ss.title)}"
@@ -660,8 +695,17 @@ function _refreshChCard(ch) {
   card.classList.toggle('completed', isDone);
   const fill = card.querySelector('.ch-progress-fill');
   if (fill) { fill.style.width = prog + '%'; fill.className = 'ch-progress-fill' + (isDone ? ' done' : ''); }
-  const stats = card.querySelector('.ch-stats');
-  if (stats) stats.textContent = `${wP} / ${tP} pages — ${prog}% · ${ch.subsections.length} sous-section${ch.subsections.length !== 1 ? 's' : ''}`;
+  const statsEl = card.querySelector('.ch-stats');
+  if (statsEl) {
+    statsEl.textContent = ch.subsections.length === 0
+      ? `${wP} / ${tP} pages — ${prog}%`
+      : `${wP} / ${tP} pages — ${prog}% · ${ch.subsections.length} sous-section${ch.subsections.length !== 1 ? 's' : ''}`;
+  }
+  // Direct-page body bar (leaf chapters only)
+  const chBar = document.getElementById('chbar-' + ch.id);
+  const chPct = document.getElementById('chpct-' + ch.id);
+  if (chBar) { chBar.style.width = prog + '%'; chBar.className = 'prog-fill' + (isDone ? ' done' : ''); }
+  if (chPct) { chPct.textContent = prog + '%'; chPct.className = 'prog-pct' + (isDone ? ' done' : ''); }
   const row = card.querySelector('.ch-title-row');
   if (row) {
     let badge = row.querySelector('.badge-done');
@@ -758,6 +802,70 @@ function confirmReset() {
 }
 
 /* ============================================================
+   LEAF-CHAPTER LIVE UPDATES (chapter with no subsections)
+============================================================ */
+function updateChWritten(chId, rawVal) {
+  const ch = state.chapters.find(c => c.id === chId);
+  if (!ch || ch.subsections.length > 0) return;
+  ch.writtenPages = Math.max(0, parseInt(rawVal, 10) || 0);
+  _refreshChCard(ch);
+  saveDebounced();
+  updateDashboard();
+}
+
+function updateChTarget(chId, rawVal) {
+  const ch = state.chapters.find(c => c.id === chId);
+  if (!ch || ch.subsections.length > 0) return;
+  ch.targetPages = Math.max(1, parseInt(rawVal, 10) || 1);
+  _refreshChCard(ch);
+  saveDebounced();
+  updateDashboard();
+}
+
+/* ============================================================
+   DRAG & DROP — SortableJS
+   Initialisé après chaque render() pour recréer les instances
+   sur le nouveau DOM.
+============================================================ */
+function initSortable() {
+  if (!window.Sortable) return;
+  const container = document.getElementById('chaptersContainer');
+  if (!container || container.querySelector('.empty-state')) return;
+
+  // Chapters drag-and-drop
+  new Sortable(container, {
+    animation:  150,
+    handle:     '.ch-drag-handle',
+    ghostClass: 'sortable-ghost',
+    dragClass:  'sortable-drag',
+    onEnd(evt) {
+      if (evt.oldIndex === evt.newIndex) return;
+      const moved = state.chapters.splice(evt.oldIndex, 1)[0];
+      state.chapters.splice(evt.newIndex, 0, moved);
+      saveDebounced();
+    },
+  });
+
+  // Subsections drag-and-drop (one instance per chapter)
+  state.chapters.forEach(ch => {
+    const list = document.getElementById('ssl-' + ch.id);
+    if (!list) return;
+    new Sortable(list, {
+      animation:  150,
+      handle:     '.ss-drag-handle',
+      ghostClass: 'sortable-ghost',
+      dragClass:  'sortable-drag',
+      onEnd(evt) {
+        if (evt.oldIndex === evt.newIndex) return;
+        const moved = ch.subsections.splice(evt.oldIndex, 1)[0];
+        ch.subsections.splice(evt.newIndex, 0, moved);
+        saveDebounced();
+      },
+    });
+  });
+}
+
+/* ============================================================
    INSTAGRAM POST GENERATOR
    Injecte les données actuelles dans le modèle off-screen #igPostCard,
    attend le chargement des polices, capture via html2canvas,
@@ -849,7 +957,7 @@ Object.assign(window, {
   // Subsections
   openAddSsModal, saveSubsection, deleteSs, updateSsTitle,
   // Live updates
-  updateWritten, updateTarget,
+  updateWritten, updateTarget, updateChWritten, updateChTarget,
   // Data
   exportData, importData, confirmReset,
   // Instagram post generator

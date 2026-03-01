@@ -530,11 +530,27 @@ header {
 .ch-arrow { font-size: .72rem; color: var(--text-muted); transition: transform .28s; flex-shrink: 0; }
 .chapter-card.expanded .ch-arrow { transform: rotate(90deg); }
 
-.ch-num {
-  font-size: .68rem; font-weight: 700; color: var(--ink);
-  background: var(--ink-light); border-radius: 6px;
-  padding: 3px 7px; white-space: nowrap;
+/* Drag handles */
+.ch-drag-handle,
+.ss-drag-handle {
+  font-size: .8rem; letter-spacing: -2px;
+  color: var(--text-muted); opacity: .4;
+  cursor: grab; flex-shrink: 0;
+  user-select: none; padding: 0 2px;
+  transition: opacity .15s;
 }
+.ch-drag-handle:hover,
+.ss-drag-handle:hover { opacity: .85; }
+.ch-drag-handle:active,
+.ss-drag-handle:active { cursor: grabbing; }
+
+/* SortableJS visual feedback */
+.sortable-ghost { opacity: .28; background: var(--ink-light) !important; border-color: var(--ink) !important; }
+.sortable-drag  { box-shadow: var(--shadow-lg) !important; }
+
+/* Direct page inputs on leaf chapters (no subsections) */
+.ch-direct-pages { padding: 8px 0 4px; }
+
 .ch-info { flex: 1; min-width: 0; }
 .ch-title-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
