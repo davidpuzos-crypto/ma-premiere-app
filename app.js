@@ -869,12 +869,21 @@ function initSortable() {
   const container = document.getElementById('chaptersContainer');
   if (!container || container.querySelector('.empty-state')) return;
 
+  // Options communes — réactivité tactile optimisée
+  const sortableOpts = {
+    animation:           150,
+    ghostClass:          'sortable-ghost',
+    dragClass:           'sortable-drag',
+    delay:               0,              // réponse immédiate
+    fallbackTolerance:   3,              // évite les drags accidentels (3 px)
+    touchStartThreshold: 3,              // idem côté touch events
+    swapThreshold:       0.65,           // zone de drop plus large (65 % de l'élément)
+  };
+
   // Chapters drag-and-drop
   new Sortable(container, {
-    animation:  150,
-    handle:     '.ch-drag-handle',
-    ghostClass: 'sortable-ghost',
-    dragClass:  'sortable-drag',
+    ...sortableOpts,
+    handle: '.ch-drag-handle',
     onEnd(evt) {
       if (evt.oldIndex === evt.newIndex) return;
       const moved = state.chapters.splice(evt.oldIndex, 1)[0];
@@ -888,10 +897,8 @@ function initSortable() {
     const list = document.getElementById('ssl-' + ch.id);
     if (!list) return;
     new Sortable(list, {
-      animation:  150,
-      handle:     '.ss-drag-handle',
-      ghostClass: 'sortable-ghost',
-      dragClass:  'sortable-drag',
+      ...sortableOpts,
+      handle: '.ss-drag-handle',
       onEnd(evt) {
         if (evt.oldIndex === evt.newIndex) return;
         const moved = ch.subsections.splice(evt.oldIndex, 1)[0];

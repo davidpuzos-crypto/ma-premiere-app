@@ -613,23 +613,41 @@ header {
 .ch-arrow { font-size: .72rem; color: var(--text-muted); transition: transform .28s; flex-shrink: 0; }
 .chapter-card.expanded .ch-arrow { transform: rotate(90deg); }
 
-/* Drag handles */
+/* Drag handles — zone de toucher élargie pour mobile */
 .ch-drag-handle,
 .ss-drag-handle {
-  font-size: .8rem; letter-spacing: -2px;
-  color: var(--text-muted); opacity: .4;
+  font-size: .95rem; letter-spacing: -1.5px;
+  color: var(--text-muted); opacity: .45;
   cursor: grab; flex-shrink: 0;
-  user-select: none; padding: 0 2px;
-  transition: opacity .15s;
+  user-select: none;
+  /* Padding généreux : zone de toucher ~44×44 px recommandée mobile */
+  padding: 12px 10px;
+  /* Évite que le navigateur interprète le début du drag comme un scroll */
+  touch-action: none;
+  transition: opacity .15s, color .15s;
 }
 .ch-drag-handle:hover,
-.ss-drag-handle:hover { opacity: .85; }
+.ss-drag-handle:hover { opacity: 1; color: var(--ink); }
 .ch-drag-handle:active,
-.ss-drag-handle:active { cursor: grabbing; }
+.ss-drag-handle:active { cursor: grabbing; opacity: 1; color: var(--ink); }
 
-/* SortableJS visual feedback */
-.sortable-ghost { opacity: .28; background: var(--ink-light) !important; border-color: var(--ink) !important; }
-.sortable-drag  { box-shadow: var(--shadow-lg) !important; }
+/* SortableJS — fantôme (placeholder laissé dans la liste) */
+.sortable-ghost {
+  opacity: .22;
+  background: var(--ink-light) !important;
+  border: 2px dashed var(--ink) !important;
+  border-radius: var(--radius) !important;
+}
+
+/* SortableJS — élément en cours de déplacement (tenu en main) */
+.sortable-drag {
+  opacity: .93 !important;
+  transform: scale(1.025) rotate(.5deg) !important;
+  box-shadow: 0 12px 32px rgba(0,0,0,.18), 0 3px 8px rgba(0,0,0,.12) !important;
+  cursor: grabbing !important;
+  border-color: var(--ink) !important;
+  z-index: 9999 !important;
+}
 
 /* Direct page inputs on leaf chapters (no subsections) */
 .ch-direct-pages { padding: 8px 0 4px; }
