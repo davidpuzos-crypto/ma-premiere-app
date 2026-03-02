@@ -1210,6 +1210,61 @@ function toggleMobileMenu() {
    (required because <script type="module"> is scoped —
     onclick attributes in HTML need global function references)
 ============================================================ */
+/* ============================================================
+   PWA — INSTALLATION
+   - Android/Desktop : intercepte beforeinstallprompt, stocke l'event,
+     affiche le bouton ; au clic → .prompt()
+   - iOS Safari      : détecte userAgent + standalone absent → affiche
+     le bouton ; au clic → ouvre la modale d'instructions
+   - appinstalled    : cache définitivement les boutons une fois installé
+============================================================ */
+let _deferredInstallPrompt = null;
+
+function _showInstallButtons() {
+  document.getElementById('btnInstallDesktop')?.classList.remove('hidden');
+  document.getElementById('btnInstallMobile')?.classList.remove('hidden');
+}
+
+function _hideInstallButtons() {
+  document.getElementById('btnInstallDesktop')?.classList.add('hidden');
+  document.getElementById('btnInstallMobile')?.classList.add('hidden');
+}
+
+function installApp() {
+  if (_deferredInstallPrompt) {
+    // Android / Chrome / Edge — déclenche la bannière native
+    _deferredInstallPrompt.prompt();
+    _deferredInstallPrompt.userChoice.then(result => {
+      if (result.outcome === 'accepted') _hideInstallButtons();
+      _deferredInstallPrompt = null;
+    });
+  } else {
+    // iOS Safari — ouvre la modale d'instructions manuelles
+    openModal('iosInstallModal');
+  }
+}
+
+// Android / Desktop : intercepte l'événement d'installation du navigateur
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  _deferredInstallPrompt = e;
+  _showInstallButtons();
+});
+
+// Masque les boutons une fois l'app installée
+window.addEventListener('appinstalled', () => {
+  _hideInstallButtons();
+  _deferredInstallPrompt = null;
+});
+
+// iOS : affiche le bouton si on est sur iOS Safari hors mode standalone
+const _isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+const _isStandalone = window.navigator.standalone === true
+  || window.matchMedia('(display-mode: standalone)').matches;
+if (_isIOS && !_isStandalone) {
+  _showInstallButtons();
+}
+
 Object.assign(window, {
   // Auth
   switchAuthTab, handleAuthSubmit, handleForgotPassword, googleSignIn, signOutUser,
@@ -1233,6 +1288,8 @@ Object.assign(window, {
   exportData, importData, confirmReset,
   // Instagram post generator
   generateInstagramPost,
+  // PWA install
+  installApp,
 });
 
 /* ============================================================

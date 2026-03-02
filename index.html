@@ -19,21 +19,26 @@
   <!-- SEO -->
   <meta name="description" content="Le Journal de Bord : l'outil pour structurer et suivre l'avancement de votre rédaction (Thèse, Mémoire, Livre). Fixez vos objectifs de pages et restez motivé !" />
   <meta name="keywords" content="thèse, mémoire, rédaction, suivi de rédaction, productivité étudiante, doctorat, master, plan de thèse, écriture" />
+  <meta name="robots" content="index, follow" />
+  <meta name="author" content="Le Journal de Bord" />
   <!-- Open Graph -->
   <meta property="og:title"       content="Le Journal de Bord" />
   <meta property="og:description" content="Structurez et suivez l'avancement de votre rédaction : thèse, mémoire, livre. Objectifs de pages, jauge de progression et plans types académiques." />
   <meta property="og:type"        content="website" />
   <meta property="og:site_name"   content="Le Journal de Bord" />
+  <meta property="og:url"         content="https://lejournaldebord.org/" />
+  <meta property="og:image"       content="https://lejournaldebord.org/icon-512.png" />
+  <link rel="canonical"           href="https://lejournaldebord.org/" />
 
   <!-- Google Fonts : Playfair Display (titres sérif) + Source Sans 3 (corps) -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,800;1,400;1,600&family=Source+Sans+3:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,800;1,400;1,600&family=Source+Sans+3:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 
   <!-- html2canvas : capture DOM en image PNG -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
   <!-- SortableJS : glisser-déposer chapitres & sous-sections -->
-  <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js" defer></script>
 
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -72,6 +77,7 @@
         <label class="form-label" for="authEmail">Adresse email</label>
         <input type="email" id="authEmail" class="form-control"
                placeholder="votre@email.com"
+               autocomplete="email"
                onkeydown="if(event.key==='Enter') handleAuthSubmit()" />
       </div>
 
@@ -79,6 +85,7 @@
         <label class="form-label" for="authPassword">Mot de passe</label>
         <input type="password" id="authPassword" class="form-control"
                placeholder="••••••••"
+               autocomplete="current-password"
                onkeydown="if(event.key==='Enter') handleAuthSubmit()" />
       </div>
 
@@ -94,6 +101,7 @@
         <label class="form-label" for="authPasswordConfirm">Confirmer le mot de passe</label>
         <input type="password" id="authPasswordConfirm" class="form-control"
                placeholder="••••••••"
+               autocomplete="new-password"
                onkeydown="if(event.key==='Enter') handleAuthSubmit()" />
       </div>
 
@@ -156,6 +164,11 @@
       <button class="btn btn-reset btn-sm desktop-only" onclick="confirmReset()" title="Effacer">🗑 Reset</button>
       <button class="btn btn-signout btn-sm desktop-only" onclick="signOutUser()">⏻ Déconnecter</button>
 
+      <!-- PWA install — desktop (caché jusqu'à ce que le navigateur signale l'installabilité) -->
+      <button id="btnInstallDesktop" class="btn btn-magic btn-sm desktop-only hidden" onclick="installApp()">
+        📱 Installer l'app
+      </button>
+
       <!-- Hamburger — mobile only -->
       <button class="hamburger-btn mobile-only" onclick="toggleMobileMenu()"
               aria-label="Menu" aria-expanded="false">☰</button>
@@ -183,6 +196,11 @@
 
       <button class="btn-share-ig" onclick="generateInstagramPost(); toggleMobileMenu()">
         📸 Partager mon avancée
+      </button>
+
+      <!-- PWA install — mobile (caché jusqu'à ce que le navigateur signale l'installabilité) -->
+      <button id="btnInstallMobile" class="btn-install-mobile hidden" onclick="installApp(); toggleMobileMenu()">
+        📱 Installer l'app
       </button>
 
       <div class="mobile-menu-sep"></div>
@@ -377,7 +395,7 @@
         </svg>
         Suivre @journal.dune.doctorante
       </a>
-      <p class="footer-note">Données sauvegardées en toute sécurité avec Firebase · © 2025</p>
+      <p class="footer-note">Données sauvegardées en toute sécurité avec Firebase · © 2026</p>
     </div>
   </footer>
 
@@ -449,10 +467,28 @@
 <!-- Toasts -->
 <div id="toastBox"></div>
 
+<!-- Modale installation iOS — instructions Add to Home Screen -->
+<div class="modal-overlay hidden" id="iosInstallModal">
+  <div class="modal">
+    <div class="modal-emoji">📱</div>
+    <h2>Installer l'application</h2>
+    <p class="modal-sub">
+      Sur <strong>iPhone / iPad</strong>, Safari ne propose pas de bannière d'installation automatique.<br><br>
+      Voici comment l'ajouter à votre écran d'accueil en 3 secondes :<br><br>
+      <span class="ios-step">1.</span> Touchez l'icône <strong>Partager</strong> ⬆ en bas de votre écran.<br>
+      <span class="ios-step">2.</span> Faites défiler et appuyez sur <strong>« Sur l'écran d'accueil »</strong>.<br>
+      <span class="ios-step">3.</span> Confirmez en tapant <strong>« Ajouter »</strong> en haut à droite.
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="closeModal('iosInstallModal')">Compris ! 👍</button>
+    </div>
+  </div>
+</div>
+
 <!-- ============================================================
      INSTAGRAM POST TEMPLATE — off-screen, capturé par html2canvas
 ============================================================ -->
-<div id="igPostCard">
+<div id="igPostCard" aria-hidden="true">
   <div class="igp-bg">
 
     <!-- En-tête de marque -->
