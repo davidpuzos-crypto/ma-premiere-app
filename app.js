@@ -1221,13 +1221,12 @@ function toggleMobileMenu() {
 let _deferredInstallPrompt = null;
 
 function _showInstallButtons() {
-  document.getElementById('btnInstallDesktop')?.classList.remove('hidden');
   document.getElementById('btnInstallMobile')?.classList.remove('hidden');
 }
 
 function _hideInstallButtons() {
-  document.getElementById('btnInstallDesktop')?.classList.add('hidden');
   document.getElementById('btnInstallMobile')?.classList.add('hidden');
+  document.getElementById('iosInstallBanner')?.classList.add('hidden');
 }
 
 function installApp() {
@@ -1257,12 +1256,23 @@ window.addEventListener('appinstalled', () => {
   _deferredInstallPrompt = null;
 });
 
-// iOS : affiche le bouton si on est sur iOS Safari hors mode standalone
-const _isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+// iOS : affiche le bouton + la bannière si on est sur iOS/iPadOS hors mode standalone
+// (iPadOS 13+ signale "Macintosh" dans userAgent — on se base aussi sur maxTouchPoints)
+const _isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const _isStandalone = window.navigator.standalone === true
   || window.matchMedia('(display-mode: standalone)').matches;
+
+function dismissIOSBanner() {
+  localStorage.setItem('iosInstallBannerDismissed', '1');
+  document.getElementById('iosInstallBanner')?.classList.add('hidden');
+}
+
 if (_isIOS && !_isStandalone) {
   _showInstallButtons();
+  if (!localStorage.getItem('iosInstallBannerDismissed')) {
+    document.getElementById('iosInstallBanner')?.classList.remove('hidden');
+  }
 }
 
 Object.assign(window, {
@@ -1289,7 +1299,7 @@ Object.assign(window, {
   // Instagram post generator
   generateInstagramPost,
   // PWA install
-  installApp,
+  installApp, dismissIOSBanner,
 });
 
 /* ============================================================
