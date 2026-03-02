@@ -74,6 +74,56 @@ const QUOTES = [
 ];
 
 /* ============================================================
+   PLAN TEMPLATES
+============================================================ */
+const PLAN_TEMPLATES = [
+  {
+    name: 'Thèse Classique SHS',
+    chapters: [
+      { title: 'Introduction Générale',                     targetPages: 15  },
+      { title: 'Revue de la littérature / État de l\'art',  targetPages: 60  },
+      { title: 'Cadre théorique et conceptuel',             targetPages: 50  },
+      { title: 'Méthodologie et terrain',                   targetPages: 40  },
+      { title: 'Analyse et Résultats',                      targetPages: 100 },
+      { title: 'Discussion',                                targetPages: 25  },
+      { title: 'Conclusion Générale',                       targetPages: 10  },
+    ],
+  },
+  {
+    name: 'Thèse IMRAD',
+    chapters: [
+      { title: 'Introduction : Contexte et Objectifs', targetPages: 15 },
+      { title: 'Matériel et Méthodes',                 targetPages: 30 },
+      { title: 'Résultats',                            targetPages: 50 },
+      { title: 'Discussion',                           targetPages: 45 },
+      { title: 'Conclusion',                           targetPages: 10 },
+    ],
+  },
+  {
+    name: 'Thèse par articles',
+    chapters: [
+      { title: 'Introduction Générale de synthèse', targetPages: 20 },
+      { title: 'Article 1',                         targetPages: 20 },
+      { title: 'Article 2',                         targetPages: 20 },
+      { title: 'Article 3',                         targetPages: 20 },
+      { title: 'Discussion Générale',               targetPages: 30 },
+      { title: 'Conclusion Générale',               targetPages: 10 },
+    ],
+  },
+  {
+    name: 'Mémoire de Master',
+    chapters: [
+      { title: 'Introduction et Problématique',              targetPages: 5  },
+      { title: 'Cadre théorique et Revue de littérature',    targetPages: 25 },
+      { title: 'Démarche méthodologique',                    targetPages: 15 },
+      { title: 'Présentation et analyse des résultats',      targetPages: 35 },
+      { title: 'Préconisations / Discussion',                targetPages: 5  },
+      { title: 'Conclusion',                                 targetPages: 5  },
+    ],
+  },
+];
+
+/* ============================================================
    STATE
 ============================================================ */
 function defaultState() {
@@ -860,6 +910,48 @@ function updateDocumentTitle(val) {
 }
 
 /* ============================================================
+   PLAN TEMPLATES — DROPDOWN & APPLICATION
+============================================================ */
+function toggleTemplateMenu() {
+  const menu = document.getElementById('templateMenu');
+  if (menu) menu.classList.toggle('hidden');
+}
+
+function applyTemplate(idx) {
+  const tpl = PLAN_TEMPLATES[idx];
+  if (!tpl) return;
+  // Close dropdown immediately
+  document.getElementById('templateMenu').classList.add('hidden');
+  const n = tpl.chapters.length;
+  const total = tpl.chapters.reduce((s, c) => s + c.targetPages, 0);
+  if (!confirm(
+    `Ajouter le plan "${tpl.name}" à votre projet ?\n\n` +
+    `${n} chapitres · ${total} pages objectif\n\n` +
+    `Les chapitres seront ajoutés à la fin de votre liste existante.`
+  )) return;
+  const newChapters = tpl.chapters.map(ch => ({
+    id:           uid(),
+    title:        ch.title,
+    targetPages:  ch.targetPages,
+    writtenPages: 0,
+    expanded:     false,
+    subsections:  [],
+  }));
+  state.chapters.push(...newChapters);
+  saveNow();
+  render();
+  toast(`✅ "${tpl.name}" — ${n} chapitres ajoutés !`, 'success');
+}
+
+// Ferme le dropdown si on clique en dehors
+document.addEventListener('click', e => {
+  if (!e.target.closest('.template-wrap')) {
+    const menu = document.getElementById('templateMenu');
+    if (menu && !menu.classList.contains('hidden')) menu.classList.add('hidden');
+  }
+});
+
+/* ============================================================
    DRAG & DROP — SortableJS
    Initialisé après chaque render() pour recréer les instances
    sur le nouveau DOM.
@@ -1004,6 +1096,8 @@ Object.assign(window, {
   updateWritten, updateTarget, updateChWritten, updateChTarget,
   // Document title
   updateDocumentTitle,
+  // Plan templates
+  toggleTemplateMenu, applyTemplate,
   // Data
   exportData, importData, confirmReset,
   // Instagram post generator

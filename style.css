@@ -587,6 +587,66 @@ header {
   font-size: 1.2rem; font-weight: 700; font-style: italic; color: var(--text);
 }
 
+/* Groupe de boutons à droite du titre de document */
+.section-actions {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+}
+
+/* Bouton secondaire "outline" */
+.btn-outline {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 7px 13px;
+  font-family: var(--font-body); font-size: .82rem; font-weight: 600;
+  color: var(--ink);
+  background: transparent;
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s, color .15s;
+}
+.btn-outline:hover { background: var(--ink-light); }
+
+/* Dropdown modèles de plan */
+.template-wrap { position: relative; }
+
+.template-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 270px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  z-index: 200;
+  overflow: hidden;
+}
+
+.template-menu-label {
+  padding: 8px 16px;
+  font-size: .68rem; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .5px;
+  background: var(--bg-alt);
+  border-bottom: 1px solid var(--border);
+}
+
+.template-item {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; padding: 11px 16px;
+  background: none; border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer; text-align: left;
+  font-family: var(--font-body);
+  transition: background .15s;
+}
+.template-item:last-child { border-bottom: none; }
+.template-item:hover { background: var(--bg); }
+
+.tmpl-icon { font-size: 1.35rem; flex-shrink: 0; }
+.tmpl-name { font-size: .88rem; font-weight: 600; color: var(--text); }
+.tmpl-desc { font-size: .73rem; color: var(--text-muted); margin-top: 2px; }
+
 /* ============================================================
    CHAPTER CARDS
 ============================================================ */

@@ -298,7 +298,47 @@
              placeholder="Nom de votre projet (ex : Ma Thèse, Article…)"
              oninput="updateDocumentTitle(this.value)"
              onkeydown="if(event.key==='Enter')this.blur()" />
-      <button class="btn btn-primary" onclick="openAddChapterModal()">＋ Ajouter un chapitre</button>
+
+      <div class="section-actions">
+
+        <!-- Bouton modèles de plan + dropdown -->
+        <div class="template-wrap">
+          <button class="btn btn-outline" onclick="toggleTemplateMenu()">🪄 Modèles de plan</button>
+          <div class="template-menu hidden" id="templateMenu" role="menu">
+            <div class="template-menu-label">Choisissez un format académique</div>
+            <button class="template-item" onclick="applyTemplate(0)" role="menuitem">
+              <span class="tmpl-icon">📚</span>
+              <div class="tmpl-info">
+                <div class="tmpl-name">Thèse Classique SHS</div>
+                <div class="tmpl-desc">7 chapitres · ~300 pages</div>
+              </div>
+            </button>
+            <button class="template-item" onclick="applyTemplate(1)" role="menuitem">
+              <span class="tmpl-icon">🔬</span>
+              <div class="tmpl-info">
+                <div class="tmpl-name">Thèse IMRAD</div>
+                <div class="tmpl-desc">5 chapitres · ~150 pages</div>
+              </div>
+            </button>
+            <button class="template-item" onclick="applyTemplate(2)" role="menuitem">
+              <span class="tmpl-icon">📝</span>
+              <div class="tmpl-info">
+                <div class="tmpl-name">Thèse par articles</div>
+                <div class="tmpl-desc">6 chapitres · ~120 pages</div>
+              </div>
+            </button>
+            <button class="template-item" onclick="applyTemplate(3)" role="menuitem">
+              <span class="tmpl-icon">🎓</span>
+              <div class="tmpl-info">
+                <div class="tmpl-name">Mémoire de Master</div>
+                <div class="tmpl-desc">6 chapitres · ~90 pages</div>
+              </div>
+            </button>
+          </div>
+        </div><!-- /template-wrap -->
+
+        <button class="btn btn-primary" onclick="openAddChapterModal()">＋ Ajouter un chapitre</button>
+      </div><!-- /section-actions -->
     </div>
     <div id="chaptersContainer"></div>
 
