@@ -212,13 +212,6 @@ header {
   color: var(--card); letter-spacing: -.3px; line-height: 1.2;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-#motivQuote {
-  font-size: .75rem; color: rgba(253,250,245,.7);
-  font-style: italic; margin-top: 1px;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  max-width: 420px;
-}
-
 .header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 /* Instagram badge in header */
@@ -357,14 +350,15 @@ header {
 @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
 
 /* ============================================================
-   ZONE 1 — TABLEAU DE BORD (bannière pleine largeur)
+   ZONE 1 — TABLEAU DE BORD (bannière page de cahier)
 ============================================================ */
 .dashboard-banner {
-  background: var(--text);
-  background-image:
-    radial-gradient(ellipse 700px 400px at 85% 10%, rgba(181,136,62,.18), transparent),
-    radial-gradient(ellipse 500px 600px at 5%  90%, rgba(43,76,126,.18),  transparent),
-    repeating-linear-gradient(transparent, transparent 27px, rgba(253,250,245,.03) 27px, rgba(253,250,245,.03) 28px);
+  background: #FDFAF5;
+  background-image: repeating-linear-gradient(
+    transparent, transparent 27px,
+    rgba(43,76,126,.07) 27px, rgba(43,76,126,.07) 28px
+  );
+  border-bottom: 1px solid var(--border);
   padding: 32px 20px;
 }
 .dashboard-inner {
@@ -384,7 +378,7 @@ header {
 /* Vertical divider */
 .db-divider {
   width: 1px; align-self: stretch; flex-shrink: 0;
-  background: rgba(253,250,245,.10);
+  background: var(--border);
 }
 
 /* Stats column (right) */
@@ -393,50 +387,53 @@ header {
   display: flex; flex-direction: column; gap: 16px;
 }
 
-/* Featured stat block (date de fin) */
+/* Featured stat block (boule de cristal + date de fin) */
 .db-featured {
-  display: flex; align-items: center; gap: 16px;
+  display: flex; align-items: flex-start; gap: 16px;
   padding: 14px 20px;
-  background: rgba(181,136,62,.12);
+  background: rgba(181,136,62,.10);
   border: 1px solid rgba(181,136,62,.28);
   border-radius: var(--radius);
 }
-.db-feat-icon { font-size: 1.7rem; flex-shrink: 0; }
+.db-feat-icon { font-size: 1.7rem; flex-shrink: 0; padding-top: 2px; }
 .db-feat-val  {
   font-family: var(--font-heading);
   font-size: 1.45rem; font-weight: 800; line-height: 1.1;
   color: #B5883E;
 }
-.db-feat-lbl { font-size: .68rem; color: rgba(245,237,224,.5); text-transform: uppercase; letter-spacing: .5px; margin-top: 3px; }
-.db-feat-sub { font-size: .75rem; color: rgba(245,237,224,.7); margin-top: 2px; }
+.db-feat-lbl { font-size: .68rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .5px; margin-top: 3px; }
+.db-feat-sub { font-size: .75rem; color: var(--text-mid); margin-top: 2px; }
 
-/* Stats grid inside the dark banner */
+/* Crystal ball motivational quote */
+.crystal-quote {
+  font-family: 'Caveat', cursive;
+  font-size: 1rem; font-weight: 500; font-style: italic;
+  color: var(--text-mid);
+  margin-top: 8px;
+  line-height: 1.4;
+}
+
+/* Stats grid inside the paper banner */
 .dashboard-banner .stats-grid {
   grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   gap: 10px; margin-bottom: 0;
 }
 .dashboard-banner .stat-card {
-  background: rgba(253,250,245,.07);
-  border: 1px solid rgba(253,250,245,.10);
-  border-left: 3px solid rgba(253,250,245,.16);
-  box-shadow: none;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-mid);
+  box-shadow: var(--shadow);
 }
-.dashboard-banner .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 18px rgba(0,0,0,.3); }
-.dashboard-banner .stat-val { color: #F5EDE0; }
-.dashboard-banner .stat-lbl { color: rgba(245,237,224,.52); }
-.dashboard-banner .stat-sub { color: rgba(245,237,224,.48); }
-.dashboard-banner .sc-blue   { border-left-color: rgba(43,76,126,.9); }
-.dashboard-banner .sc-green  { border-left-color: rgba(74,123,90,.9); }
-.dashboard-banner .sc-amber  { border-left-color: rgba(200,155,60,.9); }
-.dashboard-banner .sc-violet { border-left-color: rgba(123,94,167,.9); }
-.dashboard-banner .sc-teal   { border-left-color: rgba(58,125,140,.9); }
+.dashboard-banner .stat-val { color: var(--text); }
+.dashboard-banner .stat-lbl { color: var(--text-muted); }
+.dashboard-banner .stat-sub { color: var(--text-muted); }
 
-/* Gauge overrides for dark background */
-.dashboard-banner .gauge-track { stroke: rgba(253,250,245,.14); }
+/* Gauge overrides for paper background */
+.dashboard-banner .gauge-track { stroke: var(--border-mid); }
 .dashboard-banner .gauge-fill  { stroke: #B5883E; }
-.dashboard-banner .gauge-pct   { color: #F5EDE0; }
-.dashboard-banner .gauge-lbl   { color: rgba(245,237,224,.5); }
-.dashboard-banner .ms-pip            { background: rgba(253,250,245,.14); }
+.dashboard-banner .gauge-pct   { color: var(--text); }
+.dashboard-banner .gauge-lbl   { color: var(--text-muted); }
+.dashboard-banner .ms-pip            { background: var(--border); }
 .dashboard-banner .ms-pip.r25        { background: var(--rust); }
 .dashboard-banner .ms-pip.r50        { background: var(--gold); }
 .dashboard-banner .ms-pip.r75        { background: #6488c8; }
@@ -445,12 +442,12 @@ header {
 /* Start-date meta row */
 .db-meta {
   display: flex; align-items: center; gap: 5px; flex-wrap: wrap;
-  font-size: .76rem; color: rgba(245,237,224,.5);
+  font-size: .76rem; color: var(--text-muted);
   text-transform: uppercase; letter-spacing: .4px;
 }
 .db-meta-val {
   font-family: var(--font-heading);
-  font-size: .88rem; font-weight: 600; color: rgba(245,237,224,.82);
+  font-size: .88rem; font-weight: 600; color: var(--text-mid);
   text-transform: none; letter-spacing: 0;
 }
 .btn-tiny {
@@ -460,18 +457,6 @@ header {
   color: var(--ink); margin-top: 0;
 }
 .btn-tiny:hover { background: var(--ink-light); }
-.dashboard-banner .btn-tiny {
-  color: rgba(245,237,224,.7); border-color: rgba(253,250,245,.22); margin-top: 0;
-}
-.dashboard-banner .btn-tiny:hover { background: rgba(253,250,245,.1); color: #F5EDE0; }
-
-/* Share button inside dark banner */
-.dashboard-banner .btn-share-ig {
-  background: rgba(181,136,62,.15);
-  border-color: rgba(181,136,62,.55);
-  color: #F5EDE0;
-}
-.dashboard-banner .btn-share-ig:hover { background: rgba(181,136,62,.30); opacity: 1; }
 
 /* ============================================================
    ZONE 2 — ESPACE DE TRAVAIL (Chapitres)
@@ -827,7 +812,6 @@ footer {
   /* Compact header */
   header { padding: 11px 16px; gap: 8px; }
   .brand-name { font-size: 1rem; }
-  #motivQuote { display: none; }
   .ig-badge   { display: none; }
   .user-badge { display: none; }
 

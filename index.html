@@ -9,7 +9,7 @@
   <!-- Google Fonts : Playfair Display (titres sérif) + Source Sans 3 (corps) -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,800;1,400;1,600&family=Source+Sans+3:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;0,800;1,400;1,600&family=Source+Sans+3:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
 
   <!-- html2canvas : capture DOM en image PNG -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
@@ -112,7 +112,6 @@
       <span class="header-brand-icon">📖</span>
       <div class="header-brand-text">
         <div class="brand-name">Journal d'une Doctorante</div>
-        <p id="motivQuote"></p>
       </div>
     </div>
 
@@ -243,13 +242,14 @@
       <!-- Colonne droite : stat vedette + grille de stats -->
       <div class="db-stats-col">
 
-        <!-- Stat vedette : date de fin -->
+        <!-- Stat vedette : boule de cristal + date de fin + phrase du jour -->
         <div class="db-featured">
           <div class="db-feat-icon">🔮</div>
           <div class="db-feat-body">
             <div class="db-feat-val ink-text" id="sEndDate">—</div>
             <div class="db-feat-lbl">Date de fin estimée</div>
             <div class="db-feat-sub" id="sEndMsg">À ce rythme…</div>
+            <div class="crystal-quote" id="crystalQuote"></div>
           </div>
         </div>
 

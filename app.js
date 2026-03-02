@@ -35,6 +35,7 @@ const db   = getFirestore(app);
    MOTIVATIONAL QUOTES
 ============================================================ */
 const QUOTES = [
+  // Classiques de motivation
   "Un voyage de mille lieues commence par un seul pas. Et une thèse par une seule page. 💪",
   "La persévérance est la clé du succès — chaque mot compte !",
   "Votre futur vous regardera écrire ces lignes avec fierté. Continuez ! ✨",
@@ -44,12 +45,32 @@ const QUOTES = [
   "L'expertise n'est pas le point de départ, c'est la destination. Vous y êtes presque !",
   "Rome ne s'est pas faite en un jour, mais ils posaient des briques tous les jours. 🏛️",
   "La thèse que vous écrivez aujourd'hui, c'est le livre dont vous serez fier(e) demain. 📚",
-  "Brilliant ideas deserve brilliant execution. Keep writing! ✍️",
   "Il n'y a pas de vent favorable pour qui ne sait où il va. Vous, vous savez ! 🧭",
   "Le talent fait ce qu'il peut, la volonté fait ce qu'elle veut. Vous avez les deux ! 💡",
   "Chaque chapitre fini est une montagne franchie. Regardez derrière vous ! ⛰️",
   "La rédaction, c'est 1 % d'inspiration et 99 % de tasses de café. ☕ Vous gérez !",
   "Ne comptez pas les jours, faites que chaque jour compte. 📅",
+  // Humour doctorat
+  "Si Word plante, c'est le signe qu'il faut aller boire un café. ☕ Revenez plus fort.",
+  "Votre bibliographie fait peur à vos amis. C'est bon signe. 📖",
+  "Écrire 3 pages aujourd'hui, c'est 3 de moins pour demain. Mathématiques du doctorat. 🔢",
+  "Votre chat pense aussi que vous travaillez bien. Il dort sur le clavier pour le prouver. 🐱",
+  "La soutenance, c'est le boss final. Mais vous avez tous les chapitres pour vous entraîner. 🎮",
+  "Un·e doctorant·e sans café, c'est comme une thèse sans bibliographie : ça tient pas. ☕",
+  "Les données ne mentent pas. Parfois elles se trompent juste un peu. 📊",
+  "Votre état de l'art est si complet que vous connaissez des articles que leurs auteurs ont oubliés. 🧐",
+  "Réviser pour la 17e fois le même chapitre, c'est de la discipline. Pas de l'obsession. Promis. 🔄",
+  "La procrastination, c'est votre cerveau qui dit 'je réfléchis encore'. Juste 5 minutes. ⌚",
+  "Chaque note de bas de page est une preuve d'amour pour votre sujet. 💛",
+  "'En cours de rédaction' est le statut le plus honorable qui soit. Portez-le avec fierté. ✒️",
+  "Votre thèse va changer le monde. Même si personne ne le sait encore sauf vous. 🌍",
+  "Un paragraphe par jour éloigne le burn-out pour toujours. (Presque.) 🧘",
+  "Votre directeur·trice dit 'à retravailler' ? Traduction : 'vous êtes sur la bonne voie !'. 🛤️",
+  "Si Hemingway pouvait écrire avec une gueule de bois, vous pouvez écrire après une réunion de labo. 💪",
+  "Le Wi-Fi de la BU est lent, mais pas autant que le temps entre deux relectures. ⏳",
+  "Votre introduction sera parfaite après la soutenance. C'est une loi universelle. 😌",
+  "Chaque 'ctrl+S' est un petit acte de courage. Sauvegardez souvent, écrivez toujours. 💾",
+  "La thèse, c'est un marathon. Aujourd'hui vous posez un pied devant l'autre. C'est suffisant. 🏃",
 ];
 
 /* ============================================================
@@ -192,7 +213,8 @@ function populateAppHeader(user) {
   document.getElementById('userEmail').textContent = name;
   const mob = document.getElementById('userEmailMobile');
   if (mob) mob.textContent = name;
-  document.getElementById('motivQuote').textContent = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+  const q = document.getElementById('crystalQuote');
+  if (q) q.textContent = QUOTES[Math.floor(Math.random() * QUOTES.length)];
 }
 
 function setDataLoading(on) {
