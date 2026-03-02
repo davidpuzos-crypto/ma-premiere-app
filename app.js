@@ -77,7 +77,7 @@ const QUOTES = [
    STATE
 ============================================================ */
 function defaultState() {
-  return { chapters: [], startDate: null, milestones: { 25: false, 50: false, 75: false, 100: false } };
+  return { chapters: [], startDate: null, milestones: { 25: false, 50: false, 75: false, 100: false }, documentTitle: '' };
 }
 
 let state        = defaultState();
@@ -230,10 +230,11 @@ async function _doFirestoreSave() {
     await setDoc(
       doc(db, 'users', currentUser.uid, 'thesis', 'main'),
       {
-        chapters:   state.chapters,
-        startDate:  state.startDate,
-        milestones: state.milestones,
-        updatedAt:  new Date().toISOString(),
+        chapters:      state.chapters,
+        startDate:     state.startDate,
+        milestones:    state.milestones,
+        documentTitle: state.documentTitle,
+        updatedAt:     new Date().toISOString(),
       }
     );
   } catch (e) {
@@ -256,9 +257,10 @@ async function loadFromFirestore() {
     const snap = await getDoc(doc(db, 'users', currentUser.uid, 'thesis', 'main'));
     if (snap.exists()) {
       const d = snap.data();
-      state.chapters   = d.chapters   || [];
-      state.startDate  = d.startDate  || null;
-      state.milestones = Object.assign({ 25: false, 50: false, 75: false, 100: false }, d.milestones || {});
+      state.chapters      = d.chapters      || [];
+      state.startDate     = d.startDate     || null;
+      state.milestones    = Object.assign({ 25: false, 50: false, 75: false, 100: false }, d.milestones || {});
+      state.documentTitle = d.documentTitle || '';
     } else {
       state = defaultState();
     }
@@ -797,9 +799,12 @@ function importData(input) {
     try {
       const p = JSON.parse(e.target.result);
       if (!Array.isArray(p.chapters)) throw new Error('invalid');
-      state.chapters   = p.chapters;
-      state.startDate  = p.startDate  || null;
-      state.milestones = Object.assign({ 25: false, 50: false, 75: false, 100: false }, p.milestones || {});
+      state.chapters      = p.chapters;
+      state.startDate     = p.startDate     || null;
+      state.milestones    = Object.assign({ 25: false, 50: false, 75: false, 100: false }, p.milestones || {});
+      state.documentTitle = p.documentTitle || '';
+      const titleEl = document.getElementById('document-title');
+      if (titleEl) titleEl.value = state.documentTitle;
       saveNow();
       render();
       toast('✅ Données importées avec succès !', 'success');
@@ -816,6 +821,8 @@ function confirmReset() {
   if (!confirm('⚠️ Effacer TOUTES les données ?\n\nChapitres, progression, date de début — tout sera supprimé de Firestore.\nCette action est irréversible.')) return;
   if (!confirm('Dernière confirmation : vraiment tout effacer ?')) return;
   state = defaultState();
+  const titleEl = document.getElementById('document-title');
+  if (titleEl) titleEl.value = '';
   saveNow();
   render();
   document.getElementById('sdInput').value = new Date().toISOString().slice(0, 10);
@@ -842,6 +849,14 @@ function updateChTarget(chId, rawVal) {
   _refreshChCard(ch);
   saveDebounced();
   updateDashboard();
+}
+
+/* ============================================================
+   DOCUMENT TITLE
+============================================================ */
+function updateDocumentTitle(val) {
+  state.documentTitle = val;
+  saveDebounced();
 }
 
 /* ============================================================
@@ -980,6 +995,8 @@ Object.assign(window, {
   openAddSsModal, saveSubsection, deleteSs, updateSsTitle,
   // Live updates
   updateWritten, updateTarget, updateChWritten, updateChTarget,
+  // Document title
+  updateDocumentTitle,
   // Data
   exportData, importData, confirmReset,
   // Instagram post generator
@@ -999,6 +1016,10 @@ onAuthStateChanged(auth, async (user) => {
     // Load data from Firestore, then render
     await loadFromFirestore();
     render();
+
+    // Restore document title input
+    const titleEl = document.getElementById('document-title');
+    if (titleEl) titleEl.value = state.documentTitle || '';
 
     // Ask for start date if not set yet
     if (!state.startDate) {

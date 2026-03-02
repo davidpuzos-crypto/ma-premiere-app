@@ -294,7 +294,10 @@
   <main class="workspace">
 
     <div class="section-header">
-      <h2 class="section-title">📚 Mes Chapitres</h2>
+      <input type="text" id="document-title"
+             placeholder="Nom de votre projet (ex : Ma Thèse, Article…)"
+             oninput="updateDocumentTitle(this.value)"
+             onkeydown="if(event.key==='Enter')this.blur()" />
       <button class="btn btn-primary" onclick="openAddChapterModal()">＋ Ajouter un chapitre</button>
     </div>
     <div id="chaptersContainer"></div>
