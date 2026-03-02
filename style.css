@@ -402,15 +402,15 @@ header {
 .db-feat-val  {
   font-family: var(--font-heading);
   font-size: 1.45rem; font-weight: 800; line-height: 1.1;
-  color: var(--gold);
+  color: #F5CB5C;
 }
 .db-feat-lbl { font-size: .68rem; color: rgba(245,237,224,.55); text-transform: uppercase; letter-spacing: .5px; margin-top: 3px; }
 .db-feat-sub { font-size: .75rem; color: rgba(245,237,224,.72); margin-top: 2px; }
 
 /* Crystal ball motivational quote */
 .crystal-quote {
-  font-family: 'Caveat', cursive;
-  font-size: 1.1rem; font-weight: 600; font-style: italic;
+  font-family: var(--font-heading);
+  font-size: .92rem; font-weight: 400; font-style: italic;
   color: var(--gold-light);
   margin-top: 8px;
   line-height: 1.4;
@@ -1131,4 +1131,11 @@ footer {
   .tmpl-icon       { font-size: 1.5rem; }
   .tmpl-name       { font-size: .92rem; }
   .tmpl-desc       { font-size: .76rem; }
+
+  /* ── En-tête de la zone Chapitres ───────────────────────────
+     Le titre prend toute la largeur (seul sur sa ligne),
+     les boutons passent sur la ligne du dessous, alignés à droite */
+  .section-header  { flex-direction: column; align-items: stretch; gap: 8px; }
+  #document-title  { width: 100%; flex: none; }
+  .section-actions { width: 100%; justify-content: flex-end; }
 }
