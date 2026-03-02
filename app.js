@@ -110,6 +110,98 @@ const QUOTES = [
 ];
 
 /* ============================================================
+   FUNNY CAPTIONS — image de partage Instagram
+   Chaque objet couvre une tranche d'avancement [min, max] (%)
+   et contient un tableau de phrases. La logique de sélection
+   choisit aléatoirement une phrase dans la bonne tranche.
+============================================================ */
+const FUNNY_CAPTIONS = [
+  {
+    range: [0, 5],
+    phrases: [
+      "J'ai ouvert le document. C'est un grand pas.",
+      "La page blanche me regarde. Je la regarde aussi.",
+      "Le titre est provisoire. Ma santé mentale aussi.",
+      "Mon directeur de thèse m'a vu aujourd'hui. Il m'a souri. C'est inquiétant.",
+      "J'ai déjà lu 3 résumés. Je suis épuisé.",
+      "Je suis encore en phase de 'cadrage'. Cadrage de mon lit.",
+    ],
+  },
+  {
+    range: [6, 15],
+    phrases: [
+      "J'ai fait un plan. Il est beau. Il ne sera jamais respecté.",
+      "La première sous-section est rédigée. Le monde est à moi.",
+      "Je commence à comprendre mon sujet. Un peu. Pas du tout.",
+      "J'ai trouvé une référence bibliographique parfaite. Elle est en allemand.",
+      "Le café est mon meilleur ami. Et mon seul ami.",
+      "Ma thèse n'est pas un sprint, c'est une randonnée. En tongs.",
+    ],
+  },
+  {
+    range: [16, 30],
+    phrases: [
+      "J'écris. Enfin, je tape sur des touches. C'est bon signe.",
+      "Ma bibliographie fait 2 pages. C'est plus que ma thèse.",
+      "Je ne sais plus si je suis chercheur·se ou ghostwriter pour mon directeur.",
+      "J'ai l'impression de creuser une galerie. J'espère qu'il y a de l'or au bout.",
+      "Le nombre de pages augmente. Mon amour-propre diminue.",
+      "J'ai rêvé que ma thèse était un chat. Elle m'ignorait.",
+    ],
+  },
+  {
+    range: [31, 50],
+    phrases: [
+      "J'ai une citation d'éléphant sur mon écran. Je commence à le détester.",
+      "Ma thèse n'avance pas. Elle est comme un chat qui dort. Tout le temps.",
+      "J'ai envie de devenir éleveur·se de chèvres. Mais j'ai pas de chèvres.",
+      "Mes amis se marient, ont des enfants. J'ai une thèse. Et des cernes.",
+      "Je suis au milieu de l'éléphant. C'est sombre.",
+      "J'ai peur de mon document Word. Il contient trop de '...'",
+    ],
+  },
+  {
+    range: [51, 75],
+    phrases: [
+      "Je commence à voir la lumière au bout du tunnel. C'est peut-être un train.",
+      "J'ai enfin rédigé le 'Cadre Théorique'. Je n'y comprends toujours rien.",
+      "Je suis devenu·e expert·e en 'discussion'. Surtout avec moi-même.",
+      "Ma thèse est comme un vieux meuble. Elle est bancale, mais je l'aime bien.",
+      "J'ai plus de pages rédigées que restantes. C'est de la magie.",
+      "J'ai l'impression de courir un marathon. J'ai plus de jambes.",
+    ],
+  },
+  {
+    range: [76, 95],
+    phrases: [
+      "Le document Word est devenu trop gros. J'ai peur qu'il explose.",
+      "Mon directeur m'a envoyé un mail. J'ai peur d'ouvrir ma boîte.",
+      "J'ai l'impression de relire les mêmes phrases pour la centième fois.",
+      "Le dénouement approche. J'ai envie de pleurer. De joie, j'espère.",
+      "J'ai une date de fin estimée. J'espère qu'elle est fausse.",
+      "Le stress est inversement proportionnel au nombre de pages restantes.",
+    ],
+  },
+  {
+    range: [96, 100],
+    phrases: [
+      "La conclusion est écrite. C'est la fin. Ou le début.",
+      "Je n'y crois pas. C'est fini. Enfin presque. Il reste les corrections.",
+      "J'ai une thèse. Je suis devenu·e une créature de légende.",
+      "L'éléphant est mangé. Il était bon.",
+      "C'est fait. Enfin. Je vais pouvoir dormir.",
+      "Le document final est prêt. J'ai peur d'appuyer sur 'Envoyer'.",
+    ],
+  },
+];
+
+function getFunnyCaption(pct) {
+  const bucket = FUNNY_CAPTIONS.find(b => pct >= b.range[0] && pct <= b.range[1])
+    ?? FUNNY_CAPTIONS[FUNNY_CAPTIONS.length - 1];
+  return bucket.phrases[Math.floor(Math.random() * bucket.phrases.length)];
+}
+
+/* ============================================================
    PLAN TEMPLATES
 ============================================================ */
 const PLAN_TEMPLATES = [
@@ -1057,6 +1149,9 @@ async function generateInstagramPost() {
     remaining > 0
       ? `Plus que ${remaining} page${remaining > 1 ? 's' : ''} !`
       : 'Thèse terminée ! 🎉';
+
+  // Phrase drôle dynamique selon l'avancement
+  document.getElementById('igpFooter').textContent = getFunnyCaption(pct);
 
   // Mettre à jour la jauge SVG
   const CIRC = 502.65; // 2π × r80 (cohérent avec la jauge principale)
