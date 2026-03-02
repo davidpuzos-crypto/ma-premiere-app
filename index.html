@@ -6,6 +6,16 @@
   <title>Le Journal de Bord</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📖</text></svg>" />
 
+  <!-- PWA -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#2C1A0E" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <!-- iOS (Safari) -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Journal de Bord" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+
   <!-- SEO -->
   <meta name="description" content="Le Journal de Bord : l'outil pour structurer et suivre l'avancement de votre rédaction (Thèse, Mémoire, Livre). Fixez vos objectifs de pages et restez motivé !" />
   <meta name="keywords" content="thèse, mémoire, rédaction, suivi de rédaction, productivité étudiante, doctorat, master, plan de thèse, écriture" />
@@ -490,5 +500,15 @@
 </div>
 
 <script type="module" src="app.js"></script>
+
+<!-- Enregistrement du Service Worker (PWA) -->
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js')
+        .catch(err => console.warn('SW registration failed:', err));
+    });
+  }
+</script>
 </body>
 </html>
