@@ -939,6 +939,10 @@ footer {
   /* Workspace */
   .workspace { padding: 20px 14px 40px; }
 
+  /* Section header : les boutons se wrappent et s'alignent à droite */
+  .section-actions { flex-wrap: wrap; justify-content: flex-end; }
+  .btn-outline     { font-size: .78rem; padding: 6px 10px; }
+
   /* Chapters: full width */
   .chapter-header { padding: 13px 14px; gap: 9px; }
   .chapter-body   { padding: 4px 14px 14px; }
@@ -1098,4 +1102,33 @@ footer {
 @media (max-width: 768px) {
   .mobile-only  { display: flex; }
   .desktop-only { display: none; }
+
+  /* ── Dropdown modèles de plan → bottom-sheet ────────────────
+     Sur mobile le menu sort de l'écran si positionné en absolu.
+     On le transforme en feuille glissante ancrée en bas. ───── */
+  .template-menu {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    top: auto;
+    min-width: 100%; width: 100%;
+    border-radius: 16px 16px 0 0;
+    border-left: none; border-right: none; border-bottom: none;
+    max-height: 75vh; overflow-y: auto;
+    /* Ombre portée vers le haut pour l'effet "émerge du bas" */
+    box-shadow: 0 -6px 32px rgba(0,0,0,.18), 0 -1px 0 var(--border);
+  }
+  /* Poignée visuelle (affordance "glissable") */
+  .template-menu::before {
+    content: '';
+    display: block;
+    width: 36px; height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    margin: 10px auto 4px;
+  }
+  /* Cibles tactiles ≥ 52 px pour un toucher confortable */
+  .template-item   { padding: 14px 20px; min-height: 52px; }
+  .tmpl-icon       { font-size: 1.5rem; }
+  .tmpl-name       { font-size: .92rem; }
+  .tmpl-desc       { font-size: .76rem; }
 }
