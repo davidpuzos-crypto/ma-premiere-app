@@ -156,6 +156,11 @@
       <button class="btn btn-reset btn-sm desktop-only" onclick="confirmReset()" title="Effacer">🗑 Reset</button>
       <button class="btn btn-signout btn-sm desktop-only" onclick="signOutUser()">⏻ Déconnecter</button>
 
+      <!-- PWA install — desktop (caché jusqu'à ce que le navigateur signale l'installabilité) -->
+      <button id="btnInstallDesktop" class="btn btn-magic btn-sm desktop-only hidden" onclick="installApp()">
+        📱 Installer l'app
+      </button>
+
       <!-- Hamburger — mobile only -->
       <button class="hamburger-btn mobile-only" onclick="toggleMobileMenu()"
               aria-label="Menu" aria-expanded="false">☰</button>
@@ -183,6 +188,11 @@
 
       <button class="btn-share-ig" onclick="generateInstagramPost(); toggleMobileMenu()">
         📸 Partager mon avancée
+      </button>
+
+      <!-- PWA install — mobile (caché jusqu'à ce que le navigateur signale l'installabilité) -->
+      <button id="btnInstallMobile" class="btn-install-mobile hidden" onclick="installApp(); toggleMobileMenu()">
+        📱 Installer l'app
       </button>
 
       <div class="mobile-menu-sep"></div>
@@ -448,6 +458,24 @@
 
 <!-- Toasts -->
 <div id="toastBox"></div>
+
+<!-- Modale installation iOS — instructions Add to Home Screen -->
+<div class="modal-overlay hidden" id="iosInstallModal">
+  <div class="modal">
+    <div class="modal-emoji">📱</div>
+    <h2>Installer l'application</h2>
+    <p class="modal-sub">
+      Sur <strong>iPhone / iPad</strong>, Safari ne propose pas de bannière d'installation automatique.<br><br>
+      Voici comment l'ajouter à votre écran d'accueil en 3 secondes :<br><br>
+      <span class="ios-step">1.</span> Touchez l'icône <strong>Partager</strong> ⬆ en bas de votre écran.<br>
+      <span class="ios-step">2.</span> Faites défiler et appuyez sur <strong>« Sur l'écran d'accueil »</strong>.<br>
+      <span class="ios-step">3.</span> Confirmez en tapant <strong>« Ajouter »</strong> en haut à droite.
+    </p>
+    <div class="modal-actions">
+      <button class="btn btn-primary" onclick="closeModal('iosInstallModal')">Compris ! 👍</button>
+    </div>
+  </div>
+</div>
 
 <!-- ============================================================
      INSTAGRAM POST TEMPLATE — off-screen, capturé par html2canvas

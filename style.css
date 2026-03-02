@@ -296,6 +296,30 @@ header {
 }
 .btn-reset:hover { background: rgba(253,250,245,.1); color: var(--card); }
 
+/* PWA install button — header (desktop) */
+.btn-magic {
+  background: linear-gradient(135deg, #B5883E, #D4A54A);
+  color: #2C1A0E; border: none;
+  font-weight: 700;
+  box-shadow: 0 3px 12px rgba(181,136,62,.45);
+}
+.btn-magic:hover { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 5px 18px rgba(181,136,62,.55); }
+
+/* PWA install button — mobile menu */
+.btn-install-mobile {
+  width: 100%; padding: 12px 16px; border: none; border-radius: var(--radius-sm);
+  background: linear-gradient(135deg, #B5883E, #D4A54A);
+  color: #2C1A0E; font-size: .9rem; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; gap: 7px;
+  cursor: pointer; font-family: var(--font-body);
+  box-shadow: 0 3px 12px rgba(181,136,62,.4);
+  transition: all .2s;
+}
+.btn-install-mobile:hover { filter: brightness(1.1); transform: translateY(-1px); }
+
+/* iOS modal step labels */
+.ios-step { font-weight: 700; color: var(--ink); }
+
 .btn-instagram {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   padding: 10px 18px; width: 100%;
