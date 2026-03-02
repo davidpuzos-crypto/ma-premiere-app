@@ -60,6 +60,10 @@
 body {
   font-family: var(--font-body);
   background: var(--bg);
+  background-image: repeating-linear-gradient(
+    transparent, transparent 27px,
+    rgba(43,76,126,.07) 27px, rgba(43,76,126,.07) 28px
+  );
   color: var(--text);
   min-height: 100vh;
   line-height: 1.65;
@@ -353,11 +357,7 @@ header {
    ZONE 1 — TABLEAU DE BORD (bannière page de cahier)
 ============================================================ */
 .dashboard-banner {
-  background: #FDFAF5;
-  background-image: repeating-linear-gradient(
-    transparent, transparent 27px,
-    rgba(43,76,126,.07) 27px, rgba(43,76,126,.07) 28px
-  );
+  background: var(--bg);
   border-bottom: 1px solid var(--border);
   padding: 32px 20px;
 }
@@ -407,10 +407,12 @@ header {
 /* Crystal ball motivational quote */
 .crystal-quote {
   font-family: 'Caveat', cursive;
-  font-size: 1rem; font-weight: 500; font-style: italic;
-  color: var(--text-mid);
+  font-size: 1.1rem; font-weight: 600; font-style: italic;
+  color: var(--rust);
   margin-top: 8px;
   line-height: 1.4;
+  border-top: 1px dashed rgba(184,101,58,.25);
+  padding-top: 7px;
 }
 
 /* Stats grid inside the paper banner */
