@@ -2,7 +2,7 @@
   "name": "Le Journal de Bord",
   "short_name": "Journal de Bord",
   "description": "Suivez l'avancement de votre rédaction : thèse, mémoire, livre.",
-  "start_url": "/",
+  "start_url": "./",
   "display": "standalone",
   "orientation": "portrait-primary",
   "background_color": "#2C1A0E",
