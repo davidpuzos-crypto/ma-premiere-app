@@ -71,6 +71,42 @@ const QUOTES = [
   "Votre introduction sera parfaite après la soutenance. C'est une loi universelle. 😌",
   "Chaque 'ctrl+S' est un petit acte de courage. Sauvegardez souvent, écrivez toujours. 💾",
   "La thèse, c'est un marathon. Aujourd'hui vous posez un pied devant l'autre. C'est suffisant. 🏃",
+
+  // Directeurs de thèse fantômes
+  "Mon directeur a répondu à mon mail en moins d'un mois. Je note ça dans mes percées historiques. 📬",
+  "Le directeur de thèse est comme le yéti : on entend parler de lui, on cherche sa trace, mais on le voit rarement. 🦶",
+  "Réponse du directeur après 3 semaines : 'Intéressant.' 11 mois de travail. 'Intéressant.' 🙂",
+  "Mon directeur est en conférence à Barcelone, puis Lisbonne, puis Tokyo. La thèse, elle, attend à Paris. ✈️",
+  "J'ai posé une question à mon directeur en septembre. Sa réponse est attendue pour le prochain printemps. 🌸",
+  "'On se voit la semaine prochaine ?' — dit mon directeur. C'était il y a 6 semaines. 📅",
+  "Mon directeur m'a lu 40 pages. Retour : 'Pas mal.' Je vis de ce 'pas mal' depuis 3 mois. 🫶",
+
+  // La famille et les proches qui ne comprennent rien
+  "'C'est pour quand tu auras un vrai travail ?' — ma mère, chaque repas de Noël depuis 3 ans. 🍗",
+  "'Et ça sert à quoi exactement ?' — question posée par 100 % de la famille à 100 % des repas. 🍽️",
+  "'Tu fais encore tes études ? À ton âge !' — tata Monique, inchangée depuis le début du doctorat. 👵",
+  "J'ai expliqué ma thèse à mes parents. Ils m'ont conseillé de passer le concours de la fonction publique. 📋",
+  "'T'es chercheur·se ? Tu cherches quoi ?' Bonne question, tonton. Très bonne question. 🔍",
+  "Tout le monde pense que vous 'êtes encore à l'école'. Personne ne sait que vous portez le monde de la recherche sur vos épaules. 🌍",
+  "'Donc t'es payé(e) pour lire des livres ?' Oui. Non. En fait, c'est compliqué. 📚",
+
+  // Doctorants et l'IA
+  "L'IA a rédigé le plan en 3 secondes. J'ai passé 3 semaines à comprendre pourquoi c'était faux. 🤖",
+  "ChatGPT invente des références bibliographiques. Moi j'invente des délais de rendu. On est pareils. 📖",
+  "L'IA m'a conseillé d'aller prendre l'air pour débloquer mes idées. Elle n'a pas complètement tort. 🌳",
+  "Mon directeur a lu mon dernier chapitre : 'C'est très bien écrit.' Merci. Vraiment merci. 😇",
+  "Avec l'IA on écrit 10 pages en 1h. Les corriger prend 3 jours. C'est ce qu'on appelle le progrès. 📝",
+  "L'IA fait le résumé. Moi je fais la souffrance. C'est la collaboration humain-machine dans toute sa splendeur. 🤝",
+  "Utiliser l'IA pour une thèse, c'est comme utiliser un GPS : c'est vous qui conduisez, mais parfois il dit n'importe quoi. 🗺️",
+
+  // Rentre dedans (mais marrant)
+  "Les 5 étapes du doctorat : enthousiasme, doute, panique, déni, soutenance. Vous en êtes où ? 📍",
+  "Votre hypothèse de départ a survécu 6 mois. C'est bien. Les chercheurs expérimentés tiennent 3. 💀",
+  "Si votre thèse était une startup, elle serait en 'pivot permanent' depuis 2 ans. C'est une feature, pas un bug. 🔄",
+  "Vous avez supprimé 40 pages de travail ? Bien. L'élagage fait partie du processus. Pleurez quand même, c'est normal. 🌿",
+  "La thèse, c'est 4 ans à répondre à des questions que personne ne vous a posées. Bienvenue dans la recherche. 🎓",
+  "Le syndrome de l'imposteur ? C'est juste votre cerveau qui n'a pas encore reçu le mémo que vous êtes brillant(e). 🧠",
+  "Votre introduction sera parfaite le lendemain de la soutenance. C'est une loi de la nature. 🌌",
 ];
 
 /* ============================================================
