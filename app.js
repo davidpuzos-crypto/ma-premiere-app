@@ -35,6 +35,7 @@ const db   = getFirestore(app);
    MOTIVATIONAL QUOTES
 ============================================================ */
 const QUOTES = [
+  // Classiques de motivation
   "Un voyage de mille lieues commence par un seul pas. Et une thèse par une seule page. 💪",
   "La persévérance est la clé du succès — chaque mot compte !",
   "Votre futur vous regardera écrire ces lignes avec fierté. Continuez ! ✨",
@@ -44,19 +45,217 @@ const QUOTES = [
   "L'expertise n'est pas le point de départ, c'est la destination. Vous y êtes presque !",
   "Rome ne s'est pas faite en un jour, mais ils posaient des briques tous les jours. 🏛️",
   "La thèse que vous écrivez aujourd'hui, c'est le livre dont vous serez fier(e) demain. 📚",
-  "Brilliant ideas deserve brilliant execution. Keep writing! ✍️",
   "Il n'y a pas de vent favorable pour qui ne sait où il va. Vous, vous savez ! 🧭",
   "Le talent fait ce qu'il peut, la volonté fait ce qu'elle veut. Vous avez les deux ! 💡",
   "Chaque chapitre fini est une montagne franchie. Regardez derrière vous ! ⛰️",
   "La rédaction, c'est 1 % d'inspiration et 99 % de tasses de café. ☕ Vous gérez !",
   "Ne comptez pas les jours, faites que chaque jour compte. 📅",
+  // Humour doctorat
+  "Si Word plante, c'est le signe qu'il faut aller boire un café. ☕ Revenez plus fort.",
+  "Votre bibliographie fait peur à vos amis. C'est bon signe. 📖",
+  "Écrire 3 pages aujourd'hui, c'est 3 de moins pour demain. Mathématiques du doctorat. 🔢",
+  "Votre chat pense aussi que vous travaillez bien. Il dort sur le clavier pour le prouver. 🐱",
+  "La soutenance, c'est le boss final. Mais vous avez tous les chapitres pour vous entraîner. 🎮",
+  "Un·e doctorant·e sans café, c'est comme une thèse sans bibliographie : ça tient pas. ☕",
+  "Les données ne mentent pas. Parfois elles se trompent juste un peu. 📊",
+  "Votre état de l'art est si complet que vous connaissez des articles que leurs auteurs ont oubliés. 🧐",
+  "Réviser pour la 17e fois le même chapitre, c'est de la discipline. Pas de l'obsession. Promis. 🔄",
+  "La procrastination, c'est votre cerveau qui dit 'je réfléchis encore'. Juste 5 minutes. ⌚",
+  "Chaque note de bas de page est une preuve d'amour pour votre sujet. 💛",
+  "'En cours de rédaction' est le statut le plus honorable qui soit. Portez-le avec fierté. ✒️",
+  "Votre thèse va changer le monde. Même si personne ne le sait encore sauf vous. 🌍",
+  "Un paragraphe par jour éloigne le burn-out pour toujours. (Presque.) 🧘",
+  "Votre directeur·trice dit 'à retravailler' ? Traduction : 'vous êtes sur la bonne voie !'. 🛤️",
+  "Si Hemingway pouvait écrire avec une gueule de bois, vous pouvez écrire après une réunion de labo. 💪",
+  "Le Wi-Fi de la BU est lent, mais pas autant que le temps entre deux relectures. ⏳",
+  "Votre introduction sera parfaite après la soutenance. C'est une loi universelle. 😌",
+  "Chaque 'ctrl+S' est un petit acte de courage. Sauvegardez souvent, écrivez toujours. 💾",
+  "La thèse, c'est un marathon. Aujourd'hui vous posez un pied devant l'autre. C'est suffisant. 🏃",
+
+  // Directeurs de thèse fantômes
+  "Mon directeur a répondu à mon mail en moins d'un mois. Je note ça dans mes percées historiques. 📬",
+  "Le directeur de thèse est comme le yéti : on entend parler de lui, on cherche sa trace, mais on le voit rarement. 🦶",
+  "Réponse du directeur après 3 semaines : 'Intéressant.' 11 mois de travail. 'Intéressant.' 🙂",
+  "Mon directeur est en conférence à Barcelone, puis Lisbonne, puis Tokyo. La thèse, elle, attend à Paris. ✈️",
+  "J'ai posé une question à mon directeur en septembre. Sa réponse est attendue pour le prochain printemps. 🌸",
+  "'On se voit la semaine prochaine ?' — dit mon directeur. C'était il y a 6 semaines. 📅",
+  "Mon directeur m'a lu 40 pages. Retour : 'Pas mal.' Je vis de ce 'pas mal' depuis 3 mois. 🫶",
+
+  // La famille et les proches qui ne comprennent rien
+  "'C'est pour quand tu auras un vrai travail ?' — ma mère, chaque repas de Noël depuis 3 ans. 🍗",
+  "'Et ça sert à quoi exactement ?' — question posée par 100 % de la famille à 100 % des repas. 🍽️",
+  "'Tu fais encore tes études ? À ton âge !' — tata Monique, inchangée depuis le début du doctorat. 👵",
+  "J'ai expliqué ma thèse à mes parents. Ils m'ont conseillé de passer le concours de la fonction publique. 📋",
+  "'T'es chercheur·se ? Tu cherches quoi ?' Bonne question, tonton. Très bonne question. 🔍",
+  "Tout le monde pense que vous 'êtes encore à l'école'. Personne ne sait que vous portez le monde de la recherche sur vos épaules. 🌍",
+  "'Donc t'es payé(e) pour lire des livres ?' Oui. Non. En fait, c'est compliqué. 📚",
+
+  // Doctorants et l'IA
+  "L'IA a rédigé le plan en 3 secondes. J'ai passé 3 semaines à comprendre pourquoi c'était faux. 🤖",
+  "ChatGPT invente des références bibliographiques. Moi j'invente des délais de rendu. On est pareils. 📖",
+  "L'IA m'a conseillé d'aller prendre l'air pour débloquer mes idées. Elle n'a pas complètement tort. 🌳",
+  "Mon directeur a lu mon dernier chapitre : 'C'est très bien écrit.' Merci. Vraiment merci. 😇",
+  "Avec l'IA on écrit 10 pages en 1h. Les corriger prend 3 jours. C'est ce qu'on appelle le progrès. 📝",
+  "L'IA fait le résumé. Moi je fais la souffrance. C'est la collaboration humain-machine dans toute sa splendeur. 🤝",
+  "Utiliser l'IA pour une thèse, c'est comme utiliser un GPS : c'est vous qui conduisez, mais parfois il dit n'importe quoi. 🗺️",
+
+  // Rentre dedans (mais marrant)
+  "Les 5 étapes du doctorat : enthousiasme, doute, panique, déni, soutenance. Vous en êtes où ? 📍",
+  "Votre hypothèse de départ a survécu 6 mois. C'est bien. Les chercheurs expérimentés tiennent 3. 💀",
+  "Si votre thèse était une startup, elle serait en 'pivot permanent' depuis 2 ans. C'est une feature, pas un bug. 🔄",
+  "Vous avez supprimé 40 pages de travail ? Bien. L'élagage fait partie du processus. Pleurez quand même, c'est normal. 🌿",
+  "La thèse, c'est 4 ans à répondre à des questions que personne ne vous a posées. Bienvenue dans la recherche. 🎓",
+  "Le syndrome de l'imposteur ? C'est juste votre cerveau qui n'a pas encore reçu le mémo que vous êtes brillant(e). 🧠",
+  "Votre introduction sera parfaite le lendemain de la soutenance. C'est une loi de la nature. 🌌",
+];
+
+/* ============================================================
+   FUNNY CAPTIONS — image de partage Instagram
+   Chaque objet couvre une tranche d'avancement [min, max] (%)
+   et contient un tableau de phrases. La logique de sélection
+   choisit aléatoirement une phrase dans la bonne tranche.
+============================================================ */
+const FUNNY_CAPTIONS = [
+  {
+    range: [0, 5],
+    phrases: [
+      "J'ai ouvert le document. C'est un grand pas.",
+      "La page blanche me regarde. Je la regarde aussi.",
+      "Le titre est provisoire. Ma santé mentale aussi.",
+      "Mon directeur de thèse m'a vu aujourd'hui. Il m'a souri. C'est inquiétant.",
+      "J'ai déjà lu 3 résumés. Je suis épuisé.",
+      "Je suis encore en phase de 'cadrage'. Cadrage de mon lit.",
+    ],
+  },
+  {
+    range: [6, 15],
+    phrases: [
+      "J'ai fait un plan. Il est beau. Il ne sera jamais respecté.",
+      "La première sous-section est rédigée. Le monde est à moi.",
+      "Je commence à comprendre mon sujet. Un peu. Pas du tout.",
+      "J'ai trouvé une référence bibliographique parfaite. Elle est en allemand.",
+      "Le café est mon meilleur ami. Et mon seul ami.",
+      "Ma thèse n'est pas un sprint, c'est une randonnée. En tongs.",
+    ],
+  },
+  {
+    range: [16, 30],
+    phrases: [
+      "J'écris. Enfin, je tape sur des touches. C'est bon signe.",
+      "Ma bibliographie fait 2 pages. C'est plus que ma thèse.",
+      "Je ne sais plus si je suis chercheur·se ou ghostwriter pour mon directeur.",
+      "J'ai l'impression de creuser une galerie. J'espère qu'il y a de l'or au bout.",
+      "Le nombre de pages augmente. Mon amour-propre diminue.",
+      "J'ai rêvé que ma thèse était un chat. Elle m'ignorait.",
+    ],
+  },
+  {
+    range: [31, 50],
+    phrases: [
+      "J'ai une citation d'éléphant sur mon écran. Je commence à le détester.",
+      "Ma thèse n'avance pas. Elle est comme un chat qui dort. Tout le temps.",
+      "J'ai envie de devenir éleveur·se de chèvres. Mais j'ai pas de chèvres.",
+      "Mes amis se marient, ont des enfants. J'ai une thèse. Et des cernes.",
+      "Je suis au milieu de l'éléphant. C'est sombre.",
+      "J'ai peur de mon document Word. Il contient trop de '...'",
+    ],
+  },
+  {
+    range: [51, 75],
+    phrases: [
+      "Je commence à voir la lumière au bout du tunnel. C'est peut-être un train.",
+      "J'ai enfin rédigé le 'Cadre Théorique'. Je n'y comprends toujours rien.",
+      "Je suis devenu·e expert·e en 'discussion'. Surtout avec moi-même.",
+      "Ma thèse est comme un vieux meuble. Elle est bancale, mais je l'aime bien.",
+      "J'ai plus de pages rédigées que restantes. C'est de la magie.",
+      "J'ai l'impression de courir un marathon. J'ai plus de jambes.",
+    ],
+  },
+  {
+    range: [76, 95],
+    phrases: [
+      "Le document Word est devenu trop gros. J'ai peur qu'il explose.",
+      "Mon directeur m'a envoyé un mail. J'ai peur d'ouvrir ma boîte.",
+      "J'ai l'impression de relire les mêmes phrases pour la centième fois.",
+      "Le dénouement approche. J'ai envie de pleurer. De joie, j'espère.",
+      "J'ai une date de fin estimée. J'espère qu'elle est fausse.",
+      "Le stress est inversement proportionnel au nombre de pages restantes.",
+    ],
+  },
+  {
+    range: [96, 100],
+    phrases: [
+      "La conclusion est écrite. C'est la fin. Ou le début.",
+      "Je n'y crois pas. C'est fini. Enfin presque. Il reste les corrections.",
+      "J'ai une thèse. Je suis devenu·e une créature de légende.",
+      "L'éléphant est mangé. Il était bon.",
+      "C'est fait. Enfin. Je vais pouvoir dormir.",
+      "Le document final est prêt. J'ai peur d'appuyer sur 'Envoyer'.",
+    ],
+  },
+];
+
+function getFunnyCaption(pct) {
+  const bucket = FUNNY_CAPTIONS.find(b => pct >= b.range[0] && pct <= b.range[1])
+    ?? FUNNY_CAPTIONS[FUNNY_CAPTIONS.length - 1];
+  return bucket.phrases[Math.floor(Math.random() * bucket.phrases.length)];
+}
+
+/* ============================================================
+   PLAN TEMPLATES
+============================================================ */
+const PLAN_TEMPLATES = [
+  {
+    name: 'Thèse Classique SHS',
+    chapters: [
+      { title: 'Introduction Générale',                     targetPages: 15  },
+      { title: 'Revue de la littérature / État de l\'art',  targetPages: 60  },
+      { title: 'Cadre théorique et conceptuel',             targetPages: 50  },
+      { title: 'Méthodologie et terrain',                   targetPages: 40  },
+      { title: 'Analyse et Résultats',                      targetPages: 100 },
+      { title: 'Discussion',                                targetPages: 25  },
+      { title: 'Conclusion Générale',                       targetPages: 10  },
+    ],
+  },
+  {
+    name: 'Thèse IMRAD',
+    chapters: [
+      { title: 'Introduction : Contexte et Objectifs', targetPages: 15 },
+      { title: 'Matériel et Méthodes',                 targetPages: 30 },
+      { title: 'Résultats',                            targetPages: 50 },
+      { title: 'Discussion',                           targetPages: 45 },
+      { title: 'Conclusion',                           targetPages: 10 },
+    ],
+  },
+  {
+    name: 'Thèse par articles',
+    chapters: [
+      { title: 'Introduction Générale de synthèse', targetPages: 20 },
+      { title: 'Article 1',                         targetPages: 20 },
+      { title: 'Article 2',                         targetPages: 20 },
+      { title: 'Article 3',                         targetPages: 20 },
+      { title: 'Discussion Générale',               targetPages: 30 },
+      { title: 'Conclusion Générale',               targetPages: 10 },
+    ],
+  },
+  {
+    name: 'Mémoire de Master',
+    chapters: [
+      { title: 'Introduction et Problématique',              targetPages: 5  },
+      { title: 'Cadre théorique et Revue de littérature',    targetPages: 25 },
+      { title: 'Démarche méthodologique',                    targetPages: 15 },
+      { title: 'Présentation et analyse des résultats',      targetPages: 35 },
+      { title: 'Préconisations / Discussion',                targetPages: 5  },
+      { title: 'Conclusion',                                 targetPages: 5  },
+    ],
+  },
 ];
 
 /* ============================================================
    STATE
 ============================================================ */
 function defaultState() {
-  return { chapters: [], startDate: null, milestones: { 25: false, 50: false, 75: false, 100: false } };
+  return { chapters: [], startDate: null, milestones: { 25: false, 50: false, 75: false, 100: false }, documentTitle: '' };
 }
 
 let state        = defaultState();
@@ -192,7 +391,8 @@ function populateAppHeader(user) {
   document.getElementById('userEmail').textContent = name;
   const mob = document.getElementById('userEmailMobile');
   if (mob) mob.textContent = name;
-  document.getElementById('motivQuote').textContent = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+  const q = document.getElementById('crystalQuote');
+  if (q) q.textContent = QUOTES[Math.floor(Math.random() * QUOTES.length)];
 }
 
 function setDataLoading(on) {
@@ -208,10 +408,11 @@ async function _doFirestoreSave() {
     await setDoc(
       doc(db, 'users', currentUser.uid, 'thesis', 'main'),
       {
-        chapters:   state.chapters,
-        startDate:  state.startDate,
-        milestones: state.milestones,
-        updatedAt:  new Date().toISOString(),
+        chapters:      state.chapters,
+        startDate:     state.startDate,
+        milestones:    state.milestones,
+        documentTitle: state.documentTitle,
+        updatedAt:     new Date().toISOString(),
       }
     );
   } catch (e) {
@@ -234,9 +435,10 @@ async function loadFromFirestore() {
     const snap = await getDoc(doc(db, 'users', currentUser.uid, 'thesis', 'main'));
     if (snap.exists()) {
       const d = snap.data();
-      state.chapters   = d.chapters   || [];
-      state.startDate  = d.startDate  || null;
-      state.milestones = Object.assign({ 25: false, 50: false, 75: false, 100: false }, d.milestones || {});
+      state.chapters      = d.chapters      || [];
+      state.startDate     = d.startDate     || null;
+      state.milestones    = Object.assign({ 25: false, 50: false, 75: false, 100: false }, d.milestones || {});
+      state.documentTitle = d.documentTitle || '';
     } else {
       state = defaultState();
     }
@@ -280,14 +482,25 @@ function addDaysToNow(days) {
 /* ============================================================
    CALCULATIONS
 ============================================================ */
-const totalPages   = () => state.chapters.reduce((s, ch) => s + ch.subsections.reduce((a, ss) => a + (ss.targetPages  || 0), 0), 0);
-const writtenPages = () => state.chapters.reduce((s, ch) => s + ch.subsections.reduce((a, ss) => a + (ss.writtenPages || 0), 0), 0);
+const totalPages   = () => state.chapters.reduce((s, ch) =>
+  ch.subsections.length === 0
+    ? s + (ch.targetPages  || 0)
+    : s + ch.subsections.reduce((a, ss) => a + (ss.targetPages  || 0), 0), 0);
+const writtenPages = () => state.chapters.reduce((s, ch) =>
+  ch.subsections.length === 0
+    ? s + (ch.writtenPages || 0)
+    : s + ch.subsections.reduce((a, ss) => a + (ss.writtenPages || 0), 0), 0);
 
 function ssProgress(ss) {
   return ss.targetPages > 0 ? Math.min(100, Math.round((ss.writtenPages / ss.targetPages) * 100)) : 0;
 }
 
 function chapterStats(ch) {
+  if (ch.subsections.length === 0) {
+    const tP = ch.targetPages  || 0;
+    const wP = ch.writtenPages || 0;
+    return { tP, wP, prog: tP === 0 ? 0 : Math.min(100, Math.round((wP / tP) * 100)) };
+  }
   const tP = ch.subsections.reduce((s, ss) => s + (ss.targetPages  || 0), 0);
   const wP = ch.subsections.reduce((s, ss) => s + (ss.writtenPages || 0), 0);
   return { tP, wP, prog: tP === 0 ? 0 : Math.min(100, Math.round((wP / tP) * 100)) };
@@ -441,6 +654,7 @@ function toast(msg, type) {
 function render() {
   renderChapters();
   updateDashboard();
+  initSortable(); // must come after renderChapters() so DOM elements exist
 }
 
 function renderChapters() {
@@ -456,18 +670,40 @@ function renderChapters() {
       </div>`;
     return;
   }
-  c.innerHTML = state.chapters.map((ch, i) => buildChapterHTML(ch, i)).join('');
+  c.innerHTML = state.chapters.map(ch => buildChapterHTML(ch)).join('');
 }
 
-function buildChapterHTML(ch, idx) {
+function buildChapterHTML(ch) {
   const { tP, wP, prog } = chapterStats(ch);
-  const isDone = prog >= 100;
-  const isExp  = ch.expanded !== false;
+  const isDone  = prog >= 100;
+  const isExp   = ch.expanded !== false;
+  const hasS    = ch.subsections.length > 0;
+  const stats   = hasS
+    ? `${wP} / ${tP} pages &mdash; ${prog}%&nbsp;&middot;&nbsp;${ch.subsections.length} sous-section${ch.subsections.length !== 1 ? 's' : ''}`
+    : `${wP} / ${tP} pages &mdash; ${prog}%`;
+  const body = hasS
+    ? `<div class="ss-list" id="ssl-${ch.id}">${ch.subsections.map(ss => buildSsHTML(ss, ch.id)).join('')}</div>`
+    : `<div class="ch-direct-pages">
+        <div class="ss-progress-row">
+          <div class="prog-track">
+            <div class="prog-fill${isDone ? ' done' : ''}" id="chbar-${ch.id}" style="width:${prog}%"></div>
+          </div>
+          <div class="pages-row">
+            <input type="number" class="pages-input" value="${ch.writtenPages || 0}" min="0"
+                   oninput="updateChWritten('${ch.id}',this.value)" title="Pages rédigées" />
+            <span>/</span>
+            <input type="number" class="pages-input" value="${ch.targetPages || 0}" min="1"
+                   oninput="updateChTarget('${ch.id}',this.value)" title="Objectif" />
+            <span>p.</span>
+          </div>
+          <div class="prog-pct${isDone ? ' done' : ''}" id="chpct-${ch.id}">${prog}%</div>
+        </div>
+      </div>`;
   return `
 <div class="chapter-card${isDone ? ' completed' : ''}${isExp ? ' expanded' : ''}" id="ch-${ch.id}">
   <div class="chapter-header" onclick="toggleChapter('${ch.id}')">
+    <span class="ch-drag-handle" onclick="event.stopPropagation()" title="Déplacer">⋮⋮</span>
     <span class="ch-arrow">▶</span>
-    <span class="ch-num">Ch.&nbsp;${idx + 1}</span>
     <div class="ch-info">
       <div class="ch-title-row">
         <div class="ch-title" style="flex:1;min-width:0;">
@@ -482,14 +718,14 @@ function buildChapterHTML(ch, idx) {
       <div class="ch-progress-bar">
         <div class="ch-progress-fill${isDone ? ' done' : ''}" style="width:${prog}%"></div>
       </div>
-      <div class="ch-stats">${wP} / ${tP} pages &mdash; ${prog}%&nbsp;&middot;&nbsp;${ch.subsections.length} sous-section${ch.subsections.length !== 1 ? 's' : ''}</div>
+      <div class="ch-stats">${stats}</div>
     </div>
     <div class="ch-actions" onclick="event.stopPropagation()">
       <button class="btn btn-icon btn-danger-soft" title="Supprimer" onclick="deleteChapter('${ch.id}')">🗑</button>
     </div>
   </div>
   <div class="chapter-body">
-    ${ch.subsections.map(ss => buildSsHTML(ss, ch.id)).join('')}
+    ${body}
     <button class="add-ss-btn" onclick="openAddSsModal('${ch.id}')">＋ Ajouter une sous-section</button>
   </div>
 </div>`;
@@ -501,6 +737,7 @@ function buildSsHTML(ss, chId) {
   return `
 <div class="subsection" id="ss-${ss.id}">
   <div class="ss-header">
+    <span class="ss-drag-handle" title="Déplacer">⋮⋮</span>
     <div class="ss-dot${isDone ? ' done' : ''}"></div>
     <div class="ss-title">
       <input class="editable" value="${esc(ss.title)}"
@@ -660,8 +897,17 @@ function _refreshChCard(ch) {
   card.classList.toggle('completed', isDone);
   const fill = card.querySelector('.ch-progress-fill');
   if (fill) { fill.style.width = prog + '%'; fill.className = 'ch-progress-fill' + (isDone ? ' done' : ''); }
-  const stats = card.querySelector('.ch-stats');
-  if (stats) stats.textContent = `${wP} / ${tP} pages — ${prog}% · ${ch.subsections.length} sous-section${ch.subsections.length !== 1 ? 's' : ''}`;
+  const statsEl = card.querySelector('.ch-stats');
+  if (statsEl) {
+    statsEl.textContent = ch.subsections.length === 0
+      ? `${wP} / ${tP} pages — ${prog}%`
+      : `${wP} / ${tP} pages — ${prog}% · ${ch.subsections.length} sous-section${ch.subsections.length !== 1 ? 's' : ''}`;
+  }
+  // Direct-page body bar (leaf chapters only)
+  const chBar = document.getElementById('chbar-' + ch.id);
+  const chPct = document.getElementById('chpct-' + ch.id);
+  if (chBar) { chBar.style.width = prog + '%'; chBar.className = 'prog-fill' + (isDone ? ' done' : ''); }
+  if (chPct) { chPct.textContent = prog + '%'; chPct.className = 'prog-pct' + (isDone ? ' done' : ''); }
   const row = card.querySelector('.ch-title-row');
   if (row) {
     let badge = row.querySelector('.badge-done');
@@ -731,9 +977,12 @@ function importData(input) {
     try {
       const p = JSON.parse(e.target.result);
       if (!Array.isArray(p.chapters)) throw new Error('invalid');
-      state.chapters   = p.chapters;
-      state.startDate  = p.startDate  || null;
-      state.milestones = Object.assign({ 25: false, 50: false, 75: false, 100: false }, p.milestones || {});
+      state.chapters      = p.chapters;
+      state.startDate     = p.startDate     || null;
+      state.milestones    = Object.assign({ 25: false, 50: false, 75: false, 100: false }, p.milestones || {});
+      state.documentTitle = p.documentTitle || '';
+      const titleEl = document.getElementById('document-title');
+      if (titleEl) titleEl.value = state.documentTitle;
       saveNow();
       render();
       toast('✅ Données importées avec succès !', 'success');
@@ -750,11 +999,197 @@ function confirmReset() {
   if (!confirm('⚠️ Effacer TOUTES les données ?\n\nChapitres, progression, date de début — tout sera supprimé de Firestore.\nCette action est irréversible.')) return;
   if (!confirm('Dernière confirmation : vraiment tout effacer ?')) return;
   state = defaultState();
+  const titleEl = document.getElementById('document-title');
+  if (titleEl) titleEl.value = '';
   saveNow();
   render();
   document.getElementById('sdInput').value = new Date().toISOString().slice(0, 10);
   openModal('startDateModal');
   toast('🗑 Données effacées. Nouveau départ !');
+}
+
+/* ============================================================
+   LEAF-CHAPTER LIVE UPDATES (chapter with no subsections)
+============================================================ */
+function updateChWritten(chId, rawVal) {
+  const ch = state.chapters.find(c => c.id === chId);
+  if (!ch || ch.subsections.length > 0) return;
+  ch.writtenPages = Math.max(0, parseInt(rawVal, 10) || 0);
+  _refreshChCard(ch);
+  saveDebounced();
+  updateDashboard();
+}
+
+function updateChTarget(chId, rawVal) {
+  const ch = state.chapters.find(c => c.id === chId);
+  if (!ch || ch.subsections.length > 0) return;
+  ch.targetPages = Math.max(1, parseInt(rawVal, 10) || 1);
+  _refreshChCard(ch);
+  saveDebounced();
+  updateDashboard();
+}
+
+/* ============================================================
+   DOCUMENT TITLE
+============================================================ */
+function updateDocumentTitle(val) {
+  state.documentTitle = val;
+  saveDebounced();
+}
+
+/* ============================================================
+   PLAN TEMPLATES — DROPDOWN & APPLICATION
+============================================================ */
+function toggleTemplateMenu() {
+  const menu = document.getElementById('templateMenu');
+  if (menu) menu.classList.toggle('hidden');
+}
+
+function applyTemplate(idx) {
+  const tpl = PLAN_TEMPLATES[idx];
+  if (!tpl) return;
+  // Close dropdown immediately
+  document.getElementById('templateMenu').classList.add('hidden');
+  const n = tpl.chapters.length;
+  const total = tpl.chapters.reduce((s, c) => s + c.targetPages, 0);
+  if (!confirm(
+    `Ajouter le plan "${tpl.name}" à votre projet ?\n\n` +
+    `${n} chapitres · ${total} pages objectif\n\n` +
+    `Les chapitres seront ajoutés à la fin de votre liste existante.`
+  )) return;
+  const newChapters = tpl.chapters.map(ch => ({
+    id:           uid(),
+    title:        ch.title,
+    targetPages:  ch.targetPages,
+    writtenPages: 0,
+    expanded:     false,
+    subsections:  [],
+  }));
+  state.chapters.push(...newChapters);
+  saveNow();
+  render();
+  toast(`✅ "${tpl.name}" — ${n} chapitres ajoutés !`, 'success');
+}
+
+// Ferme le dropdown si on clique en dehors
+document.addEventListener('click', e => {
+  if (!e.target.closest('.template-wrap')) {
+    const menu = document.getElementById('templateMenu');
+    if (menu && !menu.classList.contains('hidden')) menu.classList.add('hidden');
+  }
+});
+
+/* ============================================================
+   DRAG & DROP — SortableJS
+   Initialisé après chaque render() pour recréer les instances
+   sur le nouveau DOM.
+============================================================ */
+function initSortable() {
+  if (!window.Sortable) return;
+  const container = document.getElementById('chaptersContainer');
+  if (!container || container.querySelector('.empty-state')) return;
+
+  // Options communes — réactivité tactile optimisée
+  const sortableOpts = {
+    animation:           150,
+    ghostClass:          'sortable-ghost',
+    dragClass:           'sortable-drag',
+    delay:               0,              // réponse immédiate
+    fallbackTolerance:   3,              // évite les drags accidentels (3 px)
+    touchStartThreshold: 3,              // idem côté touch events
+    swapThreshold:       0.65,           // zone de drop plus large (65 % de l'élément)
+  };
+
+  // Chapters drag-and-drop
+  new Sortable(container, {
+    ...sortableOpts,
+    handle: '.ch-drag-handle',
+    onEnd(evt) {
+      if (evt.oldIndex === evt.newIndex) return;
+      const moved = state.chapters.splice(evt.oldIndex, 1)[0];
+      state.chapters.splice(evt.newIndex, 0, moved);
+      saveDebounced();
+    },
+  });
+
+  // Subsections drag-and-drop (one instance per chapter)
+  state.chapters.forEach(ch => {
+    const list = document.getElementById('ssl-' + ch.id);
+    if (!list) return;
+    new Sortable(list, {
+      ...sortableOpts,
+      handle: '.ss-drag-handle',
+      onEnd(evt) {
+        if (evt.oldIndex === evt.newIndex) return;
+        const moved = ch.subsections.splice(evt.oldIndex, 1)[0];
+        ch.subsections.splice(evt.newIndex, 0, moved);
+        saveDebounced();
+      },
+    });
+  });
+}
+
+/* ============================================================
+   INSTAGRAM POST GENERATOR
+   Injecte les données actuelles dans le modèle off-screen #igPostCard,
+   attend le chargement des polices, capture via html2canvas,
+   puis déclenche le téléchargement PNG.
+============================================================ */
+async function generateInstagramPost() {
+  const total     = totalPages();
+  const written   = writtenPages();
+  const remaining = Math.max(0, total - written);
+  const pct       = total === 0 ? 0 : Math.min(100, Math.round(written / total * 100));
+
+  // Injecter les données dans le modèle
+  document.getElementById('igpPct').textContent       = pct + '%';
+  document.getElementById('igpWritten').textContent   = written;
+  document.getElementById('igpRemaining').textContent = remaining;
+  document.getElementById('igpMessage').textContent   =
+    remaining > 0
+      ? `Plus que ${remaining} page${remaining > 1 ? 's' : ''} !`
+      : 'Thèse terminée ! 🎉';
+
+  // Phrase drôle dynamique selon l'avancement
+  document.getElementById('igpFooter').textContent = getFunnyCaption(pct);
+
+  // Mettre à jour la jauge SVG
+  const CIRC = 502.65; // 2π × r80 (cohérent avec la jauge principale)
+  document.getElementById('igpFill').style.strokeDashoffset = CIRC * (1 - pct / 100);
+
+  // Désactiver tous les boutons "Partager" pendant la génération
+  const btns = document.querySelectorAll('.btn-share-ig');
+  btns.forEach(b => { b.disabled = true; b.textContent = 'Génération…'; });
+
+  try {
+    // Attendre que toutes les polices Web (Playfair Display…) soient prêtes
+    await document.fonts.ready;
+    // Laisser le navigateur le temps de rendre le DOM mis à jour
+    await new Promise(r => setTimeout(r, 180));
+
+    const canvas = await window.html2canvas(document.getElementById('igPostCard'), {
+      width:           1080,
+      height:          1080,
+      scale:           1,
+      useCORS:         true,
+      allowTaint:      true,
+      backgroundColor: null,
+      logging:         false,
+    });
+
+    // Déclencher le téléchargement PNG
+    const a = Object.assign(document.createElement('a'), {
+      download: 'mon-avancement-these.png',
+      href:     canvas.toDataURL('image/png'),
+    });
+    a.click();
+    toast('📸 Image téléchargée ! Partagez-la sur Instagram.', 'success');
+  } catch (err) {
+    console.error('html2canvas error:', err);
+    toast('Erreur lors de la génération de l\'image.', '');
+  } finally {
+    btns.forEach(b => { b.disabled = false; b.textContent = '📸 Partager mon avancée'; });
+  }
 }
 
 /* ============================================================
@@ -789,9 +1224,15 @@ Object.assign(window, {
   // Subsections
   openAddSsModal, saveSubsection, deleteSs, updateSsTitle,
   // Live updates
-  updateWritten, updateTarget,
+  updateWritten, updateTarget, updateChWritten, updateChTarget,
+  // Document title
+  updateDocumentTitle,
+  // Plan templates
+  toggleTemplateMenu, applyTemplate,
   // Data
   exportData, importData, confirmReset,
+  // Instagram post generator
+  generateInstagramPost,
 });
 
 /* ============================================================
@@ -807,6 +1248,10 @@ onAuthStateChanged(auth, async (user) => {
     // Load data from Firestore, then render
     await loadFromFirestore();
     render();
+
+    // Restore document title input
+    const titleEl = document.getElementById('document-title');
+    if (titleEl) titleEl.value = state.documentTitle || '';
 
     // Ask for start date if not set yet
     if (!state.startDate) {
