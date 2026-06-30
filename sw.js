@@ -5,13 +5,14 @@
    mis en cache ; les visites suivantes se chargent hors-ligne.
 ============================================================ */
 
-const CACHE_NAME = 'journal-de-bord-v1';
+const CACHE_NAME = 'journal-de-bord-v2';
 
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
   './style.css',
   './app.js',
+  './jszip.min.js',
   './manifest.json',
 ];
 

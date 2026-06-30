@@ -39,6 +39,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" defer></script>
   <!-- SortableJS : glisser-déposer chapitres & sous-sections -->
   <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js" defer></script>
+  <!-- JSZip (auto-hébergé) : lecture des fichiers .docx (manuscrit) côté navigateur, hors-ligne -->
+  <script src="jszip.min.js" defer></script>
 
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -309,6 +311,11 @@
       </div><!-- /db-stats-col -->
     </div><!-- /dashboard-inner -->
   </section>
+
+  <!-- ══════════════════════════════════════════════════════════
+       ZONE 1.4 — MON MANUSCRIT (import auto du fichier Word/Docs)
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="manuscript-card" id="manuscriptCard" aria-label="Mon manuscrit"></section>
 
   <!-- ══════════════════════════════════════════════════════════
        ZONE 1.5 — TRACKER D'ÉCRITURE (automatique)

@@ -255,7 +255,13 @@ const PLAN_TEMPLATES = [
    STATE
 ============================================================ */
 function defaultState() {
-  return { chapters: [], startDate: null, milestones: { 25: false, 50: false, 75: false, 100: false }, documentTitle: '', history: {} };
+  return {
+    chapters: [], startDate: null,
+    milestones: { 25: false, 50: false, 75: false, 100: false },
+    documentTitle: '', history: {},
+    manuscript: null,      // { fileName, words, wordPages, updatedAt } — auto-read from an uploaded file
+    wordsPerPage: 250,     // words → pages ratio when the editor's own page count isn't reliable
+  };
 }
 
 let state        = defaultState();
@@ -414,6 +420,8 @@ async function _doFirestoreSave() {
         milestones:    state.milestones,
         documentTitle: state.documentTitle,
         history:       state.history,
+        manuscript:    state.manuscript ?? null,
+        wordsPerPage:  state.wordsPerPage || 250,
         updatedAt:     new Date().toISOString(),
       }
     );
@@ -442,6 +450,8 @@ async function loadFromFirestore() {
       state.milestones    = Object.assign({ 25: false, 50: false, 75: false, 100: false }, d.milestones || {});
       state.documentTitle = d.documentTitle || '';
       state.history       = (d.history && typeof d.history === 'object') ? d.history : {};
+      state.manuscript    = d.manuscript || null;
+      state.wordsPerPage  = d.wordsPerPage || 250;
     } else {
       state = defaultState();
     }
@@ -570,10 +580,39 @@ const totalPages   = () => state.chapters.reduce((s, ch) =>
   ch.subsections.length === 0
     ? s + (ch.targetPages  || 0)
     : s + ch.subsections.reduce((a, ss) => a + (ss.targetPages  || 0), 0), 0);
-const writtenPages = () => state.chapters.reduce((s, ch) =>
+const chaptersWrittenPages = () => state.chapters.reduce((s, ch) =>
   ch.subsections.length === 0
     ? s + (ch.writtenPages || 0)
     : s + ch.subsections.reduce((a, ss) => a + (ss.writtenPages || 0), 0), 0);
+
+// Pages derived from an uploaded manuscript (null when none connected).
+// Uses the editor's own page count when it looks plausible (typically Word),
+// otherwise falls back to words ÷ a configurable ratio (Google Docs export, .txt).
+function manuscriptPages() {
+  const m = state.manuscript;
+  if (!m || !Number.isFinite(m.words)) return null;
+  if (m.words === 0) return 0;
+  const wpp = state.wordsPerPage || 250;
+  const wp  = m.wordPages || 0;
+  const r   = wp > 0 ? m.words / wp : 0;
+  if (wp > 0 && r >= 120 && r <= 700) return wp;          // trust the file's own page count
+  return Math.max(1, Math.ceil(m.words / wpp));
+}
+
+// How the manuscript page count was obtained — for display.
+function manuscriptPagesSource() {
+  const m = state.manuscript;
+  if (!m || !Number.isFinite(m.words) || m.words === 0) return null;
+  const wp = m.wordPages || 0;
+  const r  = wp > 0 ? m.words / wp : 0;
+  return (wp > 0 && r >= 120 && r <= 700) ? 'word' : 'ratio';
+}
+
+// Global written-pages total: manuscript when connected, else the manual chapter sum.
+const writtenPages = () => {
+  const mp = manuscriptPages();
+  return mp === null ? chaptersWrittenPages() : mp;
+};
 
 function ssProgress(ss) {
   return ss.targetPages > 0 ? Math.min(100, Math.round((ss.writtenPages / ss.targetPages) * 100)) : 0;
@@ -624,7 +663,7 @@ function updateDashboard() {
   // Stats
   animNum('sTotal',     total);
   animNum('sWritten',   written);
-  animNum('sRemaining', remaining);
+  animNum('sRemaining', Math.max(0, remaining));
 
   const chCnt = state.chapters.length;
   const ssCnt = state.chapters.reduce((s, ch) => s + ch.subsections.length, 0);
@@ -640,12 +679,16 @@ function updateDashboard() {
     setText('sDays', 'Définir une date de début');
   }
 
-  // Crystal-ball end date
+  // Crystal-ball end date (only meaningful once a page objective exists)
+  const hasTarget = total > 0;
   let endDate = null;
-  if (vel > 0) {
+  if (hasTarget && vel > 0) {
     endDate = remaining <= 0 ? new Date() : addDaysToNow(remaining / vel);
   }
-  if (endDate && written > 0) {
+  if (!hasTarget && written > 0) {
+    setText('sEndDate', '—');
+    setText('sEndMsg',  'Définissez un objectif de pages 🎯');
+  } else if (endDate && written > 0) {
     if (remaining <= 0) {
       setText('sEndDate', '🎉 Terminé !');
       setText('sEndMsg',  'Champagne ! 🥂');
@@ -801,9 +844,99 @@ function toast(msg, type) {
    FULL RENDER
 ============================================================ */
 function render() {
+  renderManuscript();
   renderChapters();
   updateDashboard();
+  setupManuscriptDnd();
   initSortable(); // must come after renderChapters() so DOM elements exist
+}
+
+/* ============================================================
+   MANUSCRIPT CARD
+============================================================ */
+function renderManuscript() {
+  const card = document.getElementById('manuscriptCard');
+  if (!card) return;
+  const m = state.manuscript;
+
+  if (!m) {
+    card.className = 'manuscript-card';
+    card.innerHTML = `
+      <div class="ms-head">
+        <span class="ms-icon">📄</span>
+        <div class="ms-head-text">
+          <h2 class="ms-title">Mon manuscrit</h2>
+          <p class="ms-sub">Déposez votre fichier Word (.docx) ou texte (.txt) : vos pages rédigées seront comptées
+             automatiquement, sans rien saisir à la main.</p>
+        </div>
+      </div>
+      <label class="ms-dropzone" id="msDropzone">
+        <input type="file" accept=".docx,.txt,.md" class="hidden" onchange="importManuscript(this)" />
+        <span class="ms-dz-icon">⬆️</span>
+        <span class="ms-dz-text"><strong>Importer mon manuscrit</strong><br>ou glissez-déposez le fichier ici</span>
+        <span class="ms-dz-hint">Word : .docx &nbsp;·&nbsp; Google Docs : Fichier → Télécharger → .docx (ou .txt)</span>
+      </label>`;
+    return;
+  }
+
+  card.className = 'manuscript-card connected';
+  const pages    = writtenPages();
+  const src      = manuscriptPagesSource();
+  const srcLabel = src === 'word' ? 'pages calculées par Word' : `~${state.wordsPerPage || 250} mots / page`;
+  const maj      = m.updatedAt ? formatDateFr(m.updatedAt.slice(0, 10)) : '—';
+
+  card.innerHTML = `
+    <div class="ms-head">
+      <span class="ms-icon">📄</span>
+      <div class="ms-head-text">
+        <h2 class="ms-title">Mon manuscrit</h2>
+        <p class="ms-sub ms-filename" title="${esc(m.fileName)}">${esc(m.fileName)}</p>
+      </div>
+      <div class="ms-actions">
+        <label class="btn btn-primary btn-sm" style="cursor:pointer;">
+          ↻ Mettre à jour
+          <input type="file" accept=".docx,.txt,.md" class="hidden" onchange="importManuscript(this)" />
+        </label>
+        <button class="btn btn-outline btn-sm" onclick="detachManuscript()">Détacher</button>
+      </div>
+    </div>
+
+    <div class="ms-readout">
+      <div class="ms-readout-main">
+        <span class="ms-pages">${pages}</span>
+        <span class="ms-pages-lbl">pages rédigées</span>
+      </div>
+      <div class="ms-readout-meta">
+        <span>${(m.words || 0).toLocaleString('fr-FR')} mots</span>
+        <span class="ms-dot">·</span>
+        <span>${srcLabel}</span>
+        <span class="ms-dot">·</span>
+        <span>maj ${maj}</span>
+      </div>
+    </div>
+
+    <div class="ms-ratio${src === 'word' ? ' is-muted' : ''}">
+      <label for="msWpp">Mots par page</label>
+      <input type="number" id="msWpp" min="50" step="10" value="${state.wordsPerPage || 250}"
+             oninput="updateWordsPerPage(this.value)" />
+      <span class="ms-ratio-note">${src === 'word'
+        ? 'Word fournit déjà le nombre de pages — ce réglage est ignoré.'
+        : 'Ajustez pour coller à votre mise en page.'}</span>
+    </div>`;
+}
+
+function setupManuscriptDnd() {
+  const dz = document.getElementById('msDropzone') || document.getElementById('manuscriptCard');
+  if (!dz) return;
+  const stop = e => { e.preventDefault(); e.stopPropagation(); };
+  ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => { stop(e); dz.classList.add('drag-over'); }));
+  ['dragleave', 'dragend'].forEach(ev => dz.addEventListener(ev, e => { stop(e); dz.classList.remove('drag-over'); }));
+  dz.addEventListener('drop', e => {
+    stop(e);
+    dz.classList.remove('drag-over');
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (f) handleManuscriptFile(f);
+  });
 }
 
 function renderChapters() {
@@ -1105,6 +1238,102 @@ function saveStartDate() {
 }
 
 /* ============================================================
+   MANUSCRIPT IMPORT
+   Read word/page counts straight from an uploaded Word (.docx)
+   or text (.txt) file. Everything is parsed in the browser —
+   nothing is uploaded anywhere. The result feeds the global
+   "pages rédigées" total automatically (no manual entry).
+============================================================ */
+function countWords(text) {
+  const m = (text || '').match(/\S+/g);
+  return m ? m.length : 0;
+}
+
+async function parseDocx(arrayBuffer) {
+  if (!window.JSZip) throw new Error('zip-lib-missing');
+  const zip = await window.JSZip.loadAsync(arrayBuffer);
+
+  // Prefer the document properties Word/Office writes on save.
+  let words = NaN, wordPages = 0;
+  const appFile = zip.file('docProps/app.xml');
+  if (appFile) {
+    const xml = await appFile.async('string');
+    const w = xml.match(/<Words>(\d+)<\/Words>/i);
+    const p = xml.match(/<Pages>(\d+)<\/Pages>/i);
+    if (w) words = parseInt(w[1], 10);
+    if (p) wordPages = parseInt(p[1], 10);
+  }
+  // Fallback: count the body text ourselves.
+  if (!Number.isFinite(words)) {
+    const docFile = zip.file('word/document.xml');
+    if (!docFile) throw new Error('not-a-docx');
+    const docXml = await docFile.async('string');
+    const text = docXml
+      .replace(/<w:p\b[^>]*>/g, '\n')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+    words = countWords(text);
+  }
+  return { words, wordPages: wordPages || 0 };
+}
+
+async function parseManuscriptFile(file) {
+  const name = (file.name || '').toLowerCase();
+  if (name.endsWith('.docx')) return parseDocx(await file.arrayBuffer());
+  if (name.endsWith('.txt') || name.endsWith('.md')) {
+    return { words: countWords(await file.text()), wordPages: 0 };
+  }
+  throw new Error('unsupported');
+}
+
+async function handleManuscriptFile(file) {
+  if (!file) return;
+  if (!/\.(docx|txt|md)$/i.test(file.name || '')) {
+    toast('Format non pris en charge. Utilisez .docx ou .txt.', '');
+    return;
+  }
+  const card = document.getElementById('manuscriptCard');
+  if (card) card.classList.add('is-loading');
+  try {
+    const { words, wordPages } = await parseManuscriptFile(file);
+    if (!Number.isFinite(words)) throw new Error('parse');
+    state.manuscript = { fileName: file.name, words, wordPages: wordPages || 0, updatedAt: new Date().toISOString() };
+    saveNow();
+    render();
+    const p = writtenPages();
+    toast(`✅ Manuscrit lu : ${p} page${p > 1 ? 's' : ''} · ${words.toLocaleString('fr-FR')} mots`, 'success');
+  } catch (e) {
+    console.error('manuscript parse error:', e);
+    toast("❌ Lecture impossible. Vérifiez qu'il s'agit d'un .docx ou .txt valide.", '');
+  } finally {
+    if (card) card.classList.remove('is-loading');
+  }
+}
+
+function importManuscript(input) {
+  const file = input.files && input.files[0];
+  handleManuscriptFile(file);
+  input.value = '';
+}
+
+function detachManuscript() {
+  if (!confirm('Détacher le manuscrit ?\n\nVos pages rédigées repasseront en saisie manuelle par chapitre.')) return;
+  state.manuscript = null;
+  saveNow();
+  render();
+  toast('Manuscrit détaché.');
+}
+
+function updateWordsPerPage(rawVal) {
+  const v = parseInt(rawVal, 10);
+  state.wordsPerPage = (Number.isFinite(v) && v >= 50) ? v : 250;
+  saveDebounced();
+  updateDashboard();
+  renderManuscript();
+}
+
+/* ============================================================
    EXPORT / IMPORT (JSON portability — independent of Firestore)
 ============================================================ */
 function exportData() {
@@ -1131,6 +1360,8 @@ function importData(input) {
       state.milestones    = Object.assign({ 25: false, 50: false, 75: false, 100: false }, p.milestones || {});
       state.documentTitle = p.documentTitle || '';
       state.history       = (p.history && typeof p.history === 'object') ? p.history : {};
+      state.manuscript    = p.manuscript || null;
+      state.wordsPerPage  = p.wordsPerPage || 250;
       seedHistoryBaseline();
       const titleEl = document.getElementById('document-title');
       if (titleEl) titleEl.value = state.documentTitle;
@@ -1446,6 +1677,8 @@ Object.assign(window, {
   updateDocumentTitle,
   // Plan templates
   toggleTemplateMenu, applyTemplate,
+  // Manuscript import
+  importManuscript, detachManuscript, updateWordsPerPage,
   // Data
   exportData, importData, confirmReset,
   // Instagram post generator
