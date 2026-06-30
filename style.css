@@ -1209,3 +1209,112 @@ footer {
   border-radius: 50%;
 }
 .ios-banner-close:hover { background: var(--bg); }
+
+/* ============================================================
+   WRITING TRACKER PANEL (Zone 1.5)
+============================================================ */
+.tracker-panel {
+  max-width: 960px;
+  margin: 24px auto 0;
+  width: calc(100% - 40px);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow);
+  padding: 22px 24px;
+}
+.tracker-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.tracker-title-wrap { display: flex; align-items: flex-start; gap: 12px; min-width: 0; }
+.tracker-title-icon {
+  font-size: 1.5rem; line-height: 1; flex-shrink: 0;
+  background: var(--gold-light);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+}
+.tracker-title {
+  font-family: var(--font-heading);
+  font-size: 1.25rem; font-weight: 800; color: var(--text);
+  margin: 0; line-height: 1.15;
+}
+.tracker-subtitle {
+  font-size: .8rem; color: var(--text-muted);
+  margin: 3px 0 0; line-height: 1.35; max-width: 38ch;
+}
+
+/* KPI row */
+.tracker-kpis {
+  display: flex; gap: 10px; flex-wrap: wrap;
+}
+.tk {
+  display: flex; flex-direction: column; align-items: center;
+  min-width: 86px; padding: 8px 12px;
+  background: var(--card-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.tk-val {
+  font-family: var(--font-heading);
+  font-size: 1.45rem; font-weight: 800; color: var(--ink); line-height: 1;
+}
+.tk-lbl {
+  font-size: .66rem; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .4px;
+  margin-top: 4px; text-align: center; line-height: 1.2;
+}
+.tk-streak .tk-val { color: var(--rust); }
+
+/* Sparkline chart */
+.tracker-chart-wrap { margin-top: 20px; }
+.tracker-chart {
+  display: flex; align-items: flex-end; gap: 3px;
+  height: 96px;
+  padding: 6px 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+.tc-bar {
+  flex: 1 1 0; min-width: 0;
+  height: 100%;
+  display: flex; align-items: flex-end;
+  border-radius: 3px;
+  transition: background .15s;
+}
+.tc-bar:hover { background: var(--card-alt); }
+.tc-bar-fill {
+  width: 100%;
+  background: linear-gradient(180deg, var(--ink), var(--ink-dark));
+  border-radius: 3px 3px 0 0;
+  min-height: 0;
+  transition: height .35s ease;
+}
+.tc-bar.is-today .tc-bar-fill {
+  background: linear-gradient(180deg, var(--gold), var(--rust));
+}
+.tracker-empty {
+  font-size: .85rem; color: var(--text-muted);
+  line-height: 1.45; text-align: center;
+  padding: 18px 8px; margin: 0;
+  background: var(--card-alt);
+  border: 1px dashed var(--border-mid);
+  border-radius: var(--radius);
+}
+.tracker-axis {
+  display: flex; justify-content: space-between;
+  font-size: .66rem; color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: .4px;
+  margin-top: 6px;
+}
+
+@media (max-width: 680px) {
+  .tracker-panel { padding: 18px 16px; border-radius: var(--radius); }
+  .tracker-head { gap: 14px; }
+  .tracker-kpis { width: 100%; }
+  .tk { flex: 1 1 0; min-width: 70px; padding: 8px 6px; }
+  .tk-val { font-size: 1.2rem; }
+  .tracker-chart { height: 72px; }
+}

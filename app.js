@@ -255,7 +255,7 @@ const PLAN_TEMPLATES = [
    STATE
 ============================================================ */
 function defaultState() {
-  return { chapters: [], startDate: null, milestones: { 25: false, 50: false, 75: false, 100: false }, documentTitle: '' };
+  return { chapters: [], startDate: null, milestones: { 25: false, 50: false, 75: false, 100: false }, documentTitle: '', history: {} };
 }
 
 let state        = defaultState();
@@ -404,6 +404,7 @@ function setDataLoading(on) {
 ============================================================ */
 async function _doFirestoreSave() {
   if (!currentUser) return;
+  recordSnapshot(); // lock today's written-pages total before persisting
   try {
     await setDoc(
       doc(db, 'users', currentUser.uid, 'thesis', 'main'),
@@ -412,6 +413,7 @@ async function _doFirestoreSave() {
         startDate:     state.startDate,
         milestones:    state.milestones,
         documentTitle: state.documentTitle,
+        history:       state.history,
         updatedAt:     new Date().toISOString(),
       }
     );
@@ -439,9 +441,11 @@ async function loadFromFirestore() {
       state.startDate     = d.startDate     || null;
       state.milestones    = Object.assign({ 25: false, 50: false, 75: false, 100: false }, d.milestones || {});
       state.documentTitle = d.documentTitle || '';
+      state.history       = (d.history && typeof d.history === 'object') ? d.history : {};
     } else {
       state = defaultState();
     }
+    seedHistoryBaseline();
   } catch (e) {
     console.error('Firestore load error:', e);
     toast('⚠️ Impossible de charger les données', '');
@@ -477,6 +481,86 @@ function addDaysToNow(days) {
   const d = new Date();
   d.setDate(d.getDate() + Math.ceil(days));
   return d;
+}
+
+/* ============================================================
+   WRITING TRACKER — automatic daily snapshots
+   state.history maps "YYYY-MM-DD" → cumulative written-pages
+   total recorded that day. Day-over-day differences give the
+   pages written each day, with zero extra input from the user.
+============================================================ */
+function localISO(date) {
+  const d  = date || new Date();
+  const m  = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${dd}`;
+}
+function todayISO() { return localISO(); }
+
+function isoDaysAgo(n) {
+  const d = new Date(); d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() - n);
+  return localISO(d);
+}
+
+function isoDayBefore(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  dt.setDate(dt.getDate() - 1);
+  return localISO(dt);
+}
+
+// Record (or refresh) today's cumulative written-pages total.
+function recordSnapshot() {
+  if (!state.history || typeof state.history !== 'object') state.history = {};
+  state.history[todayISO()] = writtenPages();
+}
+
+// Cumulative total as of a given day = latest snapshot on or before it (0 if none).
+function cumAt(iso) {
+  const hist = state.history || {};
+  let bestKey = null, bestVal = 0;
+  for (const k in hist) {
+    if (k <= iso && (bestKey === null || k > bestKey)) { bestKey = k; bestVal = hist[k]; }
+  }
+  return bestKey === null ? 0 : bestVal;
+}
+
+// Pages written on a specific day = increase vs the previous calendar day.
+// The earliest snapshot is only a baseline (we can't know what came before),
+// so it never counts as a writing day.
+function pagesWrittenOn(iso) {
+  const first = firstHistoryDate();
+  if (!first || iso <= first) return 0;
+  return Math.max(0, cumAt(iso) - cumAt(isoDayBefore(iso)));
+}
+
+function firstHistoryDate() {
+  const keys = Object.keys(state.history || {});
+  if (!keys.length) return null;
+  return keys.sort()[0];
+}
+
+// First-ever tracking: anchor a baseline on yesterday equal to the current
+// written total. This way today's delta is computed correctly from day one —
+// a new user's first pages count, and a returning user's existing backlog is
+// NOT mistaken for "written today".
+function seedHistoryBaseline() {
+  if (!state.history || typeof state.history !== 'object') state.history = {};
+  if (Object.keys(state.history).length === 0) {
+    state.history[isoDaysAgo(1)] = writtenPages();
+  }
+}
+
+// Consecutive days written, ending today (or yesterday if today is still pending).
+function computeStreak() {
+  let streak = 0;
+  let i = pagesWrittenOn(isoDaysAgo(0)) > 0 ? 0 : 1; // today pending → start from yesterday
+  for (; i < 730; i++) {
+    if (pagesWrittenOn(isoDaysAgo(i)) > 0) streak++;
+    else break;
+  }
+  return streak;
 }
 
 /* ============================================================
@@ -577,6 +661,71 @@ function updateDashboard() {
 
   setText('startDateDisplay', state.startDate ? formatDateFr(state.startDate) : 'Non définie');
   checkMilestones(progress);
+  updateTracker();
+}
+
+/* ============================================================
+   WRITING TRACKER — render KPIs + 30-day sparkline
+============================================================ */
+function updateTracker() {
+  const panel = document.getElementById('trackerPanel');
+  if (!panel) return;
+
+  recordSnapshot(); // keep today's value live during editing (persisted on next save)
+
+  const writtenNow = writtenPages();
+  const todayPages = pagesWrittenOn(todayISO());
+
+  // Rolling recent velocity: pages over the last up-to-7 tracked days.
+  const first   = firstHistoryDate();
+  let   window7 = 7;
+  if (first) {
+    const elapsed = Math.round((new Date(todayISO()) - new Date(first)) / 86400000) + 1;
+    window7 = Math.min(7, Math.max(1, elapsed));
+  }
+  const week    = Math.max(0, writtenNow - cumAt(isoDaysAgo(7)));   // pages in last 7 calendar days
+  const recent  = Math.max(0, writtenNow - cumAt(isoDaysAgo(window7)));
+  const vel7    = window7 > 0 ? recent / window7 : 0;
+  const streak  = computeStreak();
+
+  setText('tkToday',  todayPages);
+  setText('tkStreak', streak);
+  setText('tkVel7',   vel7 > 0 ? vel7.toFixed(1) : '0');
+  setText('tkWeek',   week);
+
+  // 30-day sparkline (oldest → today)
+  const days = [];
+  for (let i = 29; i >= 0; i--) {
+    const iso = isoDaysAgo(i);
+    days.push({ iso, pages: pagesWrittenOn(iso) });
+  }
+  const maxP = Math.max(1, ...days.map(d => d.pages));
+
+  const chart = document.getElementById('trackerChart');
+  const empty = document.getElementById('trackerEmpty');
+  const axis  = document.getElementById('trackerAxis');
+  const hasActivity = days.some(d => d.pages > 0);
+
+  if (!hasActivity) {
+    if (chart) { chart.innerHTML = ''; chart.classList.add('hidden'); }
+    if (axis)  axis.classList.add('hidden');
+    if (empty) empty.classList.remove('hidden');
+    return;
+  }
+  if (empty) empty.classList.add('hidden');
+  if (axis)  axis.classList.remove('hidden');
+  if (chart) {
+    chart.classList.remove('hidden');
+    chart.innerHTML = days.map(d => {
+      const h     = d.pages > 0 ? Math.max(8, Math.round((d.pages / maxP) * 100)) : 0;
+      const today = d.iso === todayISO() ? ' is-today' : '';
+      const lbl   = d.pages > 0
+        ? `${formatDateFr(d.iso)} — ${d.pages} page${d.pages > 1 ? 's' : ''}`
+        : `${formatDateFr(d.iso)} — aucune page`;
+      return `<div class="tc-bar${today}" title="${lbl}">`
+           + `<div class="tc-bar-fill" style="height:${h}%"></div></div>`;
+    }).join('');
+  }
 }
 
 function setText(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
@@ -981,6 +1130,8 @@ function importData(input) {
       state.startDate     = p.startDate     || null;
       state.milestones    = Object.assign({ 25: false, 50: false, 75: false, 100: false }, p.milestones || {});
       state.documentTitle = p.documentTitle || '';
+      state.history       = (p.history && typeof p.history === 'object') ? p.history : {};
+      seedHistoryBaseline();
       const titleEl = document.getElementById('document-title');
       if (titleEl) titleEl.value = state.documentTitle;
       saveNow();
@@ -999,6 +1150,7 @@ function confirmReset() {
   if (!confirm('⚠️ Effacer TOUTES les données ?\n\nChapitres, progression, date de début — tout sera supprimé de Firestore.\nCette action est irréversible.')) return;
   if (!confirm('Dernière confirmation : vraiment tout effacer ?')) return;
   state = defaultState();
+  seedHistoryBaseline();
   const titleEl = document.getElementById('document-title');
   if (titleEl) titleEl.value = '';
   saveNow();

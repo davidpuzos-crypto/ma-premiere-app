@@ -311,6 +311,50 @@
   </section>
 
   <!-- ══════════════════════════════════════════════════════════
+       ZONE 1.5 — TRACKER D'ÉCRITURE (automatique)
+  ═══════════════════════════════════════════════════════════ -->
+  <section class="tracker-panel" id="trackerPanel" aria-label="Suivi d'écriture">
+    <div class="tracker-head">
+      <div class="tracker-title-wrap">
+        <span class="tracker-title-icon">✍️</span>
+        <div>
+          <h2 class="tracker-title">Suivi d'écriture</h2>
+          <p class="tracker-subtitle">Vos pages écrites sont enregistrées automatiquement chaque jour.</p>
+        </div>
+      </div>
+      <div class="tracker-kpis">
+        <div class="tk">
+          <span class="tk-val" id="tkToday">0</span>
+          <span class="tk-lbl">pages aujourd'hui</span>
+        </div>
+        <div class="tk tk-streak">
+          <span class="tk-val" id="tkStreak">0</span>
+          <span class="tk-lbl">jours de suite 🔥</span>
+        </div>
+        <div class="tk">
+          <span class="tk-val" id="tkWeek">0</span>
+          <span class="tk-lbl">pages (7 jours)</span>
+        </div>
+        <div class="tk">
+          <span class="tk-val" id="tkVel7">0</span>
+          <span class="tk-lbl">pages / jour (moy. 7 j)</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="tracker-chart-wrap">
+      <div class="tracker-chart hidden" id="trackerChart" aria-hidden="true"></div>
+      <p class="tracker-empty" id="trackerEmpty">
+        📈 Votre courbe de progression apparaîtra ici dès que vous aurez écrit vos premières pages. Revenez chaque jour : votre régularité se construit automatiquement !
+      </p>
+      <div class="tracker-axis hidden" id="trackerAxis">
+        <span>il y a 30 jours</span>
+        <span>aujourd'hui</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════════════════════════
        ZONE 2 — ESPACE DE TRAVAIL (Chapitres)
   ═══════════════════════════════════════════════════════════ -->
   <main class="workspace">
