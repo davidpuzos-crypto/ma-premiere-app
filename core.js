@@ -148,9 +148,11 @@ export function bestStreak(state, today) {
 
 /**
  * Rythme d'écriture (pages par jour calendaire).
- *  - récent : 28 derniers jours (fenêtre réduite si le suivi est plus récent)
- *  - moyen  : pages rédigées / jours depuis la date de début
- * La prévision utilise le rythme récent dès qu'on a 14 jours de suivi.
+ *  - 'recent'  : 28 derniers jours, dès que l'on a 14 jours de suivi
+ *  - 'average' : pages rédigées / jours depuis la date de début, seulement si
+ *                cette date précède le début du suivi (on écrivait déjà avant)
+ *  - 'early'   : pages notées / jours de suivi (estimation provisoire des débuts)
+ * Les pages déjà écrites avant le suivi ne gonflent jamais le rythme.
  */
 export function pace(state, today, written) {
   const since = state.trackedSince && state.trackedSince <= today ? state.trackedSince : today;
@@ -158,17 +160,16 @@ export function pace(state, today, written) {
   const win = Math.max(1, Math.min(28, tracked));
   const recentPages = sumRange(state.activity, addDays(today, -(win - 1)), today);
   const recent = Math.max(0, recentPages / win);
-  const startDays = state.startDate ? Math.max(1, diffDays(state.startDate, today) + 1) : 0;
-  const average = startDays && written > 0 ? written / startDays : 0;
-  const useRecent = tracked >= 14 && recent > 0;
-  return {
-    recent,
-    recentWindow: win,
-    tracked,
-    average,
-    forecast: useRecent ? recent : average,
-    basis: useRecent ? 'recent' : (average > 0 ? 'average' : 'none'),
-  };
+  const priorStart = !!state.startDate && state.startDate < since;
+  const startDays = priorStart ? Math.max(1, diffDays(state.startDate, today) + 1) : 0;
+  const average = priorStart && written > 0 ? written / startDays : 0;
+  const early = Math.max(0, sumRange(state.activity, since, today) / tracked);
+  let forecast = 0;
+  let basis = 'none';
+  if (tracked >= 14 && recent > 0) { forecast = recent; basis = 'recent'; }
+  else if (average > 0) { forecast = average; basis = 'average'; }
+  else if (tracked < 14 && early > 0) { forecast = early; basis = 'early'; }
+  return { recent, recentWindow: win, tracked, average, forecast, basis };
 }
 
 /**
@@ -328,5 +329,47 @@ export function distribute(total, weights) {
   let rest = total - out.reduce((s, v) => s + v, 0);
   const order = raw.map((v, i) => [v - Math.floor(v), i]).sort((a, b) => b[0] - a[0]);
   for (let j = 0; rest > 0 && j < order.length; j++, rest--) out[order[j][1]]++;
+  return out;
+}
+
+/* ------------------------------------------------------------
+   PLAN SAISI OU COLLÉ — une ligne par partie
+   Sous-partie : ligne décalée, précédée d'une puce ou d'un tiret,
+   ou numérotée à deux niveaux (« 1.2 … »).
+   Objectif facultatif en fin de ligne : « (30) », « 30 p », « 30 pages ».
+   Les pointillés et numéros de page d'une table des matières
+   collée telle quelle sont ignorés.
+   Retourne [{ title, target, subs: [{ title, target }] }]
+------------------------------------------------------------ */
+export function parsePlanText(text) {
+  const lines = [];
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    if (!raw.trim()) continue;
+    const expanded = raw.replace(/\t/g, '    ').replace(/ /g, ' ');
+    const indent = expanded.length - expanded.trimStart().length;
+    let line = expanded.trim();
+    let bullet = false;
+    const mb = /^([-–—•*·◦▪>]+)\s+/.exec(line);
+    if (mb) { bullet = true; line = line.slice(mb[0].length); }
+    line = line.replace(/\s*[.·…_]{3,}\s*\d+\s*$/, '');
+    let target = 0;
+    const mt = /\s*[([]?\s*(\d{1,3})\s*(?:p\.?|pages?)\s*[)\]]?\s*$/i.exec(line) || /\s*[([]\s*(\d{1,3})\s*[)\]]\s*$/.exec(line);
+    if (mt && mt.index > 0) { target = parseInt(mt[1], 10); line = line.slice(0, mt.index).trim(); }
+    if (!line) continue;
+    const mnum = /^(\d+(?:\.\d+)*)[.)]?\s+\S/.exec(line);
+    const depth = mnum ? mnum[1].split('.').length : 0;
+    lines.push({ title: line.slice(0, 300), indent, bullet, depth, target });
+  }
+  if (!lines.length) return [];
+  const base = Math.min(...lines.map(l => l.indent));
+  const mixedBullets = lines.some(l => l.bullet) && lines.some(l => !l.bullet);
+  const out = [];
+  let cur = null;
+  for (const l of lines) {
+    if (l.depth >= 3) continue; // « 1.1.1 » : trop fin pour le suivi
+    const sub = !!cur && (l.depth === 2 || l.indent > base || (mixedBullets && l.bullet));
+    if (sub) cur.subs.push({ title: l.title, target: l.target });
+    else { cur = { title: l.title, target: l.target, subs: [] }; out.push(cur); }
+  }
   return out;
 }

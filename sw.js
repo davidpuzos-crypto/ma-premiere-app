@@ -12,7 +12,7 @@
    APP_VERSION dans app.js).
 ============================================================ */
 
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 const CACHE_NAME = 'journal-de-bord-' + VERSION;
 
 const ASSETS_TO_CACHE = [
