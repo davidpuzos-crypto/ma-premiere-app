@@ -8,12 +8,12 @@ Parti pris : peu de fonctions, mais soignées. Une page de thèse (du papier, de
 
 **Ma thèse**
 
-- **Page de titre** : avancement en pourcentage, pages rédigées, date de dépôt (dans les temps ou en retard), fin estimée au rythme actuel.
+- **Page de titre** : avancement en pourcentage, pages rédigées, dépôt (une date précise ou seulement un mois visé), verdict (dans les temps ou en retard), fin estimée au rythme actuel.
 - **Aujourd'hui** : objectif du jour calculé d'après le dépôt, série de jours d'écriture, bouton « +1 page ».
 - **Table des matières** : chapitres et sous-sections, boutons − et + sur chaque partie, échéance proposée par chapitre, statut de relecture (chez la direction, à corriger, validé) avec mail de relance.
-- **Synchro avec Word** : le `.docx` est lu sur l'appareil (rien n'est envoyé). Titres détectés, notes de bas de page comptées, un fichier pour tout le manuscrit ou un fichier par chapitre. Sur Chrome et Edge, le fichier reste lié et se relit tout seul.
+- **Synchro avec le document** : Word (`.docx`), LibreOffice (`.odt`), LaTeX (`.tex`), Markdown, texte simple, ou texte collé (le presse-papiers garde les titres de Google Docs et de Word). Tout est lu sur l'appareil, rien n'est envoyé. Le Journal repère à quel niveau de titre sont les chapitres (titre de thèse en « Titre 1 », thèse en parties…), propose le plan, et retient les choix faits pour ce document : les fois suivantes, un geste suffit. Un fichier pour tout le manuscrit ou un fichier par chapitre. Sur Chrome et Edge, le fichier reste lié et se relit tout seul ; ailleurs, un rappel discret apparaît quand la dernière synchro a plus d'une semaine.
 - **Journal** : calendrier de régularité, notes du jour.
-- **Agenda** : fichier `.ics` et liens Google Agenda (séances d'écriture, dépôt, échéances).
+- **Agenda** : fichier `.ics` et liens Google Agenda. Séances d'écriture récurrentes, point d'étape hebdomadaire, dépôt (ou période visée, sur tout le mois), échéances des chapitres.
 - **Bilan imprimable** pour le comité de suivi (CSI) ou la direction.
 - **Hors ligne et multi-appareils** : cache local, synchronisation en temps réel.
 
@@ -33,14 +33,27 @@ Parti pris : peu de fonctions, mais soignées. Une page de thèse (du papier, de
 | `style.css` | Styles (couleurs et polices en tête de fichier) |
 | `app.js` | Application : connexion, synchronisation, interface |
 | `core.js` | Logique pure et testée : dates, série, rythme, échéance, plan collé |
+| `outline.js` | Du document au plan : niveau de titre des chapitres, parties, lecture du LaTeX et du Markdown (pur et testé) |
 | `humour.js` | Textes : notes du jour, dictionnaire du doctorant, grades, bingo, pseudonymes |
 | `promo.js` | La promo : fiches, classement, fil, encouragements |
-| `docx.js` | Lecture des fichiers Word dans le navigateur |
+| `docx.js` | Lecture des documents dans le navigateur : Word, LibreOffice, HTML du presse-papiers, texte |
 | `ics.js` | Génération des fichiers agenda |
 | `sw.js` | Service worker (réseau d'abord, cache en secours) |
 | `fonts/` | Polices EB Garamond et Source Sans 3, hébergées ici (licence OFL, voir `fonts/OFL.txt`) |
 | `firestore.rules` | Règles de sécurité de la base, à publier dans la console Firebase |
 | `tests/` | Tests (voir plus bas). Rien dans ce dossier n'est chargé par le site |
+
+## Formats de document
+
+| Source | Comment | Ce qui est reconnu |
+| --- | --- | --- |
+| Word | fichier `.docx` | styles Titre 1 à 9, niveaux hiérarchiques, notes, tableaux, pagination de Word |
+| LibreOffice | fichier `.odt` | titres (y compris ceux d'un document converti depuis Word), notes, tableaux, pagination |
+| Google Docs, Word en ligne | copier-coller, ou téléchargement en `.docx` | titres du presse-papiers (h1 à h6), listes, tableaux |
+| LaTeX | fichier `.tex` ou texte collé | `\part`, `\chapter`, `\section`… ; commentaires, formules et citations non comptés |
+| Markdown, texte | fichier `.md`, `.txt` ou texte collé | titres `#`, lignes « Chapitre 1 », « Partie II », « Introduction », « Conclusion » |
+
+Non lus, avec un message qui dit quoi faire : ancien Word `.doc`, RTF, Pages, PDF (enregistrer en `.docx`, ou coller le texte). Une connexion directe à Google Docs demanderait une autorisation Google propre à l'application : le copier-coller la remplace.
 
 ## Activer « La promo » (une fois, deux minutes)
 
@@ -74,7 +87,7 @@ Jamais : le nom, l'adresse email, le titre de la thèse, le plan, les notes priv
 | `reports/{id}` | Un signalement | personne (console seulement) | personnes connectées |
 | `banned/{uid}` | Exclusion de la promo | personne (console seulement) | personne (console seulement) |
 
-Champs du journal : `chapters`, `startDate`, `milestones`, `documentTitle`, `updatedAt` (historiques), puis `version`, `deadline`, `marginDays`, `writingDays`, `dailyGoal`, `introLast`, `sessionTime`, `sessionMinutes`, `activity` (pages par jour), `journal` (notes par jour), `trackedSince`, `docFiles`, `docIgnore`, `lastSeenAt`, `appVersion`, `clientId`.
+Champs du journal : `chapters`, `startDate`, `milestones`, `documentTitle`, `updatedAt` (historiques), puis `version`, `deadline`, `deadlineMonth` (seul le mois est visé), `marginDays`, `writingDays`, `dailyGoal`, `introLast`, `sessionTime`, `sessionMinutes`, `activity` (pages par jour), `journal` (notes par jour), `trackedSince`, `docFiles`, `docIgnore`, `lastSeenAt`, `appVersion`, `clientId`.
 
 Les écritures du journal se font en mode `merge` : l'historique d'un appareil n'efface jamais celui d'un autre.
 
@@ -86,13 +99,13 @@ Sur l'appareil (stockage local du navigateur) : quelques réglages (dernière pa
 node tests/core.test.mjs
 ```
 
-Logique pure (dates, série, rythme, plan collé). Aucune dépendance.
+Logique pure (dates, série, rythme, plan collé, découpage d'un document en chapitres). Aucune dépendance.
 
 ```bash
 node tests/e2e.cjs
 ```
 
-Vingt-deux scénarios dans un vrai navigateur (Playwright) : inscription, plan, « +1 page », synchro Word, mobile, sécurité des données, annonce de mise à jour, promo fermée puis ouverte, lien de fiche, bingo, suppression de compte, accessibilité de base, mise à jour à cheval sur deux versions. Firebase y est remplacé par des bouchons (`tests/stubs`) : aucun compte créé, aucune donnée réelle touchée. Pour un seul scénario : `ONLY="Promo ouverte" node tests/e2e.cjs`.
+Vingt-huit scénarios dans un vrai navigateur (Playwright) : inscription, plan, « +1 page », synchro du document (niveaux de titre, plan refait, LibreOffice, LaTeX, copier-coller), période visée et agenda, mobile, sécurité des données, annonce de mise à jour, promo fermée puis ouverte, lien de fiche, bingo, suppression de compte, accessibilité de base, mise à jour à cheval sur deux versions. Firebase y est remplacé par des bouchons (`tests/stubs`) : aucun compte créé, aucune donnée réelle touchée. Pour un seul scénario : `ONLY="Promo ouverte" node tests/e2e.cjs`.
 
 ```bash
 cd tests && npm install && npm run rules
@@ -113,6 +126,6 @@ Le service worker sert toujours la dernière version en ligne ; la copie en cach
 
 - Firebase 10.8.1 (connexion et base de données), chargé depuis `gstatic.com`.
 - SortableJS 1.15.6 (glisser-déposer), version figée et contenu vérifié par le navigateur.
-- JSZip et html2canvas, chargés seulement au moment de lire un fichier Word ou de préparer une image, eux aussi vérifiés.
+- JSZip et html2canvas, chargés seulement au moment de lire un fichier Word ou LibreOffice, ou de préparer une image, eux aussi vérifiés.
 
 Aucune publicité, aucun outil d'analyse tiers, aucune police demandée à un serveur tiers.

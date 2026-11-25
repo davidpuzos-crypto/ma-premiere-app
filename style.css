@@ -653,6 +653,12 @@ body.no-plan .fab { display: none; }
 .log-row .seg { margin-bottom: 12px; }
 
 .pm-hint { margin: -8px 0 14px; }
+.seg-sm { display: inline-flex; margin-bottom: 8px; }
+.seg-sm .seg-btn { padding: 5px 10px; font-size: .78rem; }
+/* Agenda : ce qui sera créé, dit en une phrase */
+.cal-summary { margin: 2px 0 14px; padding: 9px 12px; border-left: 2px solid var(--rule-2); font-family: var(--serif); font-size: 1.04rem; line-height: 1.4; color: var(--ink-2); }
+.cal-google { margin-top: 12px; font-size: .86rem; color: var(--ink-2); line-height: 1.7; }
+.cal-google a { margin-right: 12px; white-space: nowrap; }
 .pm-adv { border-top: 1px solid var(--rule); padding-top: 12px; }
 .pm-adv summary { cursor: pointer; font-size: .9rem; font-weight: 600; color: var(--ink-2); }
 .pm-adv[open] summary { margin-bottom: 14px; }
@@ -687,6 +693,13 @@ body.no-plan .fab { display: none; }
 .docx-busy { text-align: center; padding: 24px 0; color: var(--ink-3); font-size: .9rem; }
 .docx-busy .spinner { margin: 0 auto 10px; }
 .docx-error { margin-top: 12px; padding: 10px 12px; border-radius: var(--radius); background: var(--bordeaux-soft); color: var(--bordeaux); font-size: .9rem; }
+/* Coller son texte : l'autre façon d'apporter son document (Google Docs, Overleaf, téléphone) */
+.paste-label { display: block; margin: 14px 0 6px; font-size: .86rem; color: var(--ink-2); }
+.paste-box { resize: none; font-size: .9rem; min-height: 0; border-style: dashed; }
+.paste-box:focus { border-style: solid; }
+.docx-suggest { margin: 0 0 12px; padding: 10px 12px; background: var(--saffron-soft); border-left: 2px solid var(--saffron); font-size: .9rem; color: var(--ink-2); }
+#docxReplaceRow { margin: 0 0 12px; align-items: flex-start; }
+#docxReplaceRow .form-hint { display: inline; }
 .privacy-note { margin: 14px 0 8px; font-size: .84rem; color: var(--teal); }
 .docx-tips { font-size: .88rem; color: var(--ink-2); }
 .docx-tips summary { cursor: pointer; font-weight: 600; }
