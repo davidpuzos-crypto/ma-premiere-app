@@ -56,10 +56,17 @@ export function byDay(writingDays) {
   return (writingDays || []).slice().sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map(d => BYDAY[d]).join(',');
 }
 
+/** Lendemain d'un jour 'AAAA-MM-JJ', au format 'AAAAMMJJ' (fin exclusive d'un évènement « journée entière »). */
+function dayAfter(key) {
+  const [y, m, d] = key.split('-').map(Number);
+  const next = new Date(y, m - 1, d + 1);
+  return `${next.getFullYear()}${pad(next.getMonth() + 1)}${pad(next.getDate())}`;
+}
+
 /**
  * events : [{
  *   uid, title, description, url,
- *   date: 'AAAA-MM-JJ'            (évènement « journée entière »)
+ *   date: 'AAAA-MM-JJ'            (évènement « journée entière » ; dateEnd = dernier jour inclus d'une période)
  *   | start: 'AAAA-MM-JJ', time: 'HH:MM', minutes: 90,
  *   rrule: 'FREQ=WEEKLY;…',
  *   alarms: [{ trigger: '-PT10M', text }]
@@ -82,10 +89,8 @@ export function buildICS(calName, events) {
     L.push('DTSTAMP:' + stamp);
     L.push('SEQUENCE:' + seq);
     if (ev.date) {
-      const [y, m, d] = ev.date.split('-').map(Number);
-      const next = new Date(y, m - 1, d + 1);
       L.push('DTSTART;VALUE=DATE:' + icsDate(ev.date));
-      L.push('DTEND;VALUE=DATE:' + `${next.getFullYear()}${pad(next.getMonth() + 1)}${pad(next.getDate())}`);
+      L.push('DTEND;VALUE=DATE:' + dayAfter(ev.dateEnd || ev.date));
       L.push('TRANSP:TRANSPARENT');
     } else {
       // Séance d'écriture : la fin est plafonnée à 23h59 le même jour
@@ -108,14 +113,12 @@ export function buildICS(calName, events) {
 }
 
 /** Lien « Ajouter à Google Agenda » (un évènement, récurrent ou non). */
-export function googleCalendarUrl({ title, details, start, time, minutes, date, rrule }) {
+export function googleCalendarUrl({ title, details, start, time, minutes, date, dateEnd, rrule }) {
   const p = new URLSearchParams();
   p.set('action', 'TEMPLATE');
   p.set('text', title);
   if (date) {
-    const [y, m, d] = date.split('-').map(Number);
-    const next = new Date(y, m - 1, d + 1);
-    p.set('dates', `${icsDate(date)}/${next.getFullYear()}${pad(next.getMonth() + 1)}${pad(next.getDate())}`);
+    p.set('dates', `${icsDate(date)}/${dayAfter(dateEnd || date)}`);
   } else {
     const [h, mi] = time.split(':').map(Number);
     const endMin = Math.min(1439, h * 60 + mi + (minutes || 60));
