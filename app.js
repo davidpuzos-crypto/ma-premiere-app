@@ -4,7 +4,10 @@
      core.js     logique pure (dates, historique, rythme, échéance)
      outline.js  du document au plan : où sont les chapitres ?
      docx.js     lecture locale des documents (Word, LibreOffice, LaTeX, texte collé)
-     ics.js   export agenda
+     ics.js      export agenda
+     humour.js   les textes : notes du jour, grades, bingo
+     visuals.js  les dessins : étagère, plante, barres de la semaine
+     promo.js    la promo (fiches, classement, fil)
 ============================================================ */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
 import {
@@ -38,13 +41,17 @@ import { buildICS, googleCalendarUrl, byDay } from './ics.js';
 import { parseDocumentFile, parsePasted } from './docx.js';
 import { buildOutline } from './outline.js';
 import {
-  getFunnyCaption, plain, typo, footnoteOfDay, randomFootnote, gradeFor, todayLine,
+  getFunnyCaption, plain, typo, footnoteOfDay, randomFootnote, gradeFor, GRADES, todayLine,
   MILESTONE_LINES, streakLine, GHOST_LINES, isoWeek, bingoGrid, bingoScore,
 } from './humour.js';
+import {
+  plantSVG, plantImgHTML, plantCaption, spiderSVG, shelfBooksHTML, updateBook, shareShelfHTML,
+  weekBarsHTML, levelTicksHTML, initials,
+} from './visuals.js';
 import { createPromo } from './promo.js';
 
 /* Version de l'application : la même que VERSION dans sw.js et que data-app-version dans index.html */
-const APP_VERSION = '3.1.0';
+const APP_VERSION = '4.0.0';
 const APP_URL = 'https://lejournaldebord.org/';
 
 /* Garde-fou de mise à jour (son jumeau est dans index.html) : ce script et la page doivent être de la même
@@ -60,7 +67,7 @@ window.__jdbVersion = APP_VERSION;
     sessionStorage.setItem('jdb_heal', String(n + 1));
   } catch { return; }
   window.__jdbHealing = true;
-  const files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'promo.js', 'docx.js', 'ics.js'];
+  const files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'ics.js'];
   Promise.all(files.map(u => fetch(u, { cache: 'reload' }).catch(() => {}))).then(() => location.reload());
   throw new Error('Mise à jour en cours : la page va se recharger.');
 })();
@@ -154,7 +161,12 @@ const WD_NAMES   = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi
 const WD_ORDER   = [1, 2, 3, 4, 5, 6, 0];
 const MONTHS_SHORT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 const WHATSNEW_KEY = 'jdb_whatsnew';
-const WHATSNEW_VER = '3'; // à augmenter pour annoncer une mise à jour à la connexion
+const WHATSNEW_VER = '4'; // à augmenter pour annoncer une mise à jour à la connexion
+
+/** Une icône du jeu défini en tête de index.html (<symbol id="i-…">). */
+function icon(name, cls = '') {
+  return `<svg class="ic${cls ? ' ' + cls : ''}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+}
 
 /* Stockage local : toujours protégé (navigation privée, stockage bloqué…) */
 function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
@@ -499,13 +511,19 @@ function showScreen(id) {
   ['loadingScreen', 'authScreen', 'appScreen'].forEach(s => {
     document.getElementById(s).classList.toggle('hidden', s !== id);
   });
+  document.body.classList.toggle('signed-out', id !== 'appScreen'); // hors de l'application, les messages se centrent sur toute la largeur
 }
 
 function populateAppHeader(user) {
-  const name = user.displayName || user.email;
-  document.getElementById('userEmail').textContent = name;
-  const mob = document.getElementById('userEmailMobile');
-  if (mob) mob.textContent = name;
+  const name = user.displayName || user.email || '';
+  setText('userEmailMobile', name);
+  setText('userAvatar', initials(user.displayName || String(user.email || '').split('@')[0]));
+  // Le prénom, quand on le connaît (compte Google) : « Bonjour Camille »
+  const first = String(user.displayName || '').trim().split(/\s+/)[0];
+  const now = new Date();
+  const long = now.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const short = now.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+  setHTML('heroHello', `${first ? 'Bonjour ' + esc(first) : 'Ma thèse'} · <span class="d-long">${long}</span><span class="d-short">${short}</span>`);
   showFootnote(footnoteOfDay(todayKey()));
 }
 
@@ -625,6 +643,8 @@ function stopSync() {
   _pendingRemote = null;
   _linked = [];
   _pendingReview = null;
+  _figure.shown = false;
+  _shelfShown = false;
   promo.reset();
   setView('these');
 }
@@ -783,6 +803,15 @@ function renderLoadingState(kind, code) {
 function syncTitleInput() {
   const titleEl = document.getElementById('document-title');
   if (titleEl && document.activeElement !== titleEl) titleEl.value = state.documentTitle || '';
+  fitTitle();
+}
+
+/** Le champ du titre prend la hauteur de son texte (un titre de thèse tient rarement sur une ligne). */
+function fitTitle() {
+  const el = document.getElementById('document-title');
+  if (!el || el.offsetParent === null) return; // invisible : sa hauteur ne se mesure pas
+  el.style.height = 'auto';
+  el.style.height = el.scrollHeight + 'px';
 }
 
 /* ============================================================
@@ -947,29 +976,33 @@ function updateDashboard() {
   const remaining = total - written;
   const progress  = total === 0 ? 0 : Math.min(100, Math.round((written / total) * 100));
 
-  // Le chiffre, le filet de progression, les pages
-  setText('gaugePct', progress + '\u00A0%');
-  document.getElementById('gaugeFill').style.width = progress + '%';
+  // Le chiffre, la piste d'avancement, les pages
+  setHeroFigure(progress);
+  const fill = document.getElementById('gaugeFill');
+  fill.style.width = progress + '%';
+  fill.classList.toggle('zero', progress === 0);
   animNum('sWritten',   written);
   animNum('sTotal',     total);
   animNum('sRemaining', Math.max(0, remaining));
   const rest = document.getElementById('dbPagesRest');
   if (rest) rest.classList.toggle('hidden', total === 0 || remaining <= 0);
-  setText('gradeLine', total > 0 ? gradeFor(progress) : '');
+  renderLevel(progress, total, written);
 
-  // Fin estimée
+  // Rythme actuel, rythme à tenir, fin estimée
   const p = fc.pace;
+  const perWeek = p.forecast * 7;
+  setText('paceNow', perWeek > 0 ? `${perWeek < 0.95 ? '<\u00A01' : fmt1(perWeek)}\u00A0p./sem.` : '—');
+  setText('paceNeed', fc.perWeek ? `${fmt1(fc.perWeek)}\u00A0p./sem.` : '—');
   if (total > 0 && remaining <= 0) {
     setText('sEndDate', 'Terminé');
     setText('sEndLbl',  'La dernière page est écrite.');
   } else if (fc.projectedEnd) {
-    const perWeek = p.forecast * 7;
     const basis = { recent: 'à votre rythme des 4 dernières semaines', average: 'à votre rythme moyen', early: 'première estimation, elle va s\'affiner' }[p.basis];
     setText('sEndDate', fmtDateShort(fc.projectedEnd));
-    setText('sEndLbl',  `${basis} (${perWeek < 0.95 ? 'moins d\'1' : fmt1(perWeek)} p./sem.)`);
+    setText('sEndLbl',  basis ? typo(`Fin estimée : ${basis}.`) : '');
   } else {
     setText('sEndDate', '—');
-    setText('sEndLbl',  total === 0 ? '' : 'elle apparaîtra dès vos premières pages notées');
+    setText('sEndLbl',  total === 0 ? '' : 'La fin estimée apparaîtra dès vos premières pages notées.');
   }
 
   renderDeadline(fc);
@@ -979,6 +1012,49 @@ function updateDashboard() {
   checkMilestones(progress);
   scheduleJournalRender();
   if (typeof onStatsChanged === 'function') onStatsChanged();
+}
+
+/* Le grand chiffre : à la première ouverture, il monte de zéro à sa valeur (une fois, pas à chaque page notée). */
+const _figure = { raf: 0, target: -1, shown: false };
+const calmMotion = () => !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+function setHeroFigure(progress) {
+  const el = document.getElementById('gaugePct');
+  if (!el) return;
+  if (_figure.raf && _figure.target === progress) return; // déjà en route vers cette valeur
+  cancelAnimationFrame(_figure.raf);
+  _figure.raf = 0;
+  _figure.target = progress;
+  const visible = el.offsetParent !== null;
+  if (_figure.shown || !_loaded || !visible || progress <= 0 || calmMotion()) {
+    el.textContent = progress + '\u00A0%';
+    if (_loaded && visible) _figure.shown = true;
+    return;
+  }
+  _figure.shown = true;
+  const t0 = performance.now();
+  const step = now => {
+    const k = Math.min(1, (now - t0) / 900);
+    el.textContent = Math.round(progress * (1 - (1 - k) ** 3)) + '\u00A0%';
+    _figure.raf = k < 1 ? requestAnimationFrame(step) : 0;
+  };
+  _figure.raf = requestAnimationFrame(step);
+}
+
+/** Le grade du moment, les pastilles des suivants, et ce qu'il reste à écrire avant le prochain. */
+function renderLevel(progress, total, written) {
+  setText('gradeLine', total > 0 ? gradeFor(progress) : '');
+  setHTML('levelTicks', levelTicksHTML(progress, GRADES.map(g => g[0])));
+  const next = total > 0 ? GRADES.find(g => g[0] > progress) : null;
+  let line = '';
+  if (next) {
+    // Le pourcentage affiché est arrondi : le grade tombe dès que l'arrondi atteint son seuil
+    const need = Math.max(1, Math.ceil(((next[0] - 0.5) / 100) * total) - written);
+    line = `Encore <b>${need}\u00A0page${need > 1 ? 's' : ''}</b> avant le grade suivant : « ${esc(next[1])} ».`;
+  } else if (total > 0) {
+    line = 'Tous les grades sont franchis. Reste le plus dur : choisir la date du pot.';
+  }
+  setHTML('levelNext', typo(line));
 }
 
 function animNum(id, newVal) {
@@ -995,26 +1071,39 @@ function renderDeadline(fc) {
     if (el.dataset.mode === 'set') return; // ne pas recréer le champ pendant la saisie
     el.dataset.mode = 'set';
     el.className = 'db-deadline';
-    el.innerHTML = `<label class="dl-set">Indiquez votre date de dépôt
+    el.innerHTML = `<label class="dl-set">Quand déposez-vous\u00A0?
         <input type="date" id="dlInline" min="${addDays(todayKey(), 1)}" aria-label="Ma date de dépôt"
                onchange="setDeadlineInline(this.value)" onblur="setDeadlineInline(this.value, true)"></label>
-      <span class="db-dl-sub">pour savoir si vous êtes dans les temps, et quel rythme tenir.
-        <button type="button" class="link-btn" onclick="openProjectModal('month')">Pas de date précise ? Indiquez un mois.</button></span>`;
+      <span class="db-dl-sub">Le Journal vous dira si vous êtes dans les temps, et quel rythme tenir.
+        <button type="button" class="link-btn" onclick="openProjectModal('month')">Pas de date précise\u00A0? Indiquez un mois.</button></span>`;
     return;
   }
   el.dataset.mode = 'show';
   let cls = '';
+  let ico = 'target';
   let verdict = '';
   switch (fc.status) {
-    case 'done':    cls = 'ok';   verdict = 'rédaction terminée, place à la relecture'; break;
-    case 'overdue': cls = 'late'; verdict = state.deadlineMonth ? 'fin de rédaction dépassée : ajustez la période' : 'fin de rédaction dépassée : ajustez la date'; break;
-    case 'ontrack': cls = 'ok';   verdict = fc.margin > 0 ? `dans les temps, ${fc.margin} jour${fc.margin > 1 ? 's' : ''} d'avance` : 'pile dans les temps'; break;
-    case 'behind':  cls = 'warn'; verdict = `en retard : il faudrait ${fmt1(fc.perWeek)} pages par semaine`; break;
+    case 'done':    cls = 'ok';   ico = 'check'; verdict = 'rédaction terminée, place à la relecture'; break;
+    case 'overdue': cls = 'late'; ico = 'alert'; verdict = state.deadlineMonth ? 'fin de rédaction dépassée : ajustez la période' : 'fin de rédaction dépassée : ajustez la date'; break;
+    case 'ontrack': cls = 'ok';   ico = 'check'; verdict = fc.margin > 0 ? `dans les temps, ${fc.margin} jour${fc.margin > 1 ? 's' : ''} d'avance` : 'pile dans les temps'; break;
+    case 'behind':  cls = 'warn'; ico = 'alert'; verdict = `en retard : il faudrait ${fmt1(fc.perWeek)} pages par semaine`; break;
     case 'nopace':  verdict = `à tenir : ${fmt1(fc.perWeek)} pages par semaine`; break;
     default: break;
   }
+  // L'éphéméride : le jour du dépôt (ou seulement le mois visé), et le compte à rebours
+  const d = parseDay(state.deadline);
+  const left = diffDays(todayKey(), state.deadline);
+  const count = left > 0 ? `J\u2212${left}` : left === 0 ? 'Jour J' : `J+${-left}`;
+  const leaf = state.deadlineMonth
+    ? `<span class="cal-m">${d.getFullYear()}</span><span class="cal-d cal-month">${MONTHS_SHORT[d.getMonth()]}</span>`
+    : `<span class="cal-m">${MONTHS_SHORT[d.getMonth()]}</span><span class="cal-d">${d.getDate()}</span><span class="cal-y">${d.getFullYear()}</span>`;
+  const what = state.deadlineMonth ? 'la période visée pour mon dépôt' : 'ma date de dépôt';
   el.className = 'db-deadline ' + cls;
-  el.innerHTML = `<button type="button" class="dl-show" onclick="openProjectModal()" title="Modifier ${state.deadlineMonth ? 'la période visée pour mon dépôt' : 'ma date de dépôt'}"><b>${fmtDeadline()}</b>${verdict ? ` <span class="dl-verdict">· ${verdict}</span>` : ''}</button>`;
+  el.innerHTML = `<button type="button" class="dl-show" onclick="openProjectModal()" title="Modifier ${what}">
+      <span class="cal-leaf" aria-hidden="true">${leaf}</span>
+      <span class="dl-txt"><span class="dl-count" title="Jours restants avant ${state.deadlineMonth ? 'la fin du mois visé' : 'le dépôt'}">${count}</span>
+        <span class="dl-date">${fmtDeadline()}</span><span class="dl-edit">modifier</span></span>
+    </button>${verdict ? `<span class="chip ${cls ? 'chip-' + cls : ''} dl-verdict">${icon(ico)}<span>${typo(verdict)}</span></span>` : ''}`;
 }
 
 /** Date de dépôt saisie directement sur la page (pas de fenêtre). */
@@ -1064,12 +1153,18 @@ function renderToday(fc) {
   const done  = pagesOn(state.activity, today);
   const goal  = fc.dailyGoal;
   const pct   = goal > 0 ? clamp(done / goal, 0, 1) * 100 : 0;
-  setText('tdVal', `${fmt1(Math.max(0, done))} / ${fmt1(goal)} p.`);
-  const fill = document.getElementById('tdFill');
-  if (fill) { fill.style.width = pct + '%'; fill.classList.toggle('done', done > 0 && done >= goal); }
+  const reached = done > 0 && done >= goal;
+  setHTML('tdVal', `<b>${fmt1(Math.max(0, done))}</b> / ${fmt1(goal)}\u00A0p.`);
+  const ring = document.getElementById('tdRing');
+  if (ring) {
+    ring.style.setProperty('--p', pct.toFixed(1));
+    ring.classList.toggle('zero', pct <= 0);
+    ring.classList.toggle('done', reached);
+  }
+  setText('tdDate', parseDay(today).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' }));
   const s = streak(state, today);
   const stale = staleSyncDays(today);
-  setText('tdSub', stale && !(done > 0 && done >= goal)
+  setText('tdSub', stale && !reached
     ? typo(`Dernière synchro de votre document il y a ${stale} jours. Déposez-le dans la page (ou collez votre texte) : le Journal fait le calcul.`)
     : todayLine({
       done, goal,
@@ -1084,7 +1179,24 @@ function renderToday(fc) {
   setText('tdStreakSub', s.count === 0 || s.includesToday ? 'de série' : 'à prolonger');
   const wk = sumRange(state.activity, mondayOf(today), today);
   setText('tdWeek', (wk > 0 ? '+' : '') + fmt1(wk));
+  renderWeek(today, goal);
   renderPrimary();
+}
+
+/** Les sept jours de la semaine en cours : une barre par jour, celle d'aujourd'hui en avant. */
+function renderWeek(today, goal) {
+  const monday = mondayOf(today);
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const k = addDays(monday, i);
+    const wd = weekday(k);
+    days.push({
+      label: WD_LETTERS[wd], name: WD_NAMES[wd],
+      pages: k > today ? 0 : Math.max(0, pagesOn(state.activity, k)),
+      today: k === today, future: k > today, rest: !state.writingDays.includes(wd),
+    });
+  }
+  setHTML('weekBars', weekBarsHTML(days, goal));
 }
 
 /** Geste principal du jour : « +1 page », ou « Synchroniser » si un fichier Word est lié ici. */
@@ -1092,17 +1204,19 @@ function renderPrimary() {
   const btn = document.getElementById('tdPrimary');
   const cap = document.getElementById('tdCap');
   const act = document.getElementById('tdAct');
-  const fab = document.querySelector('.fab');
+  const fabLbl = document.querySelector('.fab .fab-lbl');
   if (!btn || !cap || !act) return;
   const leaf = currentLeaf();
   const linked = _linked.length > 0;
   const usable = !!leaf || linked;
   act.classList.toggle('hidden', !usable);
   document.body.classList.toggle('no-plan', !usable);
+  markCurrent(leaf);
+  renderShelf();
   if (!usable) return;
   const label = linked ? 'Synchroniser' : '+1 page';
-  btn.textContent = label;
-  if (fab) fab.textContent = label;
+  btn.innerHTML = (linked ? icon('sync') : '') + `<span>${label}</span>`;
+  if (fabLbl) fabLbl.textContent = label;
   btn.title = linked ? 'Relire mon document et mettre à jour mes pages' : 'Ajouter une page à la partie en cours';
   cap.classList.remove('alert');
   if (_pendingReview) {
@@ -1113,9 +1227,101 @@ function renderPrimary() {
     cap.textContent = _linked.length === 1 ? trunc(_linked[0].name, 30) : `${_linked.length} fichiers liés`;
     cap.title = 'Gérer les fichiers liés';
   } else {
-    cap.textContent = `sur « ${trunc(leafTitle(leaf), 26)} » · détailler`;
+    // « détailler » est souligné : c'est lui qui ouvre la saisie complète (autre partie, plusieurs pages, hier, une note)
+    cap.innerHTML = `sur «\u00A0${esc(trunc(leafTitle(leaf), 26))}\u00A0» · <u>détailler</u>`;
     cap.title = 'Autre partie, plusieurs pages, hier, ou une note';
   }
+}
+
+/** Repère de la partie en cours (celle que vise « +1 page ») : sa ligne dans le plan. */
+function markCurrent(leaf) {
+  document.querySelectorAll('.chapter-card.is-current, .subsection.is-current').forEach(e => e.classList.remove('is-current'));
+  if (!leaf) return;
+  const row = document.getElementById((leaf.ss ? 'ss-' : 'ch-') + leaf.id);
+  if (row) row.classList.add('is-current');
+}
+
+/* ============================================================
+   L'ÉTAGÈRE — un livre par chapitre, d'autant plus épais que le
+   chapitre est long, surligné à hauteur de ce qui est écrit.
+   La plante pousse avec la série de jours d'écriture ; après dix
+   jours sans une page, une araignée s'installe.
+============================================================ */
+let _shelfHover = false;
+let _shelfShown = false; // à la première ouverture, les livres arrivent vides et se remplissent sous les yeux
+
+function shelfModel() {
+  const cur = currentLeaf();
+  const sch = _lastForecast ? currentSchedule(_lastForecast) : {};
+  return state.chapters.map(ch => {
+    const st = chapterStats(ch);
+    return {
+      id: ch.id, title: ch.title, pct: st.prog, written: st.wP, target: st.tP, status: ch.review || '',
+      current: !!cur && cur.ch.id === ch.id, due: sch[ch.id] ? fmtDue(sch[ch.id]) : '',
+    };
+  });
+}
+
+function setShelfReadout(text) {
+  const n = state.chapters.length;
+  setText('shelfReadout', typo(text || (n ? `${n} chapitre${n > 1 ? 's' : ''}. Chaque livre se surligne à mesure que vous écrivez.` : '')));
+}
+
+function renderShelf() {
+  const row = document.getElementById('shelfBooks');
+  const shelf = document.getElementById('shelf');
+  if (!row || !shelf) return;
+  const books = shelfModel();
+  const slots = [...row.querySelectorAll('.book-slot')];
+  // Mêmes chapitres dans le même ordre : on met à jour sur place, le surlignage monte en douceur
+  const same = slots.length === books.length && slots.every((s, i) => s.querySelector('.book').dataset.book === books[i].id);
+  if (same) slots.forEach((slot, i) => updateBook(slot, books[i]));
+  else {
+    const visible = row.offsetParent !== null;
+    const intro = !_shelfShown && _loaded && visible && !calmMotion();
+    row.innerHTML = shelfBooksHTML(books, { intro }) + '<span class="shelf-plant" id="shelfPlant"></span>';
+    if (intro) requestAnimationFrame(() => requestAnimationFrame(renderShelf)); // à l'image suivante, le surlignage monte
+    if (_loaded && visible) _shelfShown = true;
+  }
+  // Livres serrés (beaucoup de chapitres) : sous la planche, le nombre seul, sans le signe « % »
+  row.classList.toggle('dense', [...row.querySelectorAll('.book-slot')].some(s => s.offsetWidth > 0 && s.offsetWidth < 38));
+  const today = todayKey();
+  const s = streak(state, today);
+  const idle = idleDays(today);
+  const wilted = s.count === 0 && idle >= 4;
+  const plant = document.getElementById('shelfPlant');
+  if (plant) {
+    const key = wilted ? 'soif' : String(s.count);
+    if (plant.dataset.key !== key) { plant.dataset.key = key; plant.innerHTML = plantSVG(s.count, { wilted }); }
+    plant.title = plantCaption(s.count, wilted);
+  }
+  const spider = shelf.querySelector('.shelf-spider');
+  if (idle >= 10 && !spider) shelf.insertAdjacentHTML('beforeend', spiderSVG(40));
+  else if (idle < 10 && spider) spider.remove();
+  if (!_shelfHover) setShelfReadout();
+}
+
+/** Survol ou focus d'un livre : son détail s'écrit au-dessus de l'étagère. Clic : on va à son chapitre. */
+function initShelf() {
+  const row = document.getElementById('shelfBooks');
+  if (!row) return;
+  const bookOf = e => (e.target && e.target.closest ? e.target.closest('.book[data-book]') : null);
+  const show = e => { const b = bookOf(e); if (b) { _shelfHover = true; setShelfReadout(b.getAttribute('aria-label')); } };
+  const hide = () => { _shelfHover = false; setShelfReadout(); };
+  row.addEventListener('mouseover', show);
+  row.addEventListener('focusin', show);
+  row.addEventListener('mouseleave', hide);
+  row.addEventListener('focusout', hide);
+  row.addEventListener('click', e => { const b = bookOf(e); if (b) goToChapter(b.dataset.book); });
+}
+
+function goToChapter(id) {
+  const card = document.getElementById('ch-' + id);
+  if (!card) return;
+  card.scrollIntoView({ behavior: calmMotion() ? 'auto' : 'smooth', block: 'center' });
+  card.classList.remove('flash');
+  void card.offsetWidth; // relance l'animation
+  card.classList.add('flash');
 }
 
 function primaryAction() {
@@ -1144,7 +1350,7 @@ function renderReviewStrip() {
     const since = d === 0 ? "depuis aujourd'hui" : `depuis ${d} jour${d > 1 ? 's' : ''}`;
     const ghost = d >= 21 ? ` <span class="rv-ghost">${GHOST_LINES[d % GHOST_LINES.length]}</span>` : '';
     const btn = d >= 10 ? `<button type="button" class="link-btn" onclick="remindSupervisor('${c.id}')">Relancer</button>` : '';
-    return `<div class="rv-item"><span class="rv-txt"><b>${esc(trunc(c.title, 50))}</b> est chez la direction ${since}.${ghost}</span>${btn}</div>`;
+    return `<div class="rv-item">${icon('send')}<span class="rv-txt"><b>${esc(trunc(c.title, 50))}</b> est chez la direction ${since}.${ghost}</span>${btn}</div>`;
   }).join('');
   el.innerHTML = items + (sent.length > 3 ? `<div class="rv-more">et ${sent.length - 3} autre${sent.length - 3 > 1 ? 's' : ''}…</div>` : '');
   el.classList.remove('hidden');
@@ -1214,8 +1420,8 @@ function checkDailyGoal() {
 
 /** Réservé à la toute dernière page : quelques confettis aux couleurs de la maison. */
 function launchConfetti(count) {
-  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  const colors = ['#1E1C19', '#7A2E2E', '#E3A446', '#2E5A52', '#CEC6B5'];
+  if (calmMotion()) return;
+  const colors = ['#F0AE3C', '#F3C566', '#2B5654', '#8E2F3C', '#FBF3E2'];
   for (let i = 0; i < count; i++) {
     setTimeout(() => {
       const el  = document.createElement('div');
@@ -1245,6 +1451,7 @@ function toast(msg, type, opts = {}) {
   el.setAttribute('role', 'status');
   if (opts.key) el.dataset.key = opts.key;
   if (opts.undo) el.dataset.undo = '1';
+  if (type === 'success' || type === 'warn') el.insertAdjacentHTML('afterbegin', icon(type === 'warn' ? 'alert' : 'check'));
   const span = document.createElement('span');
   span.textContent = typo(msg); // pas de « : » ni de « ? » rejeté seul à la ligne
   el.appendChild(span);
@@ -1286,6 +1493,8 @@ function render() {
   updateDashboard();
   initSortable(); // must come after renderChapters() so DOM elements exist
   renderJournal();
+  renderBingoTeaser();
+  fitTitle();
 }
 
 function renderChapters() {
@@ -1300,11 +1509,14 @@ function renderChapters() {
     // Trois façons de créer son plan, de la plus automatique à la plus manuelle
     c.innerHTML = `
       <div class="empty-state onboarding">
-        <p class="kicker">Pour commencer</p>
-        <h3>Votre table des matières<br>en trente secondes</h3>
+        <div class="ob-shelf" aria-hidden="true">${spiderSVG(64)}${plantSVG(0)}<div class="shelf-board"></div></div>
+        <p class="eyebrow">Bienvenue</p>
+        <h3>Votre étagère est vide. Pour l'instant.</h3>
+        <p class="ob-lead">Trente secondes pour y ranger vos chapitres. Ensuite, chaque page écrite se voit.</p>
         <button type="button" class="dropzone ob-drop" onclick="pickWordFile()">
+          ${icon('upload', 'ic-lg')}
           <span class="dz-main">Déposer mon document</span>
-          <span class="dz-sub">Word, LibreOffice ou LaTeX. Ou collez ici le texte de votre document (Google Docs, Overleaf…) : chapitres et pages rédigées se remplissent tout seuls.<br>Il est lu sur votre appareil, il n'est envoyé nulle part.</span>
+          <span class="dz-sub">Word, LibreOffice ou LaTeX. Ou collez ici le texte de votre document (Google Docs, Overleaf…) : chapitres et pages rédigées se remplissent tout seuls. Il est lu sur votre appareil, il n'est envoyé nulle part.</span>
         </button>
         <p class="ob-or">Pas de fichier sous la main ? Partez d'un modèle :</p>
         <div class="ob-choices">
@@ -1350,8 +1562,9 @@ function badgeHTML(ch) {
   const d = ch.reviewDate ? Math.max(0, diffDays(ch.reviewDate, todayKey())) : 0;
   const txt = ch.review === 'sent' ? `chez la direction${d ? ` depuis ${d} j` : ''}`
     : ch.review === 'revise' ? 'à corriger' : 'validé';
-  return `<button type="button" class="ch-badge st-${ch.review}" title="Changer le statut"
-            onclick="event.stopPropagation(); openChapterMenu('${ch.id}')">${txt}</button>`;
+  const ico = { sent: 'send', revise: 'pencil', ok: 'check' }[ch.review];
+  return `<button type="button" class="chip ch-badge st-${ch.review}" title="Changer le statut"
+            onclick="event.stopPropagation(); openChapterMenu('${ch.id}')">${icon(ico)}${txt}</button>`;
 }
 
 function buildChapterHTML(ch) {
@@ -1366,28 +1579,28 @@ function buildChapterHTML(ch) {
   return `
 <div class="chapter-card${isDone ? ' completed' : ''}${showBody ? ' expanded' : ''}${hasS ? ' has-subs' : ' leaf'}" id="ch-${ch.id}">
   <div class="chapter-header"${hasS ? ` onclick="toggleChapter('${ch.id}')"` : ''}>
-    <span class="ch-drag-handle" onclick="event.stopPropagation()" title="Déplacer">⋮⋮</span>
+    <span class="ch-drag-handle" onclick="event.stopPropagation()" title="Déplacer">${icon('grip')}</span>
     <div class="toc-main">
       <div class="toc-line">
-        ${hasS ? '<span class="ch-arrow" aria-hidden="true">›</span>' : ''}
+        ${hasS ? `<span class="ch-arrow" aria-hidden="true">${icon('chevron-right')}</span>` : ''}
         <input class="editable" value="${esc(ch.title)}"
                onclick="event.stopPropagation()"
                onblur="updateChTitle('${ch.id}',this.value)"
                onkeydown="if(event.key==='Enter')this.blur()"
                title="Cliquez pour modifier" aria-label="Titre du chapitre" />
-        <span class="ch-badge-slot" id="bd-${ch.id}">${badgeHTML(ch)}</span>
-        <span class="due-chip" id="due-${ch.id}"></span>
         ${pages}
         <span class="ch-pct${isDone ? ' done' : ''}">${prog}\u00A0%</span>
       </div>
-      <div class="leader"><div class="leader-fill ch-progress-fill${isDone ? ' done' : ''}" style="width:${prog}%"></div></div>
+      <div class="toc-meta"><span class="ch-badge-slot" id="bd-${ch.id}">${badgeHTML(ch)}</span><span class="due-chip" id="due-${ch.id}"></span></div>
+      <div class="meter"><div class="meter-fill ch-progress-fill${isDone ? ' done' : ''}" style="width:${prog}%"></div></div>
     </div>
     <button type="button" class="btn-more" aria-label="Actions du chapitre" title="Statut, sous-sections, suppression"
-            onclick="event.stopPropagation(); openChapterMenu('${ch.id}')">⋯</button>
+            onclick="event.stopPropagation(); openChapterMenu('${ch.id}')">${icon('more')}</button>
   </div>
   <div class="chapter-body">
     ${hasS ? `<div class="ss-list" id="ssl-${ch.id}">${ch.subsections.map(ss => buildSsHTML(ss, ch.id)).join('')}</div>` : ''}
     <div class="add-row sub">
+      ${icon('plus')}
       <input type="text" class="add-input" maxlength="300" placeholder="Ajouter une sous-section" aria-label="Nouvelle sous-section"
              onkeydown="if(event.key==='Enter')addSsInline('${ch.id}',this)" />
       <button type="button" class="add-btn" onclick="addSsInline('${ch.id}',this.previousElementSibling)">Ajouter</button>
@@ -1401,7 +1614,7 @@ function buildSsHTML(ss, chId) {
   const isDone = prog >= 100;
   return `
 <div class="subsection" id="ss-${ss.id}">
-  <span class="ss-drag-handle" title="Déplacer">⋮⋮</span>
+  <span class="ss-drag-handle" title="Déplacer">${icon('grip')}</span>
   <div class="toc-main">
     <div class="toc-line">
       <input class="editable" value="${esc(ss.title)}"
@@ -1411,14 +1624,14 @@ function buildSsHTML(ss, chId) {
       ${pagesCtlHTML(ss.id, chId, ss.id, ss.writtenPages, ss.targetPages)}
       <span class="prog-pct${isDone ? ' done' : ''}" id="pct-${ss.id}">${prog}\u00A0%</span>
     </div>
-    <div class="leader"><div class="leader-fill${isDone ? ' done' : ''}" id="bar-${ss.id}" style="width:${prog}%"></div></div>
+    <div class="meter"><div class="meter-fill${isDone ? ' done' : ''}" id="bar-${ss.id}" style="width:${prog}%"></div></div>
   </div>
-  <button type="button" class="btn-x" title="Supprimer" aria-label="Supprimer la sous-section" onclick="deleteSs('${chId}','${ss.id}')">×</button>
+  <button type="button" class="btn-x" title="Supprimer" aria-label="Supprimer la sous-section" onclick="deleteSs('${chId}','${ss.id}')">${icon('x')}</button>
 </div>`;
 }
 
 /* ============================================================
-   JOURNAL — calendrier de régularité et notes (replié par défaut)
+   JOURNAL — calendrier de régularité et notes
 ============================================================ */
 let _journalRaf = 0;
 let _journalShowAll = false;
@@ -1462,7 +1675,7 @@ function heatmapHTML(activity, journal, opts) {
       const note = hasNotes(journal, k);
       const pre  = since && k < since;
       const lbl  = p ? `${fmt1(p)} p.` : note ? 'note' : 'rien';
-      cells += `<rect class="hm l${heatLevel(p, note, goal)}${k === today ? ' today' : ''}${pre ? ' pre' : ''}" x="${w * P}" y="${d * P}" width="${C}" height="${C}" rx="1.5"><title>${fmtDateLong(k)} : ${lbl}</title></rect>`;
+      cells += `<rect class="hm l${heatLevel(p, note, goal)}${k === today ? ' today' : ''}${pre ? ' pre' : ''}" x="${w * P}" y="${d * P}" width="${C}" height="${C}" rx="2.5"><title>${fmtDateLong(k)} : ${lbl}</title></rect>`;
     }
   }
   return `<div class="hm-months" style="grid-template-columns:repeat(${weeks},1fr)">${months}</div>`
@@ -1473,26 +1686,20 @@ function renderJournal() {
   const card = document.getElementById('journalCard');
   if (!card) return;
   card.classList.toggle('hidden', state.chapters.length === 0);
-  const collapsed = lsGet('jdb_journal_collapsed') !== '0'; // replié par défaut : le plan d'abord
-  card.classList.toggle('collapsed', collapsed);
   if (state.chapters.length === 0) return;
 
   const today = todayKey();
   const goal  = (_lastForecast && _lastForecast.dailyGoal) || 1;
-  const wk    = sumRange(state.activity, mondayOf(today), today);
-  const s     = streak(state, today);
-  setText('jcSummary', `${wk > 0 ? '+' : ''}${fmt1(wk)} p. cette semaine · ${s.count} ${plural(s.count, 'jour', 'jours')} d'affilée`);
-  if (collapsed) return;
-
-  setHTML('heatmap', heatmapHTML(state.activity, state.journal, {
-    weeks: card.clientWidth > 560 ? 26 : 16, today, goal, since: state.trackedSince,
-  }));
+  const weeks = card.clientWidth > 560 ? 26 : 16;
+  const best  = bestStreak(state, today);
+  setText('jcSummary', best > 1 ? `meilleure série : ${best} jours` : `${weeks} dernières semaines`);
+  setHTML('heatmap', heatmapHTML(state.activity, state.journal, { weeks, today, goal, since: state.trackedSince }));
 
   const days = new Set();
   for (const [k, v] of Object.entries(state.activity)) if (v && k <= today) days.add(k);
   for (const k of Object.keys(state.journal)) if (hasNotes(state.journal, k) && k <= today) days.add(k);
   const sorted = [...days].sort().reverse();
-  const shown = sorted.slice(0, _journalShowAll ? 60 : 6);
+  const shown = sorted.slice(0, _journalShowAll ? 60 : 5);
   if (!shown.length) {
     setHTML('jcEntries', '<p class="jc-empty">Rien pour l\'instant. Le journal se remplit tout seul, au fil de vos pages.</p>');
     return;
@@ -1504,24 +1711,18 @@ function renderJournal() {
       if (!e.n && !e.s) return '';
       const text = e.n ? `<span class="je-text">${esc(e.n)}</span>` : '';
       const meta = [e.p ? `+${fmt1(e.p)} p.` : '', e.s ? sectionLabel(e.s) : ''].filter(Boolean).join(' · ');
-      const del = e.n ? `<button type="button" class="je-del" onclick="deleteNote('${k}', ${i})" title="Supprimer la note" aria-label="Supprimer la note">×</button>` : '';
+      const del = e.n ? `<button type="button" class="je-del" onclick="deleteNote('${k}', ${i})" title="Supprimer la note" aria-label="Supprimer la note">${icon('x')}</button>` : '';
       return `<div class="je-line">${text}${meta ? `<span class="je-meta">${esc(meta)}</span>` : ''}${del}</div>`;
     }).join('');
     const pCls = p > 0 ? 'pos' : p < 0 ? 'neg' : '';
     return `<div class="je"><div class="je-date">${relDay(k)}</div>
-      <div class="je-pages ${pCls}">${p ? (p > 0 ? '+' : '') + fmt1(p) + ' p.' : ''}</div>
+      <div class="je-pages ${pCls}">${p ? (p > 0 ? '+' : '') + fmt1(p) + '\u00A0p.' : ''}</div>
       <div class="je-notes">${lines}</div></div>`;
   }).join('');
   const more = sorted.length > shown.length
     ? `<button type="button" class="jc-more" onclick="toggleJournalAll()">Voir tout le journal (${sorted.length} jours)</button>`
-    : (_journalShowAll && sorted.length > 6 ? '<button type="button" class="jc-more" onclick="toggleJournalAll()">Réduire</button>' : '');
+    : (_journalShowAll && sorted.length > 5 ? '<button type="button" class="jc-more" onclick="toggleJournalAll()">Réduire</button>' : '');
   setHTML('jcEntries', html + more);
-}
-
-function toggleJournalCard() {
-  const collapsed = lsGet('jdb_journal_collapsed') !== '0';
-  lsSet('jdb_journal_collapsed', collapsed ? '0' : '1');
-  renderJournal();
 }
 
 function toggleJournalAll() { _journalShowAll = !_journalShowAll; renderJournal(); }
@@ -1954,7 +2155,13 @@ function openModal(id) {
   if (m.classList.contains('hidden')) _modalReturn[id] = document.activeElement;
   m.classList.remove('hidden');
   const box = m.querySelector('.modal');
-  if (box) { box.setAttribute('tabindex', '-1'); box.focus({ preventScroll: true }); }
+  if (!box) return;
+  // Toute fenêtre a sa croix, en haut à droite
+  if (!box.querySelector(':scope > .modal-x')) {
+    box.insertAdjacentHTML('afterbegin', `<button type="button" class="modal-x" aria-label="Fermer" onclick="closeModal('${id}')">${icon('x')}</button>`);
+  }
+  box.setAttribute('tabindex', '-1');
+  box.focus({ preventScroll: true });
 }
 
 /** Ferme une fenêtre et rend le focus à l'endroit d'où l'on venait. */
@@ -3421,7 +3628,8 @@ async function deleteAccount() {
    DOCUMENT TITLE
 ============================================================ */
 function updateDocumentTitle(val) {
-  state.documentTitle = val.slice(0, 200);
+  state.documentTitle = String(val).replace(/\s*\n\s*/g, ' ').slice(0, 200);
+  fitTitle();
   saveDebounced();
 }
 
@@ -3554,8 +3762,11 @@ function fillShareCard() {
   const { total, written } = totals();
   const pct = total === 0 ? 0 : Math.min(100, Math.round(written / total * 100));
   const today = todayKey();
+  const story = _shareFormat === 'story';
   setText('igpPct', pct + '\u00A0%');
-  document.getElementById('igpFill').style.width = pct + '%';
+  const fill = document.getElementById('igpFill');
+  fill.style.width = pct + '%';
+  fill.style.display = pct ? '' : 'none';
   setText('igpMessage', total > 0 ? `${written} pages rédigées sur ${total}` : '');
   setText('igpGrade', gradeFor(pct));
   setText('igpFooter', plain(getFunnyCaption(pct)));
@@ -3567,6 +3778,10 @@ function fillShareCard() {
   const streakEl = document.getElementById('igpStreak');
   streakEl.textContent = bits.join(' · ');
   streakEl.classList.toggle('hidden', !bits.length);
+  // L'étagère, sans les titres : le sujet reste privé
+  setHTML('igpShelf', shareShelfHTML(shelfModel(), {
+    width: story ? 880 : 900, height: story ? 330 : 190, plant: plantImgHTML(s.count, story ? 190 : 130),
+  }));
 }
 
 async function renderShareImage() {
@@ -3592,7 +3807,7 @@ async function renderShareImage() {
     await new Promise(r => setTimeout(r, 150));
     const h = _shareFormat === 'story' ? 1920 : 1080;
     const canvas = await window.html2canvas(card, {
-      width: 1080, height: h, scale: 1, useCORS: true, backgroundColor: '#FAF7F0', logging: false,
+      width: 1080, height: h, scale: 1, useCORS: true, backgroundColor: '#122423', logging: false,
     });
     const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
     if (token !== _shareToken || !blob) return; // un autre format a été demandé entre-temps
@@ -3659,11 +3874,20 @@ function renderBingo() {
   setText('bingoScore', bingoScore([...ticks]).text);
 }
 
+/** Le bingo en petit, sur le tableau de bord : la grille de la semaine et où l'on en est. */
+function renderBingoTeaser() {
+  const ticks = new Set(bingoTicks());
+  setText('btWeek', `semaine ${isoWeek().week}`);
+  setHTML('btGrid', Array.from({ length: 9 }, (_, i) => `<i${ticks.has(i) ? ' class="on"' : ''}></i>`).join(''));
+  setText('btScore', bingoScore([...ticks]).text);
+}
+
 function toggleBingo(i) {
   const ticks = new Set(bingoTicks());
   if (ticks.has(i)) ticks.delete(i); else ticks.add(i);
   lsSet(bingoKey(), JSON.stringify([...ticks]));
   renderBingo();
+  renderBingoTeaser();
 }
 
 function shareBingo() {
@@ -3700,8 +3924,10 @@ function setView(v) {
   _view = v === 'promo' && promo.isAvailable() ? 'promo' : 'these';
   document.getElementById('viewThese').classList.toggle('hidden', _view !== 'these');
   document.getElementById('viewPromo').classList.toggle('hidden', _view !== 'promo');
-  document.querySelectorAll('.view-tab').forEach(b => b.classList.toggle('active', b.dataset.view === _view));
+  // La barre latérale (ordinateur) et les onglets du bas (téléphone) suivent
+  document.querySelectorAll('[data-view]').forEach(b => b.classList.toggle('active', b.dataset.view === _view));
   document.body.classList.toggle('view-promo', _view === 'promo');
+  closeMenu();
   window.scrollTo(0, 0);
   if (_view === 'promo') promo.open();
 }
@@ -3729,7 +3955,8 @@ const promo = createPromo({
   // La promo n'apparaît que si elle est ouverte (règles de sécurité en place)
   onChange(available, member) {
     document.getElementById('viewTabs').classList.toggle('hidden', !available);
-    document.querySelector('.topbar').classList.toggle('views-on', available);
+    document.getElementById('tabPromo').classList.toggle('hidden', !available);
+    document.getElementById('promoTeaser').classList.toggle('hidden', !available);
     document.getElementById('menuPromo').classList.toggle('hidden', !available);
     document.getElementById('wnPromo').classList.toggle('hidden', !available);
     document.getElementById('logShareRow').classList.toggle('hidden', !(available && member));
@@ -3829,7 +4056,8 @@ function buildReportHTML() {
 }
 
 /* ============================================================
-   MENU (bas d'écran sur mobile, panneau déroulant sur ordinateur)
+   MENU — barre latérale toujours visible sur ordinateur ;
+   sur téléphone, un panneau ouvert par l'onglet « Menu ».
 ============================================================ */
 function toggleMobileMenu() {
   const menu    = document.getElementById('mobileMenu');
@@ -3843,12 +4071,18 @@ function toggleMobileMenu() {
 
 /** Exécute une action du menu puis le referme. */
 function menuDo(fn) {
-  if (document.getElementById('mobileMenu').classList.contains('open')) toggleMobileMenu();
-  // Le focus revient sur le bouton « Menu » : c'est là qu'on le retrouvera en fermant la fenêtre ouverte
+  const wasOpen = document.getElementById('mobileMenu').classList.contains('open');
+  closeMenu();
+  // Sur téléphone, le panneau vient de se refermer : le focus va sur l'onglet « Menu »,
+  // c'est là qu'on le retrouvera en fermant la fenêtre qui s'ouvre.
   const btn = document.querySelector('.hamburger-btn');
-  if (btn) btn.focus({ preventScroll: true });
+  if (wasOpen && btn) btn.focus({ preventScroll: true });
   const f = window[fn];
   if (typeof f === 'function') f();
+}
+
+function closeMenu() {
+  if (document.getElementById('mobileMenu').classList.contains('open')) toggleMobileMenu();
 }
 
 /* ============================================================
@@ -3956,7 +4190,7 @@ Object.assign(window, {
   switchAuthTab, handleAuthSubmit, handleForgotPassword, googleSignIn, signOutUser,
   checkEmailTypo, applyEmailSuggestion,
   // Menu, espaces
-  toggleMobileMenu, menuDo, setView,
+  toggleMobileMenu, closeMenu, menuDo, setView,
   // Fenêtres
   openModal, closeModal,
   // Page de titre
@@ -3972,7 +4206,7 @@ Object.assign(window, {
   stepPages, updateWritten, updateTarget, updateChWritten, updateChTarget,
   // Journal
   openLogModal, setLogDay, stepLog, saveLog,
-  toggleJournalCard, toggleJournalAll, deleteNote,
+  toggleJournalAll, deleteNote,
   // Agenda
   openCalendarModal, updateCalendarLinks, downloadICS,
   // Synchro Word
@@ -4007,6 +4241,22 @@ Object.assign(window, {
 });
 
 initGlobalDrop();
+initShelf();
+
+/* La colonne de droite (aujourd'hui, note du jour, bingo) accompagne le défilement de la page :
+   collée en haut si elle tient dans l'écran, par le bas sinon (on la lit jusqu'au bout, puis elle reste là). */
+function stickSide() {
+  document.querySelectorAll('.col-side').forEach(col => {
+    const fits = col.offsetHeight <= window.innerHeight - 40;
+    col.classList.toggle('stick-top', fits);
+    col.classList.toggle('stick-bottom', !fits);
+  });
+}
+if ('ResizeObserver' in window) {
+  const ro = new window.ResizeObserver(stickSide);
+  document.querySelectorAll('.col-side').forEach(col => ro.observe(col));
+}
+window.addEventListener('resize', () => { stickSide(); fitTitle(); });
 
 /* Coller son document n'importe où dans la page (hors d'un champ de saisie) : même effet que le déposer.
    En dessous de 150 mots, ce n'est pas un manuscrit : on laisse le navigateur faire. */
@@ -4054,6 +4304,7 @@ onAuthStateChanged(auth, (user) => {
     clearAuthError();
     // Nouveaux visiteurs (venus d'Instagram…) : onglet « Créer un compte » par défaut
     switchAuthTab(lsGet('jdb_known') ? 'signin' : 'signup');
+    document.getElementById('authScreen').classList.toggle('returning', !!lsGet('jdb_known')); // déjà venu·e : le formulaire d'abord
     showScreen('authScreen');
     const shared = cleanId(new URLSearchParams(location.search).get('p'));
     if (shared) promo.showGuest(shared);

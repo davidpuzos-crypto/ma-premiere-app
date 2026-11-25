@@ -1,11 +1,11 @@
 Polices utilisées par Le Journal de Bord, hébergées avec l'application.
 Fichiers repris tels quels de Google Fonts (sous-ensembles latin et latin étendu).
 
-EB Garamond
-Copyright 2017 The EB Garamond Project Authors (https://github.com/octaviopardo/EBGaramond12)
+Fraunces
+Copyright 2020 The Fraunces Project Authors (https://github.com/undercasetype/Fraunces)
 
-Source Sans 3
-Copyright 2023 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.
+DM Sans
+Copyright 2014 The DM Sans Project Authors (https://github.com/googlefonts/dm-fonts)
 
 This Font Software is licensed under the SIL Open Font License, Version 1.1.
 This license is copied below, and is also available with a FAQ at:

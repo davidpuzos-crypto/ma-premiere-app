@@ -16,6 +16,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import { todayKey, isDayKey, diffDays, clamp } from './core.js';
 import { isoWeek, gradeFor, promoLead, rankTitle, randomPseudonym } from './humour.js';
+import { initials } from './visuals.js';
 
 const MAX_NOTES = 8;
 const LIST_TTL = 60000;       // la liste est relue au plus une fois par minute
@@ -392,8 +393,9 @@ export function createPromo(ctx) {
     el.classList.toggle('hidden', !m);
     if (!m) return;
     const cheers = myCheers > 0 ? ` · ${myCheers} encouragement${myCheers > 1 ? 's' : ''} cette semaine` : '';
-    el.innerHTML = `<div><div class="pm-who">${esc(m.name)}</div>
-        <div class="pm-stats">${m.pct} % · ${fmt1(m.weekPages)} p. cette semaine · ${m.streak} jour${m.streak > 1 ? 's' : ''} d'affilée${cheers}</div></div>
+    el.innerHTML = `<div class="pm-top"><span class="avatar" aria-hidden="true">${esc(initials(m.name))}</span>
+        <div><div class="pm-who">${esc(m.name)}</div>
+        <div class="pm-stats">${m.pct}\u00A0% · ${fmt1(m.weekPages)} p. cette semaine · ${m.streak} jour${m.streak > 1 ? 's' : ''} d'affilée${cheers}</div></div></div>
       <div class="pm-links">
         <button type="button" class="link-btn" onclick="openPromoProfile()">Ma fiche</button>
         <button type="button" class="link-btn" onclick="copyProfileLink()">Copier le lien de ma fiche</button>
@@ -416,17 +418,19 @@ export function createPromo(ctx) {
       ? active.slice(0, 30).map((p, i) => {
         const title = rankTitle(i + 1, weekPagesOf(p));
         const meta = profileMeta(p);
-        return `<li><button type="button" class="rank-item${p.id === id ? ' me' : ''}" onclick="openFellow('${esc(p.id)}')">
-            <span><span class="rk-name">${esc(p.name)}${p.id === id ? ' (vous)' : ''}</span>${meta ? `<span class="rk-meta">${esc(meta)}</span>` : ''}${title ? `<span class="rk-title">${title}</span>` : ''}</span>
-            <span class="rk-pages">+${fmt1(weekPagesOf(p))} p.</span>
-            <span class="rk-bar leader"><span class="leader-fill" style="width:${Math.round((weekPagesOf(p) / max) * 100)}%"></span></span>
+        return `<li><button type="button" class="rank-item${i === 0 ? ' top1' : ''}${p.id === id ? ' me' : ''}" onclick="openFellow('${esc(p.id)}')">
+            <span class="rk-pos" aria-hidden="true">${i + 1}</span>
+            <span class="avatar" aria-hidden="true">${esc(initials(p.name))}</span>
+            <span class="rk-who"><span class="rk-name">${esc(p.name)}${p.id === id ? ' (vous)' : ''}</span>${meta ? `<span class="rk-meta">${esc(meta)}</span>` : ''}${title ? `<span class="rk-title">${title}</span>` : ''}</span>
+            <span class="rk-pages">+${fmt1(weekPagesOf(p))}\u00A0p.</span>
+            <span class="rk-bar meter"><span class="meter-fill" style="width:${Math.round((weekPagesOf(p) / max) * 100)}%"></span></span>
           </button></li>`;
       }).join('')
       : '<li class="promo-empty">Personne n\'a encore noté de page cette semaine. La première place est à prendre.</li>');
     ui.setHTML('promoIdle', idle.length
       ? 'En réflexion cette semaine : ' + idle.slice(0, 14).map(p =>
         `<button type="button" onclick="openFellow('${esc(p.id)}')">${esc(p.name)}${p.id === id ? ' (vous)' : ''}</button>`).join(', ')
-        + (idle.length > 14 ? ` et ${idle.length - 14} autres` : '') + '.'
+        + (idle.length > 14 ? ` et ${idle.length - 14} autres.` : (/\.$/.test(idle[idle.length - 1].name) ? '' : '.')) // « Et al. » apporte son point
       : '');
 
     const notes = [];
@@ -469,7 +473,7 @@ export function createPromo(ctx) {
       <h2 class="fw-name" id="fwName">${esc(p.name)}</h2>
       <p class="fw-meta">${esc([meta, seen].filter(Boolean).join(' · '))}</p>
       <p class="fw-pct">${p.pct}\u00A0%</p>
-      <div class="progress-rule"><div class="progress-rule-fill" style="width:${p.pct}%"></div><i style="left:25%"></i><i style="left:50%"></i><i style="left:75%"></i></div>
+      <div class="meter fw-meter"><div class="meter-fill" style="width:${p.pct}%"></div></div>
       <p class="grade fw-grade">${esc(gradeFor(p.pct))}</p>
       <div class="fw-stats">
         <span><b>${fmt1(wkPages)}</b> p. cette semaine</span>

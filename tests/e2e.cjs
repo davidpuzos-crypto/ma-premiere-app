@@ -73,7 +73,7 @@ async function newPage(browser, { viewport = { width: 1280, height: 900 }, user 
     localStorage.clear();
     if (user) localStorage.setItem('__fbuser', JSON.stringify(user));
     if (store) localStorage.setItem('__fbstore', JSON.stringify(store));
-    if (seenNews) localStorage.setItem('jdb_whatsnew', '3');
+    if (seenNews) localStorage.setItem('jdb_whatsnew', '4');
   }, { user, store, config, seenNews });
   const page = await ctx.newPage();
   page._errors = [];
@@ -183,7 +183,14 @@ const clone = o => JSON.parse(JSON.stringify(o));
     // Date de dépôt : directement dans le tableau de bord
     await page.fill('#dlInline', addDays(TODAY, 300));
     await page.waitForSelector('.dl-show');
-    assert.match(await page.textContent('#dbDeadline'), /\d{4}.*(à tenir|dans les temps|en retard)/);
+    assert.match(await page.textContent('#dbDeadline .dl-date'), /\d{4}$/);
+    assert.match(await page.textContent('#dbDeadline .dl-count'), /^J\u2212300$/, 'compte à rebours');
+    assert.match(await page.textContent('#dbDeadline .dl-verdict'), /à tenir|dans les temps|en retard/);
+    assert.match(await page.textContent('#paceNeed'), /p\.\/sem\./, 'rythme à tenir affiché');
+    // L'étagère : un livre par chapitre, celui de la partie en cours porte le marque-page
+    assert.equal(await page.locator('#shelfBooks .book').count(), 7);
+    assert.match(await page.getAttribute('#shelfBooks .book.is-current', 'aria-label'), /Introduction/);
+    assert.match(await page.textContent('#levelNext'), /avant le grade suivant/);
     assert.ok(await page.locator('.due-chip:not(:empty)').count() >= 6, 'échéances par chapitre');
     d = await docOf(page, uid);
     assert.equal(d.deadline, addDays(TODAY, 300));
@@ -267,8 +274,8 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(await page.textContent('#sTotal'), '115');
     assert.equal(await page.textContent('#sWritten'), '38');
     assert.equal(await page.textContent('#sRemaining'), '77');
-    assert.match(await page.textContent('#gaugePct'), /^33\s%$/);
-    assert.ok(await page.evaluate(() => document.getElementById('journalCard').classList.contains('collapsed')), 'journal replié');
+    await page.waitForFunction(() => /^33\s%$/.test(document.getElementById('gaugePct').textContent)); // le grand chiffre monte jusqu'à sa valeur
+    assert.ok(await page.isVisible('#journalCard svg.hm-grid'), 'journal et calendrier de régularité visibles');
     const w0 = await page.evaluate(() => window.__fbStore.writes);
     assert.ok(w0.every(w => w.merge && !w.data.chapters), 'aucune réécriture complète au chargement');
     // Chapitre sans sous-section : pages visibles sans rien déplier
@@ -310,8 +317,11 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(d.journal[addDays(TODAY, -1)][0].n, 'Bonne séance à la BU');
     assert.match(await page.textContent('#tdCap'), /2\.2 Débats/, 'partie en cours mise à jour');
     assert.equal(await page.textContent('#tdStreak'), '2');
-    await page.click('.jc-head');
     assert.match(await page.textContent('#jcEntries'), /Bonne séance à la BU/);
+    // Clic sur un livre de l'étagère : on arrive sur son chapitre
+    await page.click('#shelfBooks .book[data-book="c3"]');
+    await page.waitForSelector('#ch-c3.flash');
+    assert.match(await page.textContent('#shelfReadout'), /Méthodologie\s: 1 page sur 40, 3\s%/, 'le détail du livre s\'affiche au-dessus de l\'étagère');
     // Modification venant d'un autre appareil
     await page.waitForTimeout(1600);
     await page.evaluate(u => window.__fbStore.remoteSet(`users/${u}/thesis/main`, {
@@ -640,6 +650,20 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.waitForSelector('#chapterMenuModal:not(.hidden)');
     assert.ok(await page.isVisible('#cmRemind'), 'relance proposée');
     assert.ok(await overflow() <= 0);
+    // Menu : sur téléphone, un panneau ouvert par l'onglet du bas ; il se referme, le focus revient sur l'onglet
+    await page.keyboard.press('Escape');
+    assert.ok(await page.isVisible('.tabbar'), 'onglets en bas de l\'écran');
+    assert.equal(await page.isVisible('#mobileMenu'), false, 'barre latérale repliée');
+    await page.click('.hamburger-btn');
+    await page.waitForSelector('#mobileMenu.open');
+    assert.equal(await page.getAttribute('.hamburger-btn', 'aria-expanded'), 'true');
+    await page.screenshot({ path: path.join(SHOTS, '4-01-menu-mobile.png') });
+    await page.click('#mobileMenu >> text=Dépôt, objectif et rythme');
+    await page.waitForSelector('#projectModal:not(.hidden)');
+    assert.equal(await page.evaluate(() => document.getElementById('mobileMenu').classList.contains('open')), false, 'le panneau se referme');
+    await page.keyboard.press('Escape');
+    assert.ok(await page.evaluate(() => document.activeElement.classList.contains('hamburger-btn')), 'retour à l\'onglet Menu');
+    assert.ok(await overflow() <= 0);
     assert.deepEqual(page._errors, []);
     await ctx.close();
   });
@@ -748,7 +772,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     const a = await newPage(browser, { user: { uid, email: 'maj@example.com' }, store: { [`users/${uid}/thesis/main`]: V1_DOC }, seenNews: false });
     await a.page.goto(BASE);
     await a.page.waitForSelector('#whatsNewModal:not(.hidden)');
-    assert.match(await a.page.textContent('#wnTitle'), /peau neuve/);
+    assert.match(await a.page.textContent('#wnTitle'), /Nouveau bureau/);
     assert.equal(await a.page.isVisible('#wnPromo'), false, 'la promo n\'est pas annoncée tant qu\'elle est fermée');
     assert.equal(await a.page.textContent('#sWritten'), '38', 'les données sont intactes derrière l\'annonce');
     await a.page.click('#whatsNewModal >> text=C\'est parti');
@@ -756,8 +780,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await a.page.waitForSelector('.chapter-card');
     await a.page.waitForTimeout(3000);
     assert.equal(await modalsOpen(a.page), 0, 'pas de seconde annonce');
-    // Elle reste consultable dans le menu
-    await a.page.click('.hamburger-btn');
+    // Elle reste consultable dans le menu (barre latérale)
     await a.page.click('#mobileMenu >> text=Quoi de neuf ?');
     await a.page.waitForSelector('#whatsNewModal:not(.hidden)');
     assert.deepEqual(a.page._errors, []);
@@ -911,7 +934,6 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal((await page.evaluate(() => window.__fbStore.get('profiles/u_promo'))).notes[0].p, 1);
 
     // Lien de ma fiche, puis départ : tout est supprimé
-    await page.click('.hamburger-btn');
     await page.click('#menuPromo');
     await page.waitForSelector('#promoModal:not(.hidden)');
     assert.equal(await page.inputValue('#ppLink'), BASE + '?p=u_promo');
@@ -998,7 +1020,8 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.notEqual(await a.page.textContent('#crystalQuote'), noteA);
     assert.match(await a.page.textContent('#gradeLine'), /Bâtisseur·se de chapitres/);
 
-    await a.page.click('.footnote >> text=Bingo de la semaine');
+    assert.match(await a.page.textContent('#btScore'), /Aucune case/);
+    await a.page.click('.bingo-teaser >> text=Cocher mes cases');
     await a.page.waitForSelector('#bingoModal:not(.hidden)');
     assert.equal(await a.page.locator('.bingo-cell').count(), 9);
     assert.match(await a.page.textContent('#bgKicker'), /^Semaine \d+$/);
@@ -1010,6 +1033,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await a.page.click('.bingo-cell >> nth=2');
     assert.match(await a.page.textContent('#bingoScore'), /2 cases sur 9/);
     await a.page.click('.bingo-cell >> nth=2');
+    assert.equal(await a.page.locator('#btGrid i.on').count(), 3, 'la petite grille du tableau de bord suit');
     await b.page.evaluate(() => window.openBingo());
     assert.deepEqual(await b.page.$$eval('.bingo-cell', els => els.map(e => e.textContent)), gridA, 'la même grille pour tout le monde');
     assert.equal(await b.page.locator('.bingo-cell.on').count(), 0, 'les cases cochées sont personnelles');
@@ -1129,7 +1153,6 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.click('#tdPrimary');
     await flush(page);
     assert.ok(await page.evaluate(u => Object.keys(localStorage).some(k => k.startsWith('jdb_') && k.includes(u)), uid), 'des réglages existent sur l\'appareil');
-    await page.click('.hamburger-btn');
     await page.click('#mobileMenu >> text=Confidentialité et compte');
     await page.waitForSelector('#privacyModal:not(.hidden)');
     assert.ok(await page.isVisible('#pvRights'));
@@ -1188,15 +1211,15 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.goto(BASE);
     await page.waitForSelector('#whatsNewModal:not(.hidden)');
     await page.evaluate(() => document.fonts.ready);
-    assert.ok(await page.evaluate(() => document.fonts.check('500 20px "EB Garamond"') && document.fonts.check('italic 20px "EB Garamond"') && document.fonts.check('600 16px "Source Sans 3"')), 'polices chargées');
+    assert.ok(await page.evaluate(() => document.fonts.check('600 20px "Fraunces"') && document.fonts.check('italic 20px "Fraunces"') && document.fonts.check('700 16px "DM Sans"')), 'polices chargées');
     assert.deepEqual(page._requests.filter(u => /fonts\.(googleapis|gstatic)\.com/.test(u)), [], 'aucune police demandée à un tiers');
-    assert.ok(page._requests.some(u => u.endsWith('/fonts/eb-garamond-latin.woff2')));
+    assert.ok(page._requests.some(u => u.endsWith('/fonts/fraunces-latin.woff2')) && page._requests.some(u => u.endsWith('/fonts/dm-sans-latin.woff2')));
     assert.equal(await page.evaluate(() => typeof window.Sortable), 'function', 'glisser-déposer chargé (contenu vérifié)');
     // L'annonce fermée avec Échap est considérée comme lue
     assert.ok(await page.evaluate(() => document.querySelector('#whatsNewModal .modal').contains(document.activeElement)), 'le focus est dans la fenêtre');
     await page.keyboard.press('Escape');
     await page.waitForSelector('#whatsNewModal.hidden', { state: 'attached' });
-    assert.equal(await page.evaluate(() => localStorage.getItem('jdb_whatsnew')), '3');
+    assert.equal(await page.evaluate(() => localStorage.getItem('jdb_whatsnew')), '4');
     // Anciens marqueurs supprimés, réglages conservés
     assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter(k => /^jdb_(goal|streak|bingo)_/.test(k))), []);
     assert.equal(await page.evaluate(() => localStorage.getItem('jdb_lastSection_u_fin')), 's2');
@@ -1212,19 +1235,42 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.ok(await page.evaluate(() => document.getElementById('logModal').contains(document.activeElement)));
     await page.keyboard.press('Escape');
     assert.equal(await page.evaluate(() => document.activeElement.id), 'tdCap', 'le focus revient sur le bouton d\'origine');
-    await page.click('.hamburger-btn');
     await page.click('#mobileMenu >> text=Dépôt, objectif et rythme');
     await page.waitForSelector('#projectModal:not(.hidden)');
+    assert.equal(await page.locator('#projectModal .modal-x').count(), 1, 'une croix pour fermer');
     await page.keyboard.press('Escape');
-    assert.ok(await page.evaluate(() => document.activeElement.classList.contains('hamburger-btn')), 'retour au bouton Menu');
-    // Contraste des textes secondaires (norme AA : 4,5)
-    const ratio = await page.evaluate(() => {
-      const lum = c => { const [r, g, b] = c.match(/\d+/g).slice(0, 3).map(v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
-      const fg = lum(getComputedStyle(document.querySelector('.kicker')).color);
-      const bg = lum(getComputedStyle(document.body).backgroundColor);
-      return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+    assert.match(await page.evaluate(() => document.activeElement.textContent), /Dépôt, objectif et rythme/, 'retour au bouton de la barre latérale');
+    // Contraste de tous les textes visibles (norme AA : 4,5, ou 3 pour les grands), chacun sur son vrai fond :
+    // papier, cartes, bandeau sombre, barre latérale, papillon de la note du jour
+    const contrasts = await page.evaluate(() => {
+      const rgb = c => (c.match(/[\d.]+/g) || []).map(Number);
+      const lum = ([r, g, b]) => { const f = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
+      const over = (top, under) => { const a = top[3] === undefined ? 1 : top[3]; return [0, 1, 2].map(i => top[i] * a + under[i] * (1 - a)); };
+      const bgOf = el => { // le fond réellement visible derrière un élément (couches translucides comprises)
+        const layers = [];
+        for (let e = el; e; e = e.parentElement) { const c = rgb(getComputedStyle(e).backgroundColor); if (c.length >= 3 && (c[3] === undefined || c[3] > 0)) { layers.push(c); if (c[3] === undefined || c[3] === 1) break; } }
+        let col = [245, 239, 227];
+        for (const l of layers.reverse()) col = over(l, col);
+        return col;
+      };
+      const bad = [];
+      let checked = 0;
+      document.querySelectorAll('#appScreen *').forEach(el => {
+        if (!el.offsetParent || el.closest('svg')) return;
+        if (![...el.childNodes].some(n => n.nodeType === 3 && n.textContent.trim())) return; // seulement ce qui porte du texte
+        const cs = getComputedStyle(el);
+        const bg = bgOf(el);
+        const fg = over(rgb(cs.color), bg);
+        const r = (Math.max(lum(fg), lum(bg)) + 0.05) / (Math.min(lum(fg), lum(bg)) + 0.05);
+        const size = parseFloat(cs.fontSize);
+        const need = size >= 24 || (size >= 18.66 && parseInt(cs.fontWeight, 10) >= 700) ? 3 : 4.5;
+        checked++;
+        if (r < need) bad.push(`${el.className || el.tagName} « ${el.textContent.trim().slice(0, 24)} » : ${r.toFixed(2)}`);
+      });
+      return { checked, bad: [...new Set(bad)] };
     });
-    assert.ok(ratio >= 4.5, 'contraste ' + ratio.toFixed(2));
+    assert.ok(contrasts.checked > 60, 'textes contrôlés : ' + contrasts.checked);
+    assert.deepEqual(contrasts.bad, [], 'contrastes insuffisants');
     assert.deepEqual(page._errors, []);
     await ctx.close();
   });
@@ -1618,7 +1664,9 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(d.deadline, `${year}-09-30`, 'le calcul va jusqu\'à la fin du mois visé');
     assert.equal(d.deadlineMonth, true);
     assert.equal(await page.textContent('#dlLabel'), 'Dépôt visé');
-    assert.match(await page.textContent('#dbDeadline'), new RegExp(`^septembre ${year}\\s·\\s(dans les temps|en retard|à tenir)`));
+    assert.equal(await page.textContent('#dbDeadline .dl-date'), `septembre ${year}`);
+    assert.match(await page.textContent('#dbDeadline .dl-verdict'), /dans les temps|en retard|à tenir/);
+    assert.equal(await page.textContent('#dbDeadline .cal-month'), 'sept.', 'l\'éphéméride montre le mois, pas un jour');
     assert.ok(await page.locator('.due-chip:not(:empty)').count() >= 3, 'les échéances des chapitres suivent');
     // La fenêtre se rouvre sur le mois ; l'agenda parle de période
     await page.click('#dbDeadline .dl-show');
@@ -1672,7 +1720,8 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(d.deadline, `${year}-10-15`);
     assert.equal(d.deadlineMonth, false);
     assert.equal(await page.textContent('#dlLabel'), 'Dépôt');
-    assert.match(await page.textContent('#dbDeadline'), /^15 oct\. /);
+    assert.match(await page.textContent('#dbDeadline .dl-date'), /^15 oct\. \d{4}$/);
+    assert.equal(await page.textContent('#dbDeadline .cal-d'), '15');
     assert.deepEqual(page._errors, []);
     await ctx.close();
   });

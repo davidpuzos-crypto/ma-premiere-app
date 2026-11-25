@@ -17,7 +17,7 @@
    APP_VERSION dans app.js et data-app-version dans index.html).
 ============================================================ */
 
-const VERSION = '3.1.0';
+const VERSION = '4.0.0';
 const CACHE_NAME = 'journal-de-bord-' + VERSION;
 
 const ASSETS_TO_CACHE = [
@@ -28,15 +28,16 @@ const ASSETS_TO_CACHE = [
   './core.js',
   './outline.js',
   './humour.js',
+  './visuals.js',
   './promo.js',
   './docx.js',
   './ics.js',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
-  './fonts/eb-garamond-latin.woff2',
-  './fonts/eb-garamond-italic-latin.woff2',
-  './fonts/source-sans-3-latin.woff2',
+  './fonts/fraunces-latin.woff2',
+  './fonts/fraunces-italic-latin.woff2',
+  './fonts/dm-sans-latin.woff2',
 ];
 
 /* --- Installation : pré-cache des fichiers (en contournant le cache HTTP) --- */

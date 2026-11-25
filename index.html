@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr" data-app-version="3.1.0">
+<html lang="fr" data-app-version="4.0.0">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -8,7 +8,7 @@
 
   <!-- PWA -->
   <link rel="manifest" href="manifest.json" />
-  <meta name="theme-color" content="#FAF7F0" />
+  <meta name="theme-color" content="#F5EFE3" />
   <meta name="mobile-web-app-capable" content="yes" />
   <!-- iOS (Safari) -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -17,7 +17,7 @@
   <link rel="apple-touch-icon" href="icon-192.png" />
 
   <!-- SEO -->
-  <meta name="description" content="Le Journal de Bord : l'outil gratuit des doctorant·es pour suivre la rédaction de leur thèse. Table des matières, pages rédigées, date de dépôt, synchronisation avec Word, et ce qu'il faut d'humour pour tenir jusqu'à la soutenance." />
+  <meta name="description" content="Le Journal de Bord : l'outil gratuit des doctorant·es pour suivre la rédaction de leur thèse. Chapitres, pages rédigées, date de dépôt, synchronisation avec Word, et ce qu'il faut d'humour pour tenir jusqu'à la soutenance." />
   <meta name="keywords" content="thèse, doctorat, doctorant, rédaction de thèse, suivi de rédaction, rétroplanning thèse, mémoire, plan de thèse, CSI, soutenance" />
   <meta name="robots" content="index, follow" />
   <meta name="author" content="Le Journal de Bord" />
@@ -32,9 +32,9 @@
   <meta name="twitter:card"       content="summary" />
   <link rel="canonical"           href="https://lejournaldebord.org/" />
 
-  <!-- Typographie : EB Garamond (titres, chiffres, notes) + Source Sans 3 (interface), hébergées ici -->
-  <link rel="preload" href="fonts/eb-garamond-latin.woff2" as="font" type="font/woff2" crossorigin />
-  <link rel="preload" href="fonts/source-sans-3-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <!-- Typographie : Fraunces (titres, citations) + DM Sans (interface, chiffres), hébergées ici -->
+  <link rel="preload" href="fonts/fraunces-latin.woff2" as="font" type="font/woff2" crossorigin />
+  <link rel="preload" href="fonts/dm-sans-latin.woff2" as="font" type="font/woff2" crossorigin />
   <!-- Firebase (connexion, données) : la liaison est préparée pendant le chargement de la page -->
   <link rel="preconnect" href="https://www.gstatic.com" crossorigin />
 
@@ -47,17 +47,76 @@
   <link rel="modulepreload" href="core.js" />
   <link rel="modulepreload" href="outline.js" />
   <link rel="modulepreload" href="humour.js" />
+  <link rel="modulepreload" href="visuals.js" />
   <link rel="modulepreload" href="promo.js" />
   <link rel="modulepreload" href="docx.js" />
   <link rel="modulepreload" href="ics.js" />
 </head>
 <body>
 
+<!-- Icônes de l'application : dessinées sur mesure, trait de 1,8 sur une grille de 24.
+     Usage : <svg class="ic" aria-hidden="true"><use href="#i-home"/></svg> -->
+<svg xmlns="http://www.w3.org/2000/svg" class="visually-hidden" aria-hidden="true" focusable="false">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 11.2 12 4l8 7.2"/><path d="M6 9.8V20h12V9.8"/><path d="M10 20v-5.5h4V20"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3 19.5c.6-3.2 3-5 6-5s5.4 1.8 6 5"/><circle cx="17.2" cy="9" r="2.5"/><path d="M16.7 14.7c2.3.3 3.8 1.8 4.3 4.3"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M7 3h7l4 4v14H7z"/><path d="M14 3v4h4"/><path d="M10 12h5M10 16h5"/></symbol>
+  <symbol id="i-sync" viewBox="0 0 24 24"><path d="M4.5 11a7.6 7.6 0 0 1 13.2-4.3L20 9"/><path d="M20 4.5V9h-4.5"/><path d="M19.5 13a7.6 7.6 0 0 1-13.2 4.3L4 15"/><path d="M4 19.5V15h4.5"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M12 16V4.5"/><path d="m7.5 9 4.5-4.5L16.5 9"/><path d="M5 15.5V19h14v-3.5"/></symbol>
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4.5V16"/><path d="m7.5 11.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="14.5" rx="2.5"/><path d="M4 10.5h16M8.5 3.5v4M15.5 3.5v4"/></symbol>
+  <symbol id="i-printer" viewBox="0 0 24 24"><path d="M7.5 8.5V4h9v4.5"/><rect x="4" y="8.5" width="16" height="8" rx="2"/><path d="M7.5 14h9v6h-9z"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2.5"/><path d="M4 9.33h16M4 14.67h16M9.33 4v16M14.67 4v16"/></symbol>
+  <symbol id="i-share" viewBox="0 0 24 24"><path d="M12 15V4"/><path d="m8 7.8 4-3.8 4 3.8"/><path d="M6.5 11.5H5.5v8.5h13v-8.5h-1"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4.5 7h8.5M17.5 7h2M4.5 12h2.5M11.5 12h8M4.5 17h6.5M15.5 17h4"/><circle cx="15.2" cy="7" r="2.2"/><circle cx="9.2" cy="12" r="2.2"/><circle cx="13.2" cy="17" r="2.2"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.5 19 6v5.5c0 4.3-2.8 7.6-7 9.5-4.2-1.900-7-5.200-7-9.500V6z"/><path d="m9 12 2.2 2.2L15.2 10"/></symbol>
+  <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 4.5H5.5v15H10"/><path d="m14.5 8 4 4-4 4"/><path d="M18.5 12H9.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5.5" cy="12" r="1.5" class="ic-dot"/><circle cx="12" cy="12" r="1.5" class="ic-dot"/><circle cx="18.5" cy="12" r="1.5" class="ic-dot"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-flame" viewBox="0 0 24 24"><path d="M12.2 3c.6 3.4 4.800 5.200 4.800 10a5 5 0 0 1-10 0c0-2 .900-3.500 2-4.600.300 1.500.900 2.400 1.900 2.900.400-2.700-.300-5.300 1.300-8.300z"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4.3"/><circle cx="12" cy="12" r=".8" class="ic-dot"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 24 24"><path d="M6 21V4"/><path d="M6 5h11.5l-2.3 4 2.3 4H6"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7.8V12l3 2"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="m4.5 19.5 1-4L16 5l3 3L8.5 18.5z"/><path d="m14 7 3 3"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H19v15H7.5A2.5 2.5 0 0 0 5 20.5z"/><path d="M5 20.5A2.5 2.5 0 0 0 7.5 21H19v-3"/></symbol>
+  <symbol id="i-books" viewBox="0 0 24 24"><rect x="4" y="5" width="4" height="15" rx="1"/><rect x="10" y="8" width="4" height="12" rx="1"/><path d="m14.8 9.100 3-.900 3.100 10.800-3 .900z"/><path d="M3 20.500h18"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M20.5 3.5 10.5 13.5"/><path d="m20.5 3.5-6.5 17-3.500-7-7-3.500z"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4.5 21 20H3z"/><path d="M12 10.5v4"/><circle cx="12" cy="17.3" r=".7" class="ic-dot"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 11v5.5"/><circle cx="12" cy="7.8" r=".7" class="ic-dot"/></symbol>
+  <symbol id="i-sparkles" viewBox="0 0 24 24"><path d="m11 4 1.700 4.800L17.500 10.500l-4.800 1.700L11 17l-1.700-4.800L4.500 10.500l4.800-1.700z"/><path d="m18.500 15 .700 1.800 1.800.700-1.800.700-.700 1.800-.700-1.800-1.800-.700 1.800-.700z"/></symbol>
+  <symbol id="i-chevron-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M5 7h14M9.500 7V4.500h5V7"/><path d="m7 7 .900 12.500h8.200L17 7"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2.2"/><path d="M5 15V6a1.500 1.500 0 0 1 1.500-1.500H15"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7.500-4.600-7.500-10.200a4.200 4.200 0 0 1 7.500-2.600 4.200 4.200 0 0 1 7.500 2.600C19.500 15.400 12 20 12 20z"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4.500h8V9a4 4 0 0 1-8 0z"/><path d="M8 6.500H5.200A2.800 2.800 0 0 0 8 10M16 6.500h2.800A2.800 2.800 0 0 1 16 10"/><path d="M12 13v3.500M8.500 20h7M9.800 16.500h4.400"/></symbol>
+  <symbol id="i-cap" viewBox="0 0 24 24"><path d="M2.500 9.300 12 5l9.500 4.300L12 13.600z"/><path d="M6.500 11.300v4.200c1.500 1.600 3.300 2.300 5.500 2.300s4-.700 5.500-2.300v-4.200"/><path d="M21.500 9.300v5"/></symbol>
+  <symbol id="i-sprout" viewBox="0 0 24 24"><path d="M12 20.500v-9"/><path d="M12 14.500c-4.200 0-6.500-2.200-6.500-6.300 4.200 0 6.500 2.200 6.500 6.300z"/><path d="M12 11.500c0-3.300 2.200-5.300 6.300-5.300 0 3.300-2.200 5.300-6.300 5.300z"/></symbol>
+  <symbol id="i-paste" viewBox="0 0 24 24"><rect x="6" y="5" width="12" height="16" rx="2.2"/><path d="M9 5V3.500h6V5M9.500 11h5M9.500 15h5"/></symbol>
+  <symbol id="i-layout" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="2.500"/><path d="M4 10h16M10 10v9"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 4 2.400 5.100 5.600.700-4.100 3.800 1.100 5.500L12 16.400 7 19.100l1.100-5.500L4 9.800l5.600-.700z"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.700 0l3-3a4 4 0 0 0-5.700-5.700l-1 1"/><path d="M14 10a4 4 0 0 0-5.700 0l-3 3a4 4 0 0 0 5.700 5.700l1-1"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 5h5v5M19 5l-8 8"/><path d="M11 7H6v11h11v-5"/></symbol>
+  <symbol id="i-grip" viewBox="0 0 24 24"><circle cx="9" cy="6" r="1.3" class="ic-dot"/><circle cx="15" cy="6" r="1.3" class="ic-dot"/><circle cx="9" cy="12" r="1.3" class="ic-dot"/><circle cx="15" cy="12" r="1.3" class="ic-dot"/><circle cx="9" cy="18" r="1.3" class="ic-dot"/><circle cx="15" cy="18" r="1.3" class="ic-dot"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3.500" y="5.500" width="17" height="13" rx="2.500"/><path d="m4.500 7.500 7.500 6 7.500-6"/></symbol>
+  <symbol id="i-question" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.500"/><path d="M9.500 9.700a2.600 2.600 0 0 1 5 .800c0 1.700-2.500 2-2.500 3.700"/><circle cx="12" cy="17" r=".7" class="ic-dot"/></symbol>
+  <symbol id="i-instagram" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="4.500"/><circle cx="12" cy="12" r="3.600"/><circle cx="16.700" cy="7.300" r=".8" class="ic-dot"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M8.500 8H15a4.500 4.500 0 0 1 0 9H9"/><path d="m11.500 5-3 3 3 3"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M5 4.500h14v10l-5 5H5z"/><path d="M14 19.500v-5h5"/></symbol>
+  <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M7 4h10v16l-5-3.600L7 20z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5.500" y="10.500" width="13" height="9.500" rx="2.200"/><path d="M8.500 10.500V8a3.500 3.500 0 0 1 7 0v2.500"/></symbol>
+  <symbol id="i-coffee" viewBox="0 0 24 24"><path d="M5 9.500h11v4.500a5 5 0 0 1-5 5h-1a5 5 0 0 1-5-5z"/><path d="M16 11h1.500a2.500 2.500 0 0 1 0 5H16"/><path d="M8.500 3.500v2.500M12 3.500v2.500"/></symbol>
+</svg>
+
 <!-- ============================================================
      1. CHARGEMENT
 ============================================================ -->
 <div id="loadingScreen">
-  <img class="brand-mark" src="icon-192.png" alt="" width="64" height="64" />
+  <img class="brand-mark" src="icon-192.png" alt="" width="72" height="72" />
   <p class="load-title">Le Journal de Bord</p>
   <p class="load-sub">Recherche du manuscrit<span class="dots"></span></p>
 </div>
@@ -66,74 +125,106 @@
      2. ACCUEIL ET CONNEXION
 ============================================================ -->
 <div id="authScreen" class="hidden">
-  <main class="auth">
-    <header class="auth-head">
-      <img class="brand-mark" src="icon-192.png" alt="" width="76" height="76" />
-      <h1 class="auth-title">Le Journal de Bord</h1>
-      <p class="auth-tagline">Journal de thèse à l'usage des doctorant·es<br />qui aimeraient bien finir un jour.</p>
-    </header>
+  <div class="landing">
 
-    <!-- Fiche d'un·e doctorant·e, ouverte depuis un lien partagé -->
-    <section class="guest-card hidden" id="guestProfile" aria-label="Fiche partagée"></section>
+    <!-- Présentation : ce que c'est, à quoi ça ressemble -->
+    <section class="landing-pitch" aria-label="Présentation">
+      <div class="lp-brand">
+        <img class="brand-mark" src="icon-192.png" alt="" width="46" height="46" />
+        <span class="brand-name">Le Journal de Bord</span>
+      </div>
+      <h1 class="lp-title">Le journal de thèse des doctorant·es qui aimeraient bien <span class="hl">finir un jour</span>.</h1>
+      <p class="lp-lead">Vos chapitres, vos pages, votre date de dépôt&nbsp;: tout sur un seul bureau. Avec ce qu'il faut d'humour pour tenir jusqu'à la soutenance.</p>
 
-    <div class="auth-card">
-      <div class="auth-tabs" role="tablist">
-        <button class="auth-tab active" id="tabSignin" onclick="switchAuthTab('signin')">Se connecter</button>
-        <button class="auth-tab"        id="tabSignup" onclick="switchAuthTab('signup')">Créer un compte</button>
+      <!-- Aperçu (décoratif) : la thèse en rayon -->
+      <div class="lp-demo" aria-hidden="true">
+        <div class="lp-demo-top">
+          <span class="lp-demo-pct">62&nbsp;%</span>
+          <span class="lp-demo-meta"><b>186</b> pages rédigées sur 300<br /><span class="chip chip-ok"><svg class="ic"><use href="#i-check"/></svg>dans les temps</span></span>
+        </div>
+        <div class="demo-shelf">
+          <span class="book is-done" style="--w:40px;--h:124px;--p:100"><span class="book-fill"></span><span class="book-title"><span>Introduction</span></span></span>
+          <span class="book" style="--w:62px;--h:138px;--p:88"><span class="book-fill"></span><span class="book-title"><span>État de l'art</span></span></span>
+          <span class="book" style="--w:52px;--h:120px;--p:70"><span class="book-fill"></span><span class="book-title"><span>Méthodologie</span></span></span>
+          <span class="book is-current" style="--w:76px;--h:144px;--p:46"><span class="book-fill"></span><span class="book-title"><span>Résultats</span></span><span class="book-mark"></span></span>
+          <span class="book" style="--w:48px;--h:128px;--p:18"><span class="book-fill"></span><span class="book-title"><span>Discussion</span></span></span>
+          <span class="book is-empty" style="--w:34px;--h:116px;--p:0"><span class="book-fill"></span><span class="book-title"><span>Conclusion</span></span></span>
+          <svg class="plant-svg" viewBox="0 0 90 120"><path d="M45 80C45 60 48 54 48 36" fill="none" stroke="#2F7350" stroke-width="3" stroke-linecap="round"/><path d="M0 0C4-9 16-13 24-7C18 2 7 5 0 0Z" transform="translate(46.200 62) rotate(-22) scale(.9)" fill="#3E8A62"/><path d="M0 0C4-9 16-13 24-7C18 2 7 5 0 0Z" transform="translate(46.200 62) scale(-1 1) rotate(-22) scale(.9)" fill="#2F7350"/><path d="M0 0C4-9 16-13 24-7C18 2 7 5 0 0Z" transform="translate(47.200 47) rotate(-22) scale(.7)" fill="#3E8A62"/><path d="M0 0C4-9 16-13 24-7C18 2 7 5 0 0Z" transform="translate(47.200 47) scale(-1 1) rotate(-22) scale(.7)" fill="#2F7350"/><circle cx="48" cy="33" r="4.500" fill="#F0AE3C"/><path d="M24 86h42l-5 34H29z" fill="#C4683A"/><rect x="20" y="79" width="50" height="9" rx="3" fill="#B85C30"/></svg>
+        </div>
+        <div class="shelf-board"></div>
       </div>
 
-      <div class="form-group">
-        <label class="form-label" for="authEmail">Adresse email</label>
-        <input type="email" id="authEmail" class="form-control"
-               placeholder="prenom.nom@univ.fr"
-               autocomplete="email"
-               onblur="checkEmailTypo()"
-               onkeydown="if(event.key==='Enter') handleAuthSubmit()" />
-        <div class="email-suggest hidden" id="emailSuggest" role="status"></div>
+      <ul class="lp-points">
+        <li><span class="lp-ico"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg></span>
+          <span><b>Votre plan en trente secondes.</b> Déposez votre document (Word, LibreOffice, LaTeX) ou collez votre texte&nbsp;: chapitres et pages se remplissent tout seuls.</span></li>
+        <li><span class="lp-ico"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg></span>
+          <span><b>Une page, un geste.</b> Un bouton «&nbsp;+1 page&nbsp;». Rien à calculer.</span></li>
+        <li><span class="lp-ico"><svg class="ic" aria-hidden="true"><use href="#i-flag"/></svg></span>
+          <span><b>Dans les temps&nbsp;?</b> Le Journal vous dit si vous tiendrez votre dépôt, et quel rythme tenir.</span></li>
+        <li><span class="lp-ico"><svg class="ic" aria-hidden="true"><use href="#i-grid"/></svg></span>
+          <span><b>Entre doctorant·es.</b> Le bingo de la semaine et la note de bas de page du jour, les mêmes pour tout le monde.</span></li>
+      </ul>
+    </section>
+
+    <!-- Connexion -->
+    <main class="auth">
+      <!-- Fiche d'un·e doctorant·e, ouverte depuis un lien partagé -->
+      <section class="guest-card hidden" id="guestProfile" aria-label="Fiche partagée"></section>
+
+      <div class="auth-card">
+        <div class="auth-tabs" role="tablist">
+          <button class="auth-tab active" id="tabSignin" onclick="switchAuthTab('signin')">Se connecter</button>
+          <button class="auth-tab"        id="tabSignup" onclick="switchAuthTab('signup')">Créer un compte</button>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="authEmail">Adresse email</label>
+          <input type="email" id="authEmail" class="form-control"
+                 placeholder="prenom.nom@univ.fr"
+                 autocomplete="email"
+                 onblur="checkEmailTypo()"
+                 onkeydown="if(event.key==='Enter') handleAuthSubmit()" />
+          <div class="email-suggest hidden" id="emailSuggest" role="status"></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="authPassword">Mot de passe</label>
+          <input type="password" id="authPassword" class="form-control"
+                 autocomplete="current-password"
+                 onkeydown="if(event.key==='Enter') handleAuthSubmit()" />
+        </div>
+
+        <div id="forgotPasswordRow">
+          <button type="button" class="link-btn forgot-link" onclick="handleForgotPassword()">Mot de passe oublié&nbsp;?</button>
+        </div>
+
+        <div class="form-group" id="confirmPasswordRow" style="display:none">
+          <label class="form-label" for="authPasswordConfirm">Confirmer le mot de passe</label>
+          <input type="password" id="authPasswordConfirm" class="form-control"
+                 autocomplete="new-password"
+                 onkeydown="if(event.key==='Enter') handleAuthSubmit()" />
+        </div>
+
+        <button class="btn btn-primary btn-lg btn-block" id="authSubmitBtn" onclick="handleAuthSubmit()">Se connecter</button>
+
+        <div class="auth-separator">ou</div>
+
+        <button class="btn btn-neutral btn-block google-btn" onclick="googleSignIn()">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+          </svg>
+          Continuer avec Google
+        </button>
+
+        <div class="auth-error" id="authError" role="alert"></div>
       </div>
 
-      <div class="form-group">
-        <label class="form-label" for="authPassword">Mot de passe</label>
-        <input type="password" id="authPassword" class="form-control"
-               autocomplete="current-password"
-               onkeydown="if(event.key==='Enter') handleAuthSubmit()" />
-      </div>
-
-      <div id="forgotPasswordRow">
-        <button type="button" class="link-btn forgot-link" onclick="handleForgotPassword()">Mot de passe oublié&nbsp;?</button>
-      </div>
-
-      <div class="form-group" id="confirmPasswordRow" style="display:none">
-        <label class="form-label" for="authPasswordConfirm">Confirmer le mot de passe</label>
-        <input type="password" id="authPasswordConfirm" class="form-control"
-               autocomplete="new-password"
-               onkeydown="if(event.key==='Enter') handleAuthSubmit()" />
-      </div>
-
-      <button class="btn btn-primary btn-block" id="authSubmitBtn" onclick="handleAuthSubmit()">Se connecter</button>
-
-      <div class="auth-separator">ou</div>
-
-      <button class="btn btn-neutral btn-block google-btn" onclick="googleSignIn()">
-        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-          <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-          <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-          <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
-          <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-        </svg>
-        Continuer avec Google
-      </button>
-
-      <div class="auth-error" id="authError" role="alert"></div>
-    </div>
-
-    <ol class="auth-pitch">
-      <li>Déposez votre document (Word, LibreOffice, LaTeX) ou collez votre texte&nbsp;: votre plan et vos pages se remplissent tout seuls.</li>
-      <li>Ou notez une page d'un seul geste, sans rien calculer.</li>
-      <li>Voyez d'un coup d'œil si vous tiendrez votre date de dépôt.</li>
-    </ol>
-    <p class="auth-free">Gratuit · sans publicité · vos données restent privées · <button type="button" class="link-btn" onclick="openPrivacy()">Confidentialité</button></p>
-  </main>
+      <p class="auth-free"><svg class="ic ic-sm" aria-hidden="true"><use href="#i-lock"/></svg> Gratuit · sans publicité · vos données restent privées · <button type="button" class="link-btn" onclick="openPrivacy()">Confidentialité</button></p>
+    </main>
+  </div>
 </div>
 
 <!-- ============================================================
@@ -141,213 +232,312 @@
 ============================================================ -->
 <div id="appScreen" class="hidden">
 
+  <!-- Bandeau du haut (téléphone seulement) -->
   <header class="topbar">
     <div class="brand">
-      <img src="icon-192.png" alt="" width="30" height="30" />
+      <img src="icon-192.png" alt="" width="32" height="32" />
       <span class="brand-name">Le Journal de Bord</span>
-    </div>
-    <nav class="views hidden" id="viewTabs" aria-label="Espaces">
-      <button type="button" class="view-tab active" data-view="these" onclick="setView('these')">Ma thèse</button>
-      <button type="button" class="view-tab" data-view="promo" onclick="setView('promo')">La promo</button>
-    </nav>
-    <div class="topbar-right">
-      <span class="user-name desktop-only" id="userEmail"></span>
-      <button class="hamburger-btn" onclick="toggleMobileMenu()"
-              aria-expanded="false" aria-controls="mobileMenu">Menu</button>
     </div>
   </header>
 
-  <!-- Menu (panneau latéral) -->
+  <!-- Barre latérale (ordinateur) ; panneau « Menu » (téléphone) -->
   <div id="mobileOverlay" onclick="toggleMobileMenu()"></div>
-  <nav id="mobileMenu" aria-label="Menu">
-    <div class="menu-head">
-      <span class="menu-user" id="userEmailMobile"></span>
-      <button type="button" class="link-btn" onclick="toggleMobileMenu()">Fermer</button>
+  <nav id="mobileMenu" class="sidebar" aria-label="Menu">
+    <div class="side-brand">
+      <img src="icon-192.png" alt="" width="38" height="38" />
+      <span class="brand-name">Le Journal de Bord</span>
+      <button type="button" class="side-close" onclick="toggleMobileMenu()" aria-label="Fermer le menu"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+
+    <div class="side-views">
+      <button type="button" class="side-item view-tab active" data-view="these" onclick="setView('these')">
+        <svg class="ic" aria-hidden="true"><use href="#i-home"/></svg><span>Ma thèse</span></button>
+      <div class="views hidden" id="viewTabs">
+        <button type="button" class="side-item view-tab" data-view="promo" onclick="setView('promo')">
+          <svg class="ic" aria-hidden="true"><use href="#i-users"/></svg><span>La promo</span></button>
+      </div>
     </div>
 
     <div class="menu-group">
       <p class="menu-label">Mon projet</p>
-      <button type="button" onclick="menuDo('openProjectModal')">Dépôt, objectif et rythme</button>
-      <button type="button" onclick="menuDo('openDocxModal')">Synchro avec mon document</button>
-      <button type="button" onclick="menuDo('openCalendarModal')">Rappels dans mon agenda</button>
-      <button type="button" onclick="menuDo('printReport')">Bilan imprimable (CSI, direction)</button>
-      <button type="button" onclick="menuDo('openTemplateModal')">Ajouter un modèle de plan</button>
+      <button type="button" class="side-item" onclick="menuDo('openProjectModal')"><svg class="ic" aria-hidden="true"><use href="#i-target"/></svg><span>Dépôt, objectif et rythme</span></button>
+      <button type="button" class="side-item" onclick="menuDo('openDocxModal')"><svg class="ic" aria-hidden="true"><use href="#i-sync"/></svg><span>Synchro du document</span></button>
+      <button type="button" class="side-item" onclick="menuDo('openCalendarModal')"><svg class="ic" aria-hidden="true"><use href="#i-calendar"/></svg><span>Rappels d'agenda</span></button>
+      <button type="button" class="side-item" onclick="menuDo('printReport')" title="Un bilan d'une page pour le comité de suivi (CSI) ou un rendez-vous avec la direction"><svg class="ic" aria-hidden="true"><use href="#i-printer"/></svg><span>Bilan imprimable</span></button>
+      <button type="button" class="side-item" onclick="menuDo('openTemplateModal')"><svg class="ic" aria-hidden="true"><use href="#i-layout"/></svg><span>Modèles de plan</span></button>
     </div>
 
     <div class="menu-group">
       <p class="menu-label">Entre doctorant·es</p>
-      <button type="button" class="hidden" id="menuPromo" onclick="menuDo('openPromoProfile')">Ma fiche dans la promo</button>
-      <button type="button" onclick="menuDo('openBingo')">Le bingo de la semaine</button>
-      <button type="button" onclick="menuDo('openShareModal')">Partager mon avancée</button>
-      <a href="https://www.instagram.com/journal.dune.pdh.entrepreneuse/" target="_blank" rel="noopener noreferrer">Instagram&nbsp;: @journal.dune.pdh.entrepreneuse</a>
+      <button type="button" class="side-item hidden" id="menuPromo" onclick="menuDo('openPromoProfile')"><svg class="ic" aria-hidden="true"><use href="#i-cap"/></svg><span>Ma fiche dans la promo</span></button>
+      <button type="button" class="side-item" onclick="menuDo('openBingo')"><svg class="ic" aria-hidden="true"><use href="#i-grid"/></svg><span>Bingo de la semaine</span></button>
+      <button type="button" class="side-item" onclick="menuDo('openShareModal')"><svg class="ic" aria-hidden="true"><use href="#i-share"/></svg><span>Partager mon avancée</span></button>
+      <a class="side-item" href="https://www.instagram.com/journal.dune.pdh.entrepreneuse/" target="_blank" rel="noopener noreferrer"><svg class="ic" aria-hidden="true"><use href="#i-instagram"/></svg><span>Instagram</span><svg class="ic ic-sm side-ext" aria-hidden="true"><use href="#i-external"/></svg></a>
     </div>
 
-    <div class="menu-group">
-      <p class="menu-label">Mes données</p>
-      <button type="button" id="btnInstallMobile" class="hidden" onclick="installApp(); toggleMobileMenu()">Installer l'application</button>
-      <button type="button" onclick="menuDo('exportData')">Exporter une sauvegarde</button>
-      <label>Importer une sauvegarde
-        <input type="file" accept=".json" id="importInputMobile" class="hidden" onchange="importData(this); toggleMobileMenu()" />
-      </label>
-      <button type="button" onclick="menuDo('openWhatsNew')">Quoi de neuf&nbsp;?</button>
-      <button type="button" onclick="menuDo('openPrivacy')">Confidentialité et compte</button>
-      <button type="button" onclick="signOutUser()">Se déconnecter</button>
+    <div class="side-foot">
+      <div class="side-user">
+        <span class="avatar" id="userAvatar" aria-hidden="true"></span>
+        <span class="menu-user" id="userEmailMobile"></span>
+      </div>
+      <div class="menu-group account">
+        <p class="menu-label">Mes données</p>
+        <button type="button" id="btnInstallMobile" class="hidden" onclick="installApp(); closeMenu()">Installer l'application</button>
+        <button type="button" onclick="menuDo('exportData')">Exporter une sauvegarde</button>
+        <label>Importer une sauvegarde
+          <input type="file" accept=".json" id="importInputMobile" class="hidden" onchange="importData(this); closeMenu()" />
+        </label>
+        <button type="button" onclick="menuDo('openWhatsNew')">Quoi de neuf&nbsp;?</button>
+        <button type="button" onclick="menuDo('openPrivacy')">Confidentialité et compte</button>
+        <button type="button" onclick="signOutUser()">Se déconnecter</button>
+      </div>
     </div>
   </nav>
 
-  <div id="dataLoadingBar" class="data-loading-bar hidden"></div>
+  <div class="app-main">
+    <div id="dataLoadingBar" class="data-loading-bar hidden"></div>
 
-  <!-- ══════════════════ ESPACE « MA THÈSE » ══════════════════ -->
-  <div class="page" id="viewThese">
+    <!-- ══════════════════ ESPACE « MA THÈSE » ══════════════════ -->
+    <div class="page" id="viewThese">
 
-    <!-- Page de titre : où j'en suis, suis-je dans les temps -->
-    <section class="titlepage dashboard-banner" aria-label="Avancement">
-      <p class="kicker">Thèse en cours de rédaction<sup class="fn-call">1</sup></p>
-      <input type="text" id="document-title" class="doc-title"
-             placeholder="Titre de votre thèse"
-             aria-label="Titre de votre thèse" maxlength="200"
-             oninput="updateDocumentTitle(this.value)"
-             onkeydown="if(event.key==='Enter')this.blur()" />
+      <!-- Où j'en suis, suis-je dans les temps -->
+      <section class="hero dashboard-banner" aria-label="Avancement">
+        <div class="hero-main">
+          <div class="hero-top">
+            <p class="eyebrow" id="heroHello">Ma thèse</p>
+            <button type="button" class="hero-share" id="shareIgBtn" onclick="openShareModal()" aria-label="Partager mon avancée"
+                    title="Une image de mon avancée, à publier en post ou en story">
+              <svg class="ic ic-sm" aria-hidden="true"><use href="#i-share"/></svg><span>Partager</span></button>
+          </div>
+          <textarea id="document-title" class="doc-title" rows="1"
+                    placeholder="Titre de votre thèse (provisoire, comme tous les titres)"
+                    aria-label="Titre de votre thèse" maxlength="200"
+                    oninput="updateDocumentTitle(this.value)"
+                    onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur()}"></textarea>
 
-      <div class="progress-figure" id="gaugePct">0&nbsp;%</div>
-      <div class="progress-rule" aria-hidden="true">
-        <div class="progress-rule-fill" id="gaugeFill"></div>
-        <i style="left:25%"></i><i style="left:50%"></i><i style="left:75%"></i>
-      </div>
-      <p class="pages-line">
-        <b id="sWritten">0</b> pages rédigées sur <span id="sTotal">0</span><span class="hidden" id="dbPagesRest">, reste <span id="sRemaining">0</span></span>
-      </p>
-      <p class="grade" id="gradeLine"></p>
+          <div class="hero-progress">
+            <div class="hero-figure" id="gaugePct">0&nbsp;%</div>
+            <div class="hero-pages">
+              <p><b id="sWritten">0</b> pages rédigées sur <span id="sTotal">0</span></p>
+              <p class="hidden" id="dbPagesRest">reste <span id="sRemaining">0</span> pages</p>
+            </div>
+          </div>
 
-      <dl class="facts">
-        <div class="fact">
-          <dt id="dlLabel">Dépôt</dt>
-          <dd class="db-deadline" id="dbDeadline"></dd>
+          <!-- Piste d'avancement : chaque pastille est un grade à franchir -->
+          <div class="level">
+            <div class="level-track" aria-hidden="true">
+              <div class="level-fill zero" id="gaugeFill"></div>
+              <span id="levelTicks"></span>
+            </div>
+            <p class="level-now"><svg class="ic ic-sm" aria-hidden="true"><use href="#i-cap"/></svg><span class="grade" id="gradeLine"></span></p>
+            <p class="level-next" id="levelNext"></p>
+          </div>
         </div>
-        <div class="fact">
-          <dt>Fin estimée</dt>
-          <dd><span class="fact-val" id="sEndDate">—</span> <span class="fact-note" id="sEndLbl"></span></dd>
+
+        <!-- Le dépôt, comme une éphéméride -->
+        <div class="hero-side">
+          <p class="eyebrow" id="dlLabel">Dépôt</p>
+          <div class="db-deadline" id="dbDeadline"></div>
+          <dl class="pace">
+            <div><dt>Votre rythme</dt><dd id="paceNow">—</dd></div>
+            <div><dt>À tenir</dt><dd id="paceNeed">—</dd></div>
+            <div><dt>Fin estimée</dt><dd id="sEndDate">—</dd></div>
+          </dl>
+          <p class="pace-note" id="sEndLbl"></p>
         </div>
-      </dl>
-    </section>
+      </section>
 
-    <!-- Aujourd'hui : l'objectif et le geste du jour -->
-    <section class="today today-strip" aria-label="Aujourd'hui">
-      <div class="today-goal">
-        <div class="today-top">
-          <span class="today-lbl">Aujourd'hui</span>
-          <span class="today-val" id="tdVal">0 / 1&nbsp;p.</span>
+      <div class="board">
+        <div class="col-main">
+
+          <!-- Chapitres chez la direction -->
+          <div class="review-strip hidden" id="reviewStrip"></div>
+
+          <!-- Mon plan : l'étagère, puis le suivi partie par partie -->
+          <main class="card toc workspace">
+            <div class="card-head toc-head">
+              <div>
+                <h2 class="card-title">Ma thèse en rayon</h2>
+                <p class="card-sub shelf-readout" id="shelfReadout"></p>
+              </div>
+              <button type="button" class="btn btn-neutral btn-sm word-btn" onclick="wordAction()"
+                      title="Mettre à jour mon plan et mes pages depuis mon document : Word, LibreOffice, LaTeX, ou texte collé (vous pouvez aussi le déposer ou le coller n'importe où dans la page)">
+                <svg class="ic ic-sm" aria-hidden="true"><use href="#i-sync"/></svg><span id="wordBtn">Importer mon document</span></button>
+            </div>
+
+            <div class="shelf" id="shelf">
+              <div class="shelf-row" id="shelfBooks" role="list" aria-label="Mes chapitres, rangés comme des livres"></div>
+              <div class="shelf-board" aria-hidden="true"></div>
+            </div>
+
+            <div class="setup-banner hidden" id="setupBanner">
+              <svg class="ic" aria-hidden="true"><use href="#i-info"/></svg>
+              <span><b>Vous avez déjà rédigé une partie&nbsp;?</b> Indiquez vos pages actuelles ci-dessous&nbsp;: elles ne compteront pas comme écrites aujourd'hui.</span>
+              <button type="button" class="btn btn-neutral btn-sm" onclick="endSetup()">C'est à jour</button>
+            </div>
+
+            <div id="chaptersContainer"></div>
+
+            <div class="add-row hidden" id="addChapterRow">
+              <svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg>
+              <input type="text" class="add-input" id="addChapterInput" maxlength="300"
+                     placeholder="Ajouter un chapitre (ou coller tout un plan)" aria-label="Nouveau chapitre"
+                     onkeydown="if(event.key==='Enter')addChapterInline()" onpaste="handlePlanPaste(event)" />
+              <button type="button" class="add-btn" onclick="addChapterInline()">Ajouter</button>
+            </div>
+          </main>
+
+          <!-- Journal : régularité et notes -->
+          <section class="card journal-card hidden" id="journalCard" aria-labelledby="jcTitle">
+            <div class="card-head">
+              <h2 class="card-title" id="jcTitle">Mon journal</h2>
+              <span class="card-sub" id="jcSummary"></span>
+            </div>
+            <div class="heatmap" id="heatmap"></div>
+            <div class="heatmap-legend" aria-hidden="true">
+              Moins <i class="hm l0"></i><i class="hm l1"></i><i class="hm l2"></i><i class="hm l3"></i><i class="hm l4"></i> Plus
+            </div>
+            <div class="jc-entries" id="jcEntries"></div>
+            <button type="button" class="btn btn-neutral btn-sm" onclick="openLogModal()"><svg class="ic ic-sm" aria-hidden="true"><use href="#i-pencil"/></svg>Ajouter une note</button>
+          </section>
         </div>
-        <div class="today-bar"><div class="today-fill" id="tdFill"></div></div>
-        <div class="today-sub" id="tdSub"></div>
-      </div>
-      <div class="today-stats">
-        <span title="Jours d'écriture consécutifs (les jours de repos ne cassent pas la série)"><b id="tdStreak">0</b> <span id="tdStreakLbl">jour</span> <small id="tdStreakSub">de série</small></span>
-        <span title="Pages écrites depuis lundi"><b id="tdWeek">0</b> p. <small>cette semaine</small></span>
-      </div>
-      <div class="today-act hidden" id="tdAct">
-        <button type="button" class="btn btn-primary btn-log" id="tdPrimary" onclick="primaryAction()">+1 page</button>
-        <button type="button" class="today-cap" id="tdCap" onclick="captionAction()"></button>
-      </div>
-    </section>
 
-    <!-- Chapitres chez la direction -->
-    <div class="review-strip hidden" id="reviewStrip"></div>
+        <div class="col-side">
 
-    <!-- Table des matières : le suivi, partie par partie -->
-    <main class="toc workspace">
-      <div class="toc-head">
-        <h2 class="smallcaps">Table des matières</h2>
-        <button type="button" class="link-btn" id="wordBtn" onclick="wordAction()"
-                title="Mettre à jour mon plan et mes pages depuis mon document : Word, LibreOffice, LaTeX, ou texte collé (vous pouvez aussi le déposer ou le coller n'importe où dans la page)">Importer mon document</button>
-      </div>
+          <!-- Aujourd'hui : l'objectif, le geste du jour, la semaine -->
+          <section class="card today today-strip" aria-label="Aujourd'hui">
+            <div class="card-head">
+              <h2 class="card-title">Aujourd'hui</h2>
+              <span class="card-sub" id="tdDate"></span>
+            </div>
+            <div class="today-goal">
+              <div class="ring" id="tdRing">
+                <svg viewBox="0 0 120 120" aria-hidden="true">
+                  <circle class="ring-track" cx="60" cy="60" r="50" />
+                  <circle class="ring-fill" cx="60" cy="60" r="50" pathLength="100" />
+                </svg>
+                <div class="ring-val" id="tdVal">0 / 1&nbsp;p.</div>
+              </div>
+              <p class="today-sub" id="tdSub"></p>
+            </div>
+            <div class="today-act hidden" id="tdAct">
+              <button type="button" class="btn btn-primary btn-lg btn-block btn-log" id="tdPrimary" onclick="primaryAction()">+1 page</button>
+              <button type="button" class="today-cap" id="tdCap" onclick="captionAction()"></button>
+            </div>
+            <div class="week">
+              <div class="week-head">
+                <span class="week-total" title="Pages écrites depuis lundi"><b id="tdWeek">0</b> p. <small>cette semaine</small></span>
+                <span class="streak" title="Jours d'écriture consécutifs (les jours de repos ne cassent pas la série)">
+                  <svg class="ic ic-sm" aria-hidden="true"><use href="#i-flame"/></svg><b id="tdStreak">0</b> <span id="tdStreakLbl">jour</span> <small id="tdStreakSub">de série</small></span>
+              </div>
+              <div id="weekBars"></div>
+            </div>
+          </section>
 
-      <div class="setup-banner hidden" id="setupBanner">
-        <span><b>Vous avez déjà rédigé une partie&nbsp;?</b> Indiquez vos pages actuelles ci-dessous&nbsp;: elles ne compteront pas comme écrites aujourd'hui.</span>
-        <button type="button" class="btn btn-neutral btn-sm" onclick="endSetup()">C'est à jour</button>
-      </div>
+          <!-- Note de bas de page du jour (la même pour tout le monde) -->
+          <aside class="footnote postit" aria-label="Note de bas de page du jour">
+            <p class="postit-kicker">Note de bas de page du jour</p>
+            <p class="fn-text"><span id="crystalQuote"></span></p>
+            <p class="fn-links"><button type="button" class="link-btn" onclick="nextQuote()">Une autre</button></p>
+          </aside>
 
-      <div id="chaptersContainer"></div>
+          <!-- Le bingo de la semaine -->
+          <section class="card bingo-teaser" aria-labelledby="btTitle">
+            <div class="card-head">
+              <h2 class="card-title" id="btTitle">Bingo de la semaine</h2>
+              <span class="card-sub" id="btWeek"></span>
+            </div>
+            <div class="bt-row">
+              <div class="bt-grid" id="btGrid" aria-hidden="true"></div>
+              <div class="bt-side">
+                <p class="bt-score" id="btScore"></p>
+                <button type="button" class="btn btn-neutral btn-sm" onclick="openBingo()">Cocher mes cases</button>
+              </div>
+            </div>
+          </section>
 
-      <div class="add-row hidden" id="addChapterRow">
-        <input type="text" class="add-input" id="addChapterInput" maxlength="300"
-               placeholder="Ajouter un chapitre (ou coller tout un plan)" aria-label="Nouveau chapitre"
-               onkeydown="if(event.key==='Enter')addChapterInline()" onpaste="handlePlanPaste(event)" />
-        <button type="button" class="add-btn" onclick="addChapterInline()">Ajouter</button>
-      </div>
-    </main>
-
-    <!-- Journal : replié par défaut -->
-    <section class="journal-card hidden collapsed" id="journalCard" aria-labelledby="jcTitle">
-      <button type="button" class="jc-head" onclick="toggleJournalCard()">
-        <span class="smallcaps" id="jcTitle">Journal</span>
-        <span class="jc-summary" id="jcSummary"></span>
-        <span class="jc-arrow" aria-hidden="true">›</span>
-      </button>
-      <div class="jc-body">
-        <div class="heatmap" id="heatmap"></div>
-        <div class="heatmap-legend">
-          Moins <i class="hm l0"></i><i class="hm l1"></i><i class="hm l2"></i><i class="hm l3"></i><i class="hm l4"></i> Plus
+          <!-- La promo (visible quand elle est ouverte) -->
+          <section class="card promo-teaser hidden" id="promoTeaser" aria-labelledby="ptTitle">
+            <span class="pt-ico"><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg></span>
+            <div class="pt-txt">
+              <h2 class="card-title" id="ptTitle">La promo</h2>
+              <p>Où en sont les autres doctorant·es&nbsp;? Classement de la semaine et encouragements, sous pseudonyme.</p>
+            </div>
+            <button type="button" class="btn btn-dark btn-sm" onclick="setView('promo')">Entrer<svg class="ic ic-sm" aria-hidden="true"><use href="#i-arrow-right"/></svg></button>
+          </section>
         </div>
-        <div class="jc-entries" id="jcEntries"></div>
-        <button type="button" class="link-btn" onclick="openLogModal()">Ajouter une note</button>
       </div>
-    </section>
+    </div><!-- /viewThese -->
 
-    <!-- Note de bas de page du jour (la même pour tout le monde) -->
-    <aside class="footnote" aria-label="Note de bas de page du jour">
-      <p class="fn-text"><sup>1</sup> <span id="crystalQuote"></span></p>
-      <p class="fn-links">
-        <button type="button" class="link-btn" onclick="nextQuote()">Une autre</button>
-        <button type="button" class="link-btn" onclick="openBingo()">Bingo de la semaine</button>
-        <button type="button" class="link-btn" id="shareIgBtn" onclick="openShareModal()">Partager mon avancée</button>
-      </p>
-    </aside>
-  </div><!-- /viewThese -->
+    <!-- ══════════════════ ESPACE « LA PROMO » ══════════════════ -->
+    <div class="page hidden" id="viewPromo">
+      <section class="hero promo-head">
+        <div class="hero-main">
+          <p class="eyebrow">Entre doctorant·es</p>
+          <h1 class="promo-title">La promo</h1>
+          <p class="promo-lead" id="promoLead"></p>
+        </div>
+      </section>
 
-  <!-- ══════════════════ ESPACE « LA PROMO » ══════════════════ -->
-  <div class="page hidden" id="viewPromo">
-    <section class="promo-head">
-      <p class="kicker">Entre doctorant·es</p>
-      <h1 class="promo-title">La promo</h1>
-      <p class="promo-lead" id="promoLead"></p>
-      <p class="promo-links"><button type="button" class="link-btn" onclick="openBingo()">Le bingo de la semaine</button></p>
-    </section>
+      <div class="board">
+        <div class="col-main">
+          <section class="card promo-block">
+            <div class="card-head"><h2 class="card-title">Classement de la semaine</h2><span class="card-sub" id="promoWeek"></span></div>
+            <ol class="rank" id="promoRank"></ol>
+            <p class="promo-idle" id="promoIdle"></p>
+          </section>
 
-    <!-- Pas encore inscrit·e -->
-    <section class="promo-join hidden" id="promoJoin">
-      <p>Voyez où en sont les autres, encouragez-vous, comparez vos semaines (sans rancune). Vous apparaissez sous un <b>pseudonyme</b> : ni votre nom, ni votre sujet, ni votre plan ne sont montrés.</p>
-      <button type="button" class="btn btn-primary" onclick="openPromoProfile()">Rejoindre la promo</button>
-    </section>
+          <section class="card promo-block">
+            <div class="card-head"><h2 class="card-title">Le fil de la promo</h2></div>
+            <div class="promo-compose hidden" id="promoCompose">
+              <textarea id="promoText" class="form-control" rows="2" maxlength="240"
+                        placeholder="Une astuce, une petite victoire, un coup de mou ? Écrivez à la promo."
+                        aria-label="Message à la promo"></textarea>
+              <button type="button" class="btn btn-dark" onclick="postToPromo()"><svg class="ic ic-sm" aria-hidden="true"><use href="#i-send"/></svg>Publier</button>
+            </div>
+            <div class="feed" id="promoFeed"></div>
+          </section>
+        </div>
 
-    <!-- Ma ligne -->
-    <section class="promo-me hidden" id="promoMe"></section>
+        <div class="col-side">
+          <!-- Pas encore inscrit·e -->
+          <section class="card promo-join hidden" id="promoJoin">
+            <h2 class="card-title">Entrez dans la salle des doctorant·es</h2>
+            <p>Voyez où en sont les autres, encouragez-vous, comparez vos semaines (sans rancune). Vous apparaissez sous un <b>pseudonyme</b>&nbsp;: ni votre nom, ni votre sujet, ni votre plan ne sont montrés.</p>
+            <button type="button" class="btn btn-primary btn-block" onclick="openPromoProfile()">Rejoindre la promo</button>
+          </section>
 
-    <section class="promo-block">
-      <div class="toc-head"><h2 class="smallcaps">Classement de la semaine</h2><span class="toc-note" id="promoWeek"></span></div>
-      <ol class="rank" id="promoRank"></ol>
-      <p class="promo-idle" id="promoIdle"></p>
-    </section>
+          <!-- Ma ligne -->
+          <section class="card promo-me hidden" id="promoMe"></section>
 
-    <section class="promo-block">
-      <div class="toc-head"><h2 class="smallcaps">Le fil de la promo</h2></div>
-      <div class="promo-compose hidden" id="promoCompose">
-        <textarea id="promoText" class="form-control" rows="2" maxlength="240"
-                  placeholder="Une astuce, une petite victoire, un coup de mou ? Écrivez à la promo."
-                  aria-label="Message à la promo"></textarea>
-        <button type="button" class="btn btn-neutral btn-sm" onclick="postToPromo()">Publier</button>
+          <section class="card promo-bingo">
+            <span class="pt-ico"><svg class="ic" aria-hidden="true"><use href="#i-grid"/></svg></span>
+            <div class="pt-txt">
+              <h2 class="card-title">Le bingo de la semaine</h2>
+              <p>La même grille pour toute la promo. À comparer sans modération.</p>
+            </div>
+            <button type="button" class="btn btn-neutral btn-sm" onclick="openBingo()">Jouer</button>
+          </section>
+        </div>
       </div>
-      <div class="feed" id="promoFeed"></div>
-    </section>
-  </div><!-- /viewPromo -->
+    </div><!-- /viewPromo -->
 
-  <footer class="colophon">
-    <p>Le Journal de Bord. Outil de suivi de rédaction conçu pour les étudiants qui avancent avec passion et persévérance.</p>
-    <p><a href="https://www.instagram.com/journal.dune.pdh.entrepreneuse/" target="_blank" rel="noopener noreferrer">@journal.dune.pdh.entrepreneuse</a> · <button type="button" class="link-btn" onclick="openPrivacy()">Confidentialité</button> · © 2026</p>
-  </footer>
+    <footer class="colophon">
+      <p>Le Journal de Bord. Outil de suivi de rédaction conçu pour les étudiants qui avancent avec passion et persévérance.</p>
+      <p><a href="https://www.instagram.com/journal.dune.pdh.entrepreneuse/" target="_blank" rel="noopener noreferrer">@journal.dune.pdh.entrepreneuse</a> · <button type="button" class="link-btn" onclick="openPrivacy()">Confidentialité</button> · © 2026</p>
+    </footer>
+  </div><!-- /app-main -->
 
-  <!-- Bouton flottant (mobile) -->
-  <button type="button" class="fab btn btn-primary" onclick="primaryAction()" aria-label="Noter une page">+1 page</button>
+  <!-- Navigation du bas (téléphone) -->
+  <nav class="tabbar" aria-label="Navigation">
+    <button type="button" class="tab active" data-view="these" onclick="setView('these')"><svg class="ic" aria-hidden="true"><use href="#i-home"/></svg><span>Ma thèse</span></button>
+    <button type="button" class="tab hidden" id="tabPromo" data-view="promo" onclick="setView('promo')"><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg><span>La promo</span></button>
+    <button type="button" class="tab" onclick="openBingo()"><svg class="ic" aria-hidden="true"><use href="#i-grid"/></svg><span>Bingo</span></button>
+    <button type="button" class="tab hamburger-btn" onclick="toggleMobileMenu()" aria-expanded="false" aria-controls="mobileMenu"><svg class="ic" aria-hidden="true"><use href="#i-menu"/></svg><span>Menu</span></button>
+  </nav>
+
+  <!-- Bouton flottant (téléphone) -->
+  <button type="button" class="fab btn btn-primary" onclick="primaryAction()" aria-label="Noter une page"><span class="fab-lbl">+1 page</span></button>
 
   <!-- Bannière iOS -->
   <div id="iosInstallBanner" class="ios-install-banner hidden">
@@ -367,7 +557,7 @@
 <!-- Mon projet -->
 <div class="modal-overlay hidden" id="projectModal" role="dialog" aria-modal="true" aria-labelledby="pmTitle">
   <div class="modal modal-wide">
-    <h2 id="pmTitle">Mon projet</h2>
+    <div class="modal-title"><span class="modal-ico"><svg class="ic" aria-hidden="true"><use href="#i-target"/></svg></span><h2 id="pmTitle">Mon projet</h2></div>
     <p class="modal-sub">Trois réglages suffisent. Le reste se calcule tout seul.</p>
     <div class="form-group">
       <label class="form-label" for="pmName">Titre de la thèse</label>
@@ -438,7 +628,7 @@
 <!-- J'ai écrit (version détaillée de « +1 page ») -->
 <div class="modal-overlay hidden" id="logModal" role="dialog" aria-modal="true" aria-labelledby="logTitle">
   <div class="modal">
-    <h2 id="logTitle">J'ai écrit</h2>
+    <div class="modal-title"><span class="modal-ico"><svg class="ic" aria-hidden="true"><use href="#i-pencil"/></svg></span><h2 id="logTitle">J'ai écrit</h2></div>
     <div id="logNoPlan" class="hidden">
       <p class="modal-sub">Créez d'abord votre plan pour y noter vos pages.</p>
       <div class="modal-actions">
@@ -482,7 +672,7 @@
 <!-- Agenda -->
 <div class="modal-overlay hidden" id="calendarModal" role="dialog" aria-modal="true" aria-labelledby="calTitle">
   <div class="modal modal-wide">
-    <h2 id="calTitle">Rappels dans mon agenda</h2>
+    <div class="modal-title"><span class="modal-ico"><svg class="ic" aria-hidden="true"><use href="#i-calendar"/></svg></span><h2 id="calTitle">Rappels dans mon agenda</h2></div>
     <p class="modal-sub">Vos séances d'écriture reviennent chaque semaine dans votre agenda, avec un rappel dix minutes avant. S'y ajoutent, si vous le voulez, votre dépôt et l'échéance de chaque chapitre.</p>
     <div class="form-group">
       <span class="form-label">Jours d'écriture</span>
@@ -515,7 +705,7 @@
       <p class="form-hint hidden" id="calNoDeadline">Fixez votre date de dépôt pour ajouter aussi vos échéances.</p>
     </div>
     <div class="cal-actions">
-      <button class="btn btn-primary" onclick="downloadICS()">Tout ajouter&nbsp;: fichier agenda (.ics)</button>
+      <button class="btn btn-primary" onclick="downloadICS()"><svg class="ic ic-sm" aria-hidden="true"><use href="#i-download"/></svg>Tout ajouter&nbsp;: fichier agenda (.ics)</button>
     </div>
     <p class="form-hint">Le fichier s'ouvre avec Apple Calendar, Outlook ou Google Agenda (sur ordinateur&nbsp;: Paramètres, puis Importer). Il contient tout ce qui est coché.</p>
     <p class="cal-google">Ou directement dans Google Agenda, un clic par événement&nbsp;:
@@ -529,18 +719,19 @@
   </div>
 </div>
 
-<!-- Synchro Word -->
+<!-- Synchro avec le document -->
 <div class="modal-overlay hidden" id="docxModal" role="dialog" aria-modal="true" aria-labelledby="docxTitle">
   <div class="modal modal-xl">
     <div id="docxStep1">
-      <h2 id="docxTitle">Synchro avec mon document</h2>
+      <div class="modal-title"><span class="modal-ico"><svg class="ic" aria-hidden="true"><use href="#i-sync"/></svg></span><h2 id="docxTitle">Synchro avec mon document</h2></div>
       <p class="modal-sub">Le Journal lit votre manuscrit, repère vos chapitres et calcule vos pages rédigées, notes de bas de page comprises. Tout le manuscrit ou un fichier par chapitre, comme vous préférez.</p>
       <button type="button" class="dropzone" id="docxDrop" onclick="pickWordFile()">
+        <svg class="ic ic-lg" aria-hidden="true"><use href="#i-upload"/></svg>
         <span class="dz-main">Choisir mon fichier</span>
         <span class="dz-sub">Word (.docx), LibreOffice (.odt), LaTeX (.tex), Markdown, texte. Ou le déposer n'importe où dans la page.</span>
       </button>
       <div class="docx-busy hidden" id="docxBusy"><div class="spinner"></div><p>Lecture du document…</p></div>
-      <label class="paste-label" for="docxPaste">Ou collez votre texte&nbsp;: dans votre document, tout sélectionner, copier, puis coller ici.</label>
+      <label class="paste-label" for="docxPaste"><svg class="ic ic-sm" aria-hidden="true"><use href="#i-paste"/></svg>Ou collez votre texte&nbsp;: dans votre document, tout sélectionner, copier, puis coller ici.</label>
       <textarea id="docxPaste" class="form-control paste-box" rows="2" onpaste="handleDocPaste(event)"
                 placeholder="Coller ici (Google Docs, Word en ligne, Overleaf…) : les titres sont reconnus."></textarea>
       <p class="docx-error hidden" id="docxError" role="alert"></p>
@@ -548,7 +739,7 @@
         <div id="linkedList"></div>
         <p class="form-hint" id="linkedHint"></p>
       </div>
-      <p class="privacy-note">Votre document est lu sur votre appareil et n'est envoyé nulle part. Seuls les titres et les nombres de pages sont enregistrés.</p>
+      <p class="privacy-note"><svg class="ic ic-sm" aria-hidden="true"><use href="#i-lock"/></svg>Votre document est lu sur votre appareil et n'est envoyé nulle part. Seuls les titres et les nombres de pages sont enregistrés.</p>
       <details class="docx-tips">
         <summary>Pour un résultat parfait</summary>
         <ul>
@@ -565,7 +756,7 @@
     </div>
 
     <div id="docxStep2" class="hidden">
-      <h2>Le plan que je vous propose</h2>
+      <div class="modal-title"><span class="modal-ico"><svg class="ic" aria-hidden="true"><use href="#i-books"/></svg></span><h2>Le plan que je vous propose</h2></div>
       <p class="docx-summary" id="docxSummary"></p>
       <p class="docx-suggest hidden" id="docxSuggest">Le Journal sait maintenant repérer vos chapitres même quand ils ne sont pas en «&nbsp;Titre 1&nbsp;». Voici le plan qu'il propose à la place de l'ancien&nbsp;: vérifiez-le, il sera retenu pour les prochaines fois.</p>
       <div class="docx-settings">
@@ -598,7 +789,7 @@
 <!-- Partager (avancée ou bingo) -->
 <div class="modal-overlay hidden" id="shareModal" role="dialog" aria-modal="true" aria-labelledby="shareTitle">
   <div class="modal">
-    <h2 id="shareTitle">Partager</h2>
+    <div class="modal-title"><span class="modal-ico"><svg class="ic" aria-hidden="true"><use href="#i-share"/></svg></span><h2 id="shareTitle">Partager</h2></div>
     <p class="modal-sub" id="shareSub">Une image à publier en post ou en story. Seuls vos chiffres apparaissent, jamais votre sujet.</p>
     <div class="seg" id="shareSeg" role="group" aria-label="Format">
       <button type="button" class="seg-btn active" data-format="post" onclick="setShareFormat('post')">Post carré</button>
@@ -606,7 +797,7 @@
     </div>
     <div class="share-preview" id="sharePreview"></div>
     <div class="modal-actions">
-      <button class="btn btn-neutral" id="shareDownloadBtn" onclick="downloadShareImage()">Télécharger</button>
+      <button class="btn btn-neutral" id="shareDownloadBtn" onclick="downloadShareImage()"><svg class="ic ic-sm" aria-hidden="true"><use href="#i-download"/></svg>Télécharger</button>
       <button class="btn btn-primary hidden" id="shareNativeBtn" onclick="shareNative()">Partager…</button>
     </div>
   </div>
@@ -622,7 +813,7 @@
     <p class="bingo-score" id="bingoScore" role="status"></p>
     <div class="modal-actions">
       <button class="btn btn-neutral" onclick="closeModal('bingoModal')">Fermer</button>
-      <button class="btn btn-primary" onclick="shareBingo()">Partager ma grille</button>
+      <button class="btn btn-primary" onclick="shareBingo()"><svg class="ic ic-sm" aria-hidden="true"><use href="#i-share"/></svg>Partager ma grille</button>
     </div>
   </div>
 </div>
@@ -630,7 +821,7 @@
 <!-- Ma fiche dans la promo -->
 <div class="modal-overlay hidden" id="promoModal" role="dialog" aria-modal="true" aria-labelledby="ppTitle">
   <div class="modal modal-wide">
-    <h2 id="ppTitle">Ma fiche dans la promo</h2>
+    <div class="modal-title"><span class="modal-ico"><svg class="ic" aria-hidden="true"><use href="#i-cap"/></svg></span><h2 id="ppTitle">Ma fiche dans la promo</h2></div>
     <p class="modal-sub">Les autres doctorant·es voient votre pseudonyme, votre avancement en pourcentage, vos pages de la semaine, votre série et votre calendrier de régularité. Jamais votre nom, votre adresse, votre sujet ni votre plan.</p>
     <div class="form-group">
       <label class="form-label" for="ppName">Pseudonyme</label>
@@ -661,7 +852,7 @@
       <label class="form-label" for="ppLink">Lien de ma fiche</label>
       <div class="input-row">
         <input type="text" id="ppLink" class="form-control" readonly onfocus="this.select()" />
-        <button type="button" class="btn btn-neutral" onclick="copyProfileLink()">Copier</button>
+        <button type="button" class="btn btn-neutral" onclick="copyProfileLink()"><svg class="ic ic-sm" aria-hidden="true"><use href="#i-copy"/></svg>Copier</button>
       </div>
       <p class="form-hint">À envoyer à qui vous voulez (famille, binôme, direction)&nbsp;: la fiche se consulte sans compte.</p>
     </div>
@@ -682,7 +873,7 @@
 <!-- Confidentialité et compte -->
 <div class="modal-overlay hidden" id="privacyModal" role="dialog" aria-modal="true" aria-labelledby="pvTitle">
   <div class="modal modal-wide">
-    <h2 id="pvTitle">Confidentialité</h2>
+    <div class="modal-title"><span class="modal-ico"><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg></span><h2 id="pvTitle">Confidentialité</h2></div>
     <p class="modal-sub">En clair, et sans note de bas de page.</p>
     <dl class="pv-list">
       <div><dt>Ce qui est enregistré</dt>
@@ -716,13 +907,13 @@
 <!-- Quoi de neuf (affiché une fois après chaque mise à jour) -->
 <div class="modal-overlay hidden" id="whatsNewModal" role="dialog" aria-modal="true" aria-labelledby="wnTitle">
   <div class="modal modal-wide">
-    <p class="kicker">Mise à jour · nouvelle édition, revue et allégée</p>
-    <h2 id="wnTitle">Le Journal a fait peau neuve</h2>
+    <p class="kicker">Mise à jour · le Journal a refait la déco</p>
+    <h2 id="wnTitle">Nouveau bureau, mêmes pages</h2>
     <ol class="wn-list">
-      <li><b>Une page de thèse, pas un tableau de bord.</b> Votre avancement, votre date de dépôt et votre table des matières, sans rien de superflu.</li>
-      <li><b>Vos pages en un geste.</b> Le bouton «&nbsp;+1 page&nbsp;», les boutons − et + de chaque partie, ou votre document déposé dans la page (Word, LibreOffice, LaTeX, ou texte collé depuis Google Docs)&nbsp;: il se lit tout seul.</li>
-      <li class="hidden" id="wnPromo"><b>La promo.</b> Voyez où en sont les autres doctorant·es, sous pseudonyme, et encouragez-vous. Onglet «&nbsp;La promo&nbsp;», en haut.</li>
-      <li><b>Un peu d'humour pour tenir.</b> La note de bas de page du jour et le bingo de la semaine, les mêmes pour tout le monde.</li>
+      <li><b>Tout sous les yeux.</b> Votre avancement, votre dépôt et l'objectif du jour tiennent sur un seul écran. Les outils sont rangés dans la barre de gauche (sur téléphone&nbsp;: «&nbsp;Menu&nbsp;», en bas).</li>
+      <li><b>Votre thèse en rayon.</b> Chaque chapitre est un livre qui se surligne à mesure que vous écrivez. La plante, elle, pousse avec votre série de jours d'écriture.</li>
+      <li><b>Des grades à franchir.</b> De la «&nbsp;phase d'incubation&nbsp;» à «&nbsp;docteur·e en puissance&nbsp;»&nbsp;: le prochain est toujours annoncé.</li>
+      <li class="hidden" id="wnPromo"><b>La promo.</b> Voyez où en sont les autres doctorant·es, sous pseudonyme, et encouragez-vous. Elle a sa place dans le menu.</li>
     </ol>
     <p class="form-hint wn-more">Vos chapitres, vos pages et vos dates sont exactement là où vous les avez laissés.</p>
     <div class="modal-actions">
@@ -738,15 +929,15 @@
     <p class="cm-due" id="cmDue"></p>
     <p class="menu-label">Où en est ce chapitre&nbsp;?</p>
     <div class="cm-list">
-      <button type="button" class="cm-item" data-review="sent" onclick="chapterMenuDo('sent')">Envoyé à ma direction</button>
-      <button type="button" class="cm-item" data-review="revise" onclick="chapterMenuDo('revise')">Retours reçus, à corriger</button>
-      <button type="button" class="cm-item" data-review="ok" onclick="chapterMenuDo('ok')">Validé</button>
-      <button type="button" class="cm-item hidden" id="cmRemind" onclick="chapterMenuDo('remind')">Préparer un mail de relance</button>
-      <button type="button" class="cm-item cm-muted hidden" id="cmClear" onclick="chapterMenuDo('clear')">Retirer ce statut</button>
+      <button type="button" class="cm-item" data-review="sent" onclick="chapterMenuDo('sent')"><svg class="ic" aria-hidden="true"><use href="#i-send"/></svg><span>Envoyé à ma direction</span></button>
+      <button type="button" class="cm-item" data-review="revise" onclick="chapterMenuDo('revise')"><svg class="ic" aria-hidden="true"><use href="#i-pencil"/></svg><span>Retours reçus, à corriger</span></button>
+      <button type="button" class="cm-item" data-review="ok" onclick="chapterMenuDo('ok')"><svg class="ic" aria-hidden="true"><use href="#i-check"/></svg><span>Validé</span></button>
+      <button type="button" class="cm-item hidden" id="cmRemind" onclick="chapterMenuDo('remind')"><svg class="ic" aria-hidden="true"><use href="#i-mail"/></svg><span>Préparer un mail de relance</span></button>
+      <button type="button" class="cm-item cm-muted hidden" id="cmClear" onclick="chapterMenuDo('clear')"><svg class="ic" aria-hidden="true"><use href="#i-undo"/></svg><span>Retirer ce statut</span></button>
     </div>
     <div class="cm-list cm-sep">
-      <button type="button" class="cm-item" id="cmAddSs" onclick="chapterMenuDo('addss')">Découper en sous-sections</button>
-      <button type="button" class="cm-item cm-danger" onclick="chapterMenuDo('delete')">Supprimer ce chapitre</button>
+      <button type="button" class="cm-item" id="cmAddSs" onclick="chapterMenuDo('addss')"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg><span>Découper en sous-sections</span></button>
+      <button type="button" class="cm-item cm-danger" onclick="chapterMenuDo('delete')"><svg class="ic" aria-hidden="true"><use href="#i-trash"/></svg><span>Supprimer ce chapitre</span></button>
     </div>
     <div class="modal-actions">
       <button class="btn btn-neutral" onclick="closeModal('chapterMenuModal')">Fermer</button>
@@ -759,10 +950,10 @@
   <div class="modal modal-sheet">
     <h2 id="tplTitle" class="cm-title">Ajouter un modèle de plan</h2>
     <div class="cm-list">
-      <button type="button" class="cm-item" onclick="applyTemplate(0)">Thèse classique SHS <small>7 chapitres · 300 pages</small></button>
-      <button type="button" class="cm-item" onclick="applyTemplate(1)">Thèse IMRAD <small>5 chapitres · 150 pages</small></button>
-      <button type="button" class="cm-item" onclick="applyTemplate(2)">Thèse par articles <small>6 chapitres · 120 pages</small></button>
-      <button type="button" class="cm-item" onclick="applyTemplate(3)">Mémoire de Master <small>6 chapitres · 90 pages</small></button>
+      <button type="button" class="cm-item" onclick="applyTemplate(0)"><span>Thèse classique SHS</span> <small>7 chapitres · 300 pages</small></button>
+      <button type="button" class="cm-item" onclick="applyTemplate(1)"><span>Thèse IMRAD</span> <small>5 chapitres · 150 pages</small></button>
+      <button type="button" class="cm-item" onclick="applyTemplate(2)"><span>Thèse par articles</span> <small>6 chapitres · 120 pages</small></button>
+      <button type="button" class="cm-item" onclick="applyTemplate(3)"><span>Mémoire de Master</span> <small>6 chapitres · 90 pages</small></button>
     </div>
     <div class="modal-actions">
       <button class="btn btn-neutral" onclick="closeModal('templateModal')">Fermer</button>
@@ -786,7 +977,7 @@
 </div>
 
 <!-- Zone de dépôt plein écran + sélecteur de fichier de secours -->
-<div id="dropOverlay" aria-hidden="true"><div class="drop-box"><b>Déposez votre document</b><span>pour mettre à jour votre avancement</span></div></div>
+<div id="dropOverlay" aria-hidden="true"><div class="drop-box"><svg class="ic ic-lg" aria-hidden="true"><use href="#i-upload"/></svg><b>Déposez votre document</b><span>pour mettre à jour votre avancement</span></div></div>
 <input type="file" id="docxInput" class="visually-hidden" tabindex="-1" aria-hidden="true"
        accept=".docx,.odt,.tex,.md,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text,text/plain"
        onchange="handleDocxFile(this.files[0])" />
@@ -800,27 +991,31 @@
 ============================================================ -->
 <div id="igPostCard" class="share-card" aria-hidden="true">
   <div class="sc-frame">
-    <p class="sc-kicker">Thèse en cours de rédaction</p>
+    <p class="sc-brand"><img src="icon-192.png" alt="" /> <span>Le Journal de Bord</span></p>
+    <p class="sc-kicker">Ma thèse avance</p>
     <p class="sc-pct" id="igpPct">0&nbsp;%</p>
     <div class="sc-rule"><div class="sc-rule-fill" id="igpFill"></div></div>
     <p class="sc-pages" id="igpMessage"></p>
     <p class="sc-grade" id="igpGrade"></p>
+    <div class="sc-shelf" id="igpShelf"></div>
+    <div class="sc-board"></div>
     <p class="sc-streak hidden" id="igpStreak"></p>
     <div class="sc-foot">
-      <p class="sc-note"><span class="sc-sup">1</span> <span id="igpFooter"></span></p>
-      <p class="sc-brand"><img src="icon-192.png" alt="" /> <span>Le Journal de Bord · lejournaldebord.org</span></p>
+      <p class="sc-note" id="igpFooter"></p>
+      <p class="sc-url">lejournaldebord.org</p>
     </div>
   </div>
 </div>
 
 <div id="bingoCard" class="share-card" aria-hidden="true">
   <div class="sc-frame">
+    <p class="sc-brand"><img src="icon-192.png" alt="" /> <span>Le Journal de Bord</span></p>
     <p class="sc-kicker" id="bcKicker"></p>
     <p class="sc-title">Le bingo du doctorant</p>
     <div class="bc-grid" id="bcGrid"></div>
     <p class="sc-grade" id="bcScore"></p>
     <div class="sc-foot">
-      <p class="sc-brand"><img src="icon-192.png" alt="" /> <span>Le Journal de Bord · lejournaldebord.org</span></p>
+      <p class="sc-url">lejournaldebord.org</p>
     </div>
   </div>
 </div>
@@ -842,7 +1037,7 @@
       if (n >= 2) return;
       sessionStorage.setItem('jdb_heal', String(n + 1));
     } catch (e) { return; }
-    var files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'promo.js', 'docx.js', 'ics.js'];
+    var files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'ics.js'];
     Promise.all(files.map(function (u) { return fetch(u, { cache: 'reload' }).catch(function () {}); }))
       .then(function () { location.reload(); });
   });

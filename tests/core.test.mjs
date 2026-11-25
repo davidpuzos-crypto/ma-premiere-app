@@ -269,3 +269,73 @@ Ceci est ignoré.`;
   assert.deepEqual(O.parseTextDocument('Un simple paragraphe sans titre.').segments, []);
 }
 console.log('outline.js : plan de document OK');
+
+/* ============================================================
+   visuals.js : les dessins (étagère, plante, semaine, niveau)
+============================================================ */
+{
+  const V = await import('../visuals.js');
+  // La plante pousse par paliers, et ne rétrécit jamais quand la série s'allonge
+  let last = -1;
+  for (const n of [0, 1, 2, 3, 4, 7, 10, 14, 21, 30, 100]) {
+    const s = V.plantStage(n);
+    assert.ok(s.height >= last, 'la plante ne rétrécit pas : ' + n);
+    last = s.height;
+  }
+  assert.equal(V.plantStage(0).height, 0);
+  assert.equal(V.plantStage(30).top, 'flower');
+  assert.match(V.plantSVG(0), /^<svg class="plant-svg"/);
+  assert.match(V.plantSVG(5, { width: 130 }), /class="sc-plant"[^>]* width="130" height="173"/, 'taille écrite en clair pour les images');
+  assert.match(V.plantImgHTML(5, 130), /^<img class="sc-plant" alt="" width="130" height="173" src="data:image\/svg\+xml,/);
+  assert.match(V.plantCaption(0, true), /soif/);
+  assert.match(V.plantCaption(1, false), /^1 jour d'affilée/);
+  assert.match(V.plantCaption(30, false), /en fleur/);
+  // Les livres : épaisseur bornée, proportionnelle à l'objectif
+  assert.equal(V.bookWidth(0), 30);
+  assert.equal(V.bookWidth(1000), 88);
+  assert.ok(V.bookWidth(60) > V.bookWidth(20));
+  const books = [
+    { id: 'a', title: 'Intro <b>"gras"</b>', pct: 100, written: 15, target: 15, status: 'ok', current: false },
+    { id: 'b', title: 'Analyse', pct: 24.4, written: 1, target: 90, status: '', current: true, due: '24 févr. 2027' },
+    { id: 'c', title: 'Conclusion', pct: 0, written: 0, target: 10, status: 'sent', current: false },
+  ];
+  const html = V.shelfBooksHTML(books);
+  assert.equal((html.match(/class="book-slot"/g) || []).length, 3);
+  assert.ok(!/<b>"gras"<\/b>/.test(html), 'les titres sont neutralisés');
+  assert.match(html, /class="book is-done has-tag"/);
+  assert.match(html, /class="book is-current"/);
+  assert.match(html, /class="book is-empty has-tag"/);
+  assert.match(html, /--p:24"/, 'pourcentage arrondi');
+  assert.match(V.shelfBooksHTML(books, { intro: true }), /--p:0" data-book="b"/, 'à l\'ouverture, les livres arrivent vides');
+  assert.equal(V.bookLabel(books[1]), 'Analyse : 1 page sur 90, 24 %, à finir pour le 24 févr. 2027 (partie en cours)');
+  assert.equal(V.bookLabel(books[2]), 'Conclusion : 0 page sur 10, 0 %, chez la direction');
+  // Image à partager : jamais de titre, et tout tient dans la largeur, même avec beaucoup de chapitres
+  const many = Array.from({ length: 40 }, (_, i) => ({ id: 'x' + i, title: 'Secret ' + i, pct: i * 2, target: 30 + i }));
+  const share = V.shareShelfHTML(many, { width: 900, height: 190, plant: '<img class="sc-plant">' });
+  assert.ok(!/Secret/.test(share), 'le sujet reste privé');
+  const widths = [...share.matchAll(/width:(\d+)px/g)].map(m => +m[1]);
+  assert.equal(widths.length, 18, 'dix-huit livres au plus');
+  assert.ok(widths.reduce((a, w) => a + w + 8, 0) <= 900 - 170 + 18, 'les livres laissent la place de la plante');
+  // La semaine : une barre par jour, hauteur relative au plus grand jour (ou à l'objectif)
+  const days = ['L', 'M', 'M', 'J', 'V', 'S', 'D'].map((label, i) => ({ label, name: 'jour' + i, pages: [2, 0, 4, 0, 0, 0, 0][i], today: i === 2, future: i > 2, rest: i > 4 }));
+  const wk = V.weekBarsHTML(days, 2);
+  assert.equal((wk.match(/class="wk-col/g) || []).length, 7);
+  assert.match(wk, /wk-col is-today/);
+  assert.match(wk, /--h:0\.500/, '2 pages sur un maximum de 4');
+  assert.match(wk, /--g:0\.500/, 'ligne d\'objectif à mi-hauteur');
+  assert.match(wk, /aria-label="Pages par jour cette semaine : jour0 2, jour1 0, jour2 4"/);
+  assert.ok(!/wk-goal/.test(V.weekBarsHTML(days, 0)), 'pas de ligne sans objectif');
+  // Le niveau : une pastille par grade intermédiaire
+  const ticks = V.levelTicksHTML(45, [0, 1, 10, 25, 40, 50, 65, 80, 95, 100]);
+  assert.equal((ticks.match(/level-tick/g) || []).length, 8);
+  assert.equal((ticks.match(/passed/g) || []).length, 4, '1, 10, 25 et 40 sont franchis');
+  // Initiales
+  assert.equal(V.initials('Hypothèse Fragile'), 'HF');
+  assert.equal(V.initials('Et al.'), 'EA');
+  assert.equal(V.initials('prenom.nom'), 'PN');
+  assert.equal(V.initials('Sic'), 'SI');
+  assert.equal(V.initials('Élodie'), 'ÉL');
+  assert.equal(V.initials(''), '?');
+  assert.match(V.initials('<img src=x onerror=alert(1)>'), /^[\p{L}\p{N}]{1,2}$/u, 'jamais de balise dans une pastille');
+}
+console.log('visuals.js : dessins OK');
