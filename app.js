@@ -41,9 +41,27 @@ import {
 } from './humour.js';
 import { createPromo } from './promo.js';
 
-/* Version de l'application : à garder synchronisée avec sw.js */
-const APP_VERSION = '3.0.0';
+/* Version de l'application : la même que VERSION dans sw.js et que data-app-version dans index.html */
+const APP_VERSION = '3.0.1';
 const APP_URL = 'https://lejournaldebord.org/';
+
+/* Garde-fou de mise à jour (son jumeau est dans index.html) : ce script et la page doivent être de la même
+   version. Sinon, plutôt que de tourner sur une page qui n'est pas la sienne, il redemande les fichiers au
+   serveur et recharge. Deux tentatives au plus par onglet : ensuite on continue tel quel. */
+window.__jdbVersion = APP_VERSION;
+(function checkPageVersion() {
+  const page = document.documentElement.getAttribute('data-app-version');
+  try {
+    if (page === APP_VERSION) { sessionStorage.removeItem('jdb_heal'); return; }
+    const n = Number(sessionStorage.getItem('jdb_heal') || 0);
+    if (n >= 2) return;
+    sessionStorage.setItem('jdb_heal', String(n + 1));
+  } catch { return; }
+  window.__jdbHealing = true;
+  const files = ['./', 'style.css', 'app.js', 'core.js', 'humour.js', 'promo.js', 'docx.js', 'ics.js'];
+  Promise.all(files.map(u => fetch(u, { cache: 'reload' }).catch(() => {}))).then(() => location.reload());
+  throw new Error('Mise à jour en cours : la page va se recharger.');
+})();
 
 /* ============================================================
    FIREBASE INIT

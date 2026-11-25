@@ -1229,6 +1229,78 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await ctx.close();
   });
 
+
+  /* ------------------------------------------------------------ */
+  await test('Mise à jour à cheval sur deux versions : versions concordantes, rechargement automatique, jamais en boucle', async () => {
+    const uid = 'u_maj2';
+    const base = { user: { uid, email: 'maj2@example.com' }, store: { [`users/${uid}/thesis/main`]: V1_DOC } };
+    const isDoc = u => u.origin + u.pathname === BASE;
+    const navs = page => { const list = []; page.on('request', r => { if (r.isNavigationRequest()) list.push(r.url()); }); return list; };
+
+    // Les trois numéros de version concordent (sw.js, app.js, index.html)
+    const v = await newPage(browser, base);
+    await v.page.goto(BASE);
+    await v.page.waitForSelector('.chapter-card');
+    const versions = await v.page.evaluate(async () => ({
+      page: document.documentElement.getAttribute('data-app-version'),
+      app: window.__jdbVersion,
+      sw: ((await (await fetch('sw.js')).text()).match(/const VERSION = '([^']+)'/) || [])[1],
+    }));
+    assert.match(versions.app, /^\d+\.\d+\.\d+$/);
+    assert.equal(versions.page, versions.app, 'index.html et app.js');
+    assert.equal(versions.sw, versions.app, 'sw.js et app.js');
+    assert.equal(await v.page.evaluate(() => sessionStorage.getItem('jdb_heal')), null);
+    await v.ctx.close();
+
+    // Ancienne page (venue du cache) + nouveau script : un rechargement, puis tout fonctionne
+    const a = await newPage(browser, base);
+    const navA = navs(a.page);
+    let first = true;
+    await a.page.route(isDoc, async route => {
+      const response = await route.fetch();
+      let body = await response.text();
+      if (first && route.request().isNavigationRequest()) { first = false; body = body.replace(/data-app-version="[^"]+"/, 'data-app-version="2.9.9"'); }
+      await route.fulfill({ response, body });
+    });
+    await a.page.goto(BASE);
+    await a.page.waitForSelector('.chapter-card', { timeout: 20000 });
+    await a.page.waitForTimeout(800);
+    assert.equal(navA.length, 2, 'un seul rechargement');
+    assert.equal(await a.page.textContent('#sWritten'), '38');
+    assert.equal(await a.page.evaluate(() => sessionStorage.getItem('jdb_heal')), null, 'compteur remis à zéro');
+    assert.equal(await a.page.evaluate(() => window.__fbStore.writes.filter(w => w.data && w.data.chapters).length), 0, 'aucune écriture pendant le flottement');
+    await a.ctx.close();
+
+    // Nouvelle page + ancien script (venu du cache) : même remède
+    const b = await newPage(browser, base);
+    const navB = navs(b.page);
+    let old = true;
+    await b.page.route(u => u.origin + u.pathname === BASE + 'app.js', async route => {
+      if (old) { old = false; await route.fulfill({ contentType: 'application/javascript', body: '/* ancienne version, sans numéro */' }); return; }
+      await route.continue();
+    });
+    await b.page.goto(BASE);
+    await b.page.waitForSelector('.chapter-card', { timeout: 20000 });
+    await b.page.waitForTimeout(800);
+    assert.equal(navB.length, 2, 'un seul rechargement');
+    assert.equal(await b.page.evaluate(() => window.__jdbVersion), versions.app);
+    await b.ctx.close();
+
+    // Désaccord qui persiste : deux tentatives, puis on n'insiste pas (pas de boucle de rechargement)
+    const c = await newPage(browser, base);
+    const navC = navs(c.page);
+    await c.page.route(isDoc, async route => {
+      const response = await route.fetch();
+      await route.fulfill({ response, body: (await response.text()).replace(/data-app-version="[^"]+"/, 'data-app-version="2.9.9"') });
+    });
+    await c.page.goto(BASE);
+    await c.page.waitForSelector('.chapter-card', { timeout: 30000 });
+    await c.page.waitForTimeout(2500);
+    assert.equal(navC.length, 3, 'deux rechargements au plus : ' + navC.length);
+    assert.equal(await c.page.textContent('#sWritten'), '38', 'l\'application finit par démarrer quand même');
+    await c.ctx.close();
+  });
+
   await browser.close();
   console.log(results.join('\n'));
   console.log(failures ? `\n${failures} échec(s)` : '\nTous les tests passent');

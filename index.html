@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" data-app-version="3.0.1">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -806,6 +806,24 @@
 <div id="printReport"></div>
 
 <script type="module" src="app.js"></script>
+
+<!-- Garde-fou de mise à jour. Pendant une mise à jour, sur un réseau lent, la page et son script peuvent venir
+     de deux versions différentes (l'un du cache, l'autre du réseau). Si c'est le cas une fois tout chargé,
+     on redemande les fichiers au serveur et on recharge : deux tentatives au plus, puis on n'insiste pas. -->
+<script>
+  window.addEventListener('load', function () {
+    var page = document.documentElement.getAttribute('data-app-version');
+    if (window.__jdbVersion === page || window.__jdbHealing) return; // tout va bien, ou app.js s'en occupe déjà
+    try {
+      var n = Number(sessionStorage.getItem('jdb_heal') || 0);
+      if (n >= 2) return;
+      sessionStorage.setItem('jdb_heal', String(n + 1));
+    } catch (e) { return; }
+    var files = ['./', 'style.css', 'app.js', 'core.js', 'humour.js', 'promo.js', 'docx.js', 'ics.js'];
+    Promise.all(files.map(function (u) { return fetch(u, { cache: 'reload' }).catch(function () {}); }))
+      .then(function () { location.reload(); });
+  });
+</script>
 
 <!-- Enregistrement du Service Worker (PWA) -->
 <script>
