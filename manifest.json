@@ -1,13 +1,13 @@
 {
   "name": "Le Journal de Bord",
   "short_name": "Journal de Bord",
-  "description": "Le compagnon de rédaction de votre thèse ou de votre mémoire : plan, objectifs de pages, journal quotidien, rétroplanning.",
+  "description": "Le journal de thèse des doctorant·es : pages rédigées, date de dépôt, synchro avec Word, bingo de la semaine.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#2C1A0E",
-  "theme_color": "#2C1A0E",
+  "background_color": "#FAF7F0",
+  "theme_color": "#FAF7F0",
   "lang": "fr",
   "categories": [
     "education",
@@ -29,8 +29,8 @@
   ],
   "shortcuts": [
     {
-      "name": "J'ai écrit",
-      "short_name": "J'ai écrit",
+      "name": "Noter mes pages",
+      "short_name": "Noter mes pages",
       "description": "Noter les pages rédigées aujourd'hui",
       "url": "./?action=log",
       "icons": [

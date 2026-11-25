@@ -30,8 +30,19 @@ assert.equal(C.bestStreak(st, '2026-11-25'), 6);
 
 // Rythme
 const p1 = C.pace({ trackedSince: '2026-11-20', startDate: '2026-01-01', activity: { '2026-11-21': 5 } }, '2026-11-25', 100);
-assert.equal(p1.basis, 'average'); // moins de 14 jours de suivi
+assert.equal(p1.basis, 'average'); // moins de 14 jours de suivi, on écrivait déjà avant
 assert.ok(Math.abs(p1.average - 100 / 329) < 1e-9);
+// Nouvel inscrit avec 100 pages déjà écrites : elles ne gonflent pas le rythme
+const p0 = C.pace({ trackedSince: '2026-11-25', startDate: null, activity: {} }, '2026-11-25', 100);
+assert.equal(p0.basis, 'none');
+assert.equal(p0.forecast, 0);
+// Date de début = jour de l'inscription : pas de moyenne absurde (100 pages en 1 jour)
+const p0b = C.pace({ trackedSince: '2026-11-25', startDate: '2026-11-25', activity: {} }, '2026-11-25', 100);
+assert.equal(p0b.forecast, 0);
+// Premiers jours : estimation provisoire sur les pages notées
+const pe = C.pace({ trackedSince: '2026-11-23', startDate: null, activity: { '2026-11-23': 2, '2026-11-25': 1 } }, '2026-11-25', 103);
+assert.equal(pe.basis, 'early');
+assert.equal(pe.forecast, 1); // 3 pages en 3 jours
 const p2 = C.pace({ trackedSince: '2026-10-01', startDate: '2026-01-01', activity: { '2026-11-21': 14, '2026-11-01': 14 } }, '2026-11-25', 100);
 assert.equal(p2.basis, 'recent');
 assert.equal(p2.recentWindow, 28);
@@ -81,3 +92,27 @@ assert.ok(C.titleScore('Revue de la littérature', 'Cadre théorique') < 0.3);
 assert.deepEqual(C.distribute(10, [1, 1, 1]), [4, 3, 3]);
 assert.equal(C.distribute(300, [5, 0, 12, 3]).reduce((a, b) => a + b, 0), 300);
 console.log('core.js : tous les tests passent');
+
+// Plan saisi ou collé
+const plan = C.parsePlanText(`Introduction (15)
+1. État de l'art
+1.1 Contexte historique 20 p
+1.2 Travaux récents
+1.2.1 Détail ignoré
+2. Méthodologie
+   Terrain
+   - Entretiens (12 pages)
+Conclusion ........ 245
+`);
+assert.deepEqual(plan.map(c => c.title), ['Introduction', "1. État de l'art", '2. Méthodologie', 'Conclusion']);
+assert.equal(plan[0].target, 15);
+assert.deepEqual(plan[1].subs, [{ title: '1.1 Contexte historique', target: 20 }, { title: '1.2 Travaux récents', target: 0 }]);
+assert.deepEqual(plan[2].subs.map(s => [s.title, s.target]), [['Terrain', 0], ['Entretiens', 12]]);
+assert.equal(plan[3].subs.length, 0);
+// Liste à puces uniforme : ce sont des chapitres, pas des sous-parties
+assert.deepEqual(C.parsePlanText('- Introduction\n- Chapitre 1\n- Conclusion').map(c => [c.title, c.subs.length]), [['Introduction', 0], ['Chapitre 1', 0], ['Conclusion', 0]]);
+// Puces mélangées : les puces sont des sous-parties
+assert.deepEqual(C.parsePlanText('Partie 1\n• A\n• B\nPartie 2').map(c => c.subs.length), [2, 0]);
+assert.deepEqual(C.parsePlanText('Article 1\nArticle 2').map(c => [c.title, c.target]), [['Article 1', 0], ['Article 2', 0]]);
+assert.deepEqual(C.parsePlanText('   \n'), []);
+console.log('core.js : plan saisi OK');

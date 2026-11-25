@@ -14,6 +14,7 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signOut,
+  deleteUser,
   onAuthStateChanged,
 } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
 import {
@@ -23,18 +24,25 @@ import {
   persistentMultipleTabManager,
   doc,
   setDoc,
+  deleteDoc,
   onSnapshot,
 } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-firestore.js";
 import {
   todayKey, isDayKey, parseDay, addDays, diffDays, weekday, mondayOf,
   nthWritingDay, pagesOn, sumRange, hasNotes, streak, bestStreak,
-  forecast, schedule, normalizeTitle, titleScore, clamp, distribute,
+  forecast, schedule, normalizeTitle, normalizeFull, titleScore, clamp, distribute,
+  parsePlanText,
 } from './core.js';
 import { buildICS, googleCalendarUrl, byDay } from './ics.js';
 import { parseDocxFile } from './docx.js';
+import {
+  getFunnyCaption, plain, typo, footnoteOfDay, randomFootnote, gradeFor, todayLine,
+  MILESTONE_LINES, streakLine, GHOST_LINES, isoWeek, bingoGrid, bingoScore,
+} from './humour.js';
+import { createPromo } from './promo.js';
 
 /* Version de l'application : à garder synchronisée avec sw.js */
-const APP_VERSION = '2.0.0';
+const APP_VERSION = '3.0.0';
 const APP_URL = 'https://lejournaldebord.org/';
 
 /* ============================================================
@@ -64,176 +72,6 @@ try {
 } catch (e) {
   console.warn('Cache local indisponible, mode mémoire :', e);
   db = getFirestore(app);
-}
-
-/* ============================================================
-   MOTIVATIONAL QUOTES
-============================================================ */
-const QUOTES = [
-  // Classiques de motivation
-  "Un voyage de mille lieues commence par un seul pas. Et une thèse par une seule page. 💪",
-  "La persévérance est la clé du succès — chaque mot compte !",
-  "Votre futur vous regardera écrire ces lignes avec fierté. Continuez ! ✨",
-  "Une thèse se mange comme un éléphant : une bouchée à la fois. 🐘",
-  "Le secret du succès ? Commencer. Le reste, c'est de la persévérance.",
-  "Chaque page écrite est une victoire. Célébrez-les toutes ! 🏆",
-  "L'expertise n'est pas le point de départ, c'est la destination. Vous y êtes presque !",
-  "Rome ne s'est pas faite en un jour, mais ils posaient des briques tous les jours. 🏛️",
-  "La thèse que vous écrivez aujourd'hui, c'est le livre dont vous serez fier(e) demain. 📚",
-  "Il n'y a pas de vent favorable pour qui ne sait où il va. Vous, vous savez ! 🧭",
-  "Le talent fait ce qu'il peut, la volonté fait ce qu'elle veut. Vous avez les deux ! 💡",
-  "Chaque chapitre fini est une montagne franchie. Regardez derrière vous ! ⛰️",
-  "La rédaction, c'est 1 % d'inspiration et 99 % de tasses de café. ☕ Vous gérez !",
-  "Ne comptez pas les jours, faites que chaque jour compte. 📅",
-  // Humour doctorat
-  "Si Word plante, c'est le signe qu'il faut aller boire un café. ☕ Revenez plus fort.",
-  "Votre bibliographie fait peur à vos amis. C'est bon signe. 📖",
-  "Écrire 3 pages aujourd'hui, c'est 3 de moins pour demain. Mathématiques du doctorat. 🔢",
-  "Votre chat pense aussi que vous travaillez bien. Il dort sur le clavier pour le prouver. 🐱",
-  "La soutenance, c'est le boss final. Mais vous avez tous les chapitres pour vous entraîner. 🎮",
-  "Un·e doctorant·e sans café, c'est comme une thèse sans bibliographie : ça tient pas. ☕",
-  "Les données ne mentent pas. Parfois elles se trompent juste un peu. 📊",
-  "Votre état de l'art est si complet que vous connaissez des articles que leurs auteurs ont oubliés. 🧐",
-  "Réviser pour la 17e fois le même chapitre, c'est de la discipline. Pas de l'obsession. Promis. 🔄",
-  "La procrastination, c'est votre cerveau qui dit 'je réfléchis encore'. Juste 5 minutes. ⌚",
-  "Chaque note de bas de page est une preuve d'amour pour votre sujet. 💛",
-  "'En cours de rédaction' est le statut le plus honorable qui soit. Portez-le avec fierté. ✒️",
-  "Votre thèse va changer le monde. Même si personne ne le sait encore sauf vous. 🌍",
-  "Un paragraphe par jour éloigne le burn-out pour toujours. (Presque.) 🧘",
-  "Votre directeur·trice dit 'à retravailler' ? Traduction : 'vous êtes sur la bonne voie !'. 🛤️",
-  "Si Hemingway pouvait écrire avec une gueule de bois, vous pouvez écrire après une réunion de labo. 💪",
-  "Le Wi-Fi de la BU est lent, mais pas autant que le temps entre deux relectures. ⏳",
-  "Votre introduction sera parfaite après la soutenance. C'est une loi universelle. 😌",
-  "Chaque 'ctrl+S' est un petit acte de courage. Sauvegardez souvent, écrivez toujours. 💾",
-  "La thèse, c'est un marathon. Aujourd'hui vous posez un pied devant l'autre. C'est suffisant. 🏃",
-
-  // Directeurs de thèse fantômes
-  "Mon directeur a répondu à mon mail en moins d'un mois. Je note ça dans mes percées historiques. 📬",
-  "Le directeur de thèse est comme le yéti : on entend parler de lui, on cherche sa trace, mais on le voit rarement. 🦶",
-  "Réponse du directeur après 3 semaines : 'Intéressant.' 11 mois de travail. 'Intéressant.' 🙂",
-  "Mon directeur est en conférence à Barcelone, puis Lisbonne, puis Tokyo. La thèse, elle, attend à Paris. ✈️",
-  "J'ai posé une question à mon directeur en septembre. Sa réponse est attendue pour le prochain printemps. 🌸",
-  "'On se voit la semaine prochaine ?' — dit mon directeur. C'était il y a 6 semaines. 📅",
-  "Mon directeur m'a lu 40 pages. Retour : 'Pas mal.' Je vis de ce 'pas mal' depuis 3 mois. 🫶",
-
-  // La famille et les proches qui ne comprennent rien
-  "'C'est pour quand tu auras un vrai travail ?' — ma mère, chaque repas de Noël depuis 3 ans. 🍗",
-  "'Et ça sert à quoi exactement ?' — question posée par 100 % de la famille à 100 % des repas. 🍽️",
-  "'Tu fais encore tes études ? À ton âge !' — tata Monique, inchangée depuis le début du doctorat. 👵",
-  "J'ai expliqué ma thèse à mes parents. Ils m'ont conseillé de passer le concours de la fonction publique. 📋",
-  "'T'es chercheur·se ? Tu cherches quoi ?' Bonne question, tonton. Très bonne question. 🔍",
-  "Tout le monde pense que vous 'êtes encore à l'école'. Personne ne sait que vous portez le monde de la recherche sur vos épaules. 🌍",
-  "'Donc t'es payé(e) pour lire des livres ?' Oui. Non. En fait, c'est compliqué. 📚",
-
-  // Doctorants et l'IA
-  "L'IA a rédigé le plan en 3 secondes. J'ai passé 3 semaines à comprendre pourquoi c'était faux. 🤖",
-  "ChatGPT invente des références bibliographiques. Moi j'invente des délais de rendu. On est pareils. 📖",
-  "L'IA m'a conseillé d'aller prendre l'air pour débloquer mes idées. Elle n'a pas complètement tort. 🌳",
-  "Mon directeur a lu mon dernier chapitre : 'C'est très bien écrit.' Merci. Vraiment merci. 😇",
-  "Avec l'IA on écrit 10 pages en 1h. Les corriger prend 3 jours. C'est ce qu'on appelle le progrès. 📝",
-  "L'IA fait le résumé. Moi je fais la souffrance. C'est la collaboration humain-machine dans toute sa splendeur. 🤝",
-  "Utiliser l'IA pour une thèse, c'est comme utiliser un GPS : c'est vous qui conduisez, mais parfois il dit n'importe quoi. 🗺️",
-
-  // Rentre dedans (mais marrant)
-  "Les 5 étapes du doctorat : enthousiasme, doute, panique, déni, soutenance. Vous en êtes où ? 📍",
-  "Votre hypothèse de départ a survécu 6 mois. C'est bien. Les chercheurs expérimentés tiennent 3. 💀",
-  "Si votre thèse était une startup, elle serait en 'pivot permanent' depuis 2 ans. C'est une feature, pas un bug. 🔄",
-  "Vous avez supprimé 40 pages de travail ? Bien. L'élagage fait partie du processus. Pleurez quand même, c'est normal. 🌿",
-  "La thèse, c'est 4 ans à répondre à des questions que personne ne vous a posées. Bienvenue dans la recherche. 🎓",
-  "Le syndrome de l'imposteur ? C'est juste votre cerveau qui n'a pas encore reçu le mémo que vous êtes brillant(e). 🧠",
-  "Votre introduction sera parfaite le lendemain de la soutenance. C'est une loi de la nature. 🌌",
-];
-
-/* ============================================================
-   FUNNY CAPTIONS — image de partage Instagram
-   Chaque objet couvre une tranche d'avancement [min, max] (%)
-   et contient un tableau de phrases. La logique de sélection
-   choisit aléatoirement une phrase dans la bonne tranche.
-============================================================ */
-const FUNNY_CAPTIONS = [
-  {
-    range: [0, 5],
-    phrases: [
-      "J'ai ouvert le document. C'est un grand pas.",
-      "La page blanche me regarde. Je la regarde aussi.",
-      "Le titre est provisoire. Ma santé mentale aussi.",
-      "Mon directeur de thèse m'a vu aujourd'hui. Il m'a souri. C'est inquiétant.",
-      "J'ai déjà lu 3 résumés. Je suis épuisé.",
-      "Je suis encore en phase de 'cadrage'. Cadrage de mon lit.",
-    ],
-  },
-  {
-    range: [6, 15],
-    phrases: [
-      "J'ai fait un plan. Il est beau. Il ne sera jamais respecté.",
-      "La première sous-section est rédigée. Le monde est à moi.",
-      "Je commence à comprendre mon sujet. Un peu. Pas du tout.",
-      "J'ai trouvé une référence bibliographique parfaite. Elle est en allemand.",
-      "Le café est mon meilleur ami. Et mon seul ami.",
-      "Ma thèse n'est pas un sprint, c'est une randonnée. En tongs.",
-    ],
-  },
-  {
-    range: [16, 30],
-    phrases: [
-      "J'écris. Enfin, je tape sur des touches. C'est bon signe.",
-      "Ma bibliographie fait 2 pages. C'est plus que ma thèse.",
-      "Je ne sais plus si je suis chercheur·se ou ghostwriter pour mon directeur.",
-      "J'ai l'impression de creuser une galerie. J'espère qu'il y a de l'or au bout.",
-      "Le nombre de pages augmente. Mon amour-propre diminue.",
-      "J'ai rêvé que ma thèse était un chat. Elle m'ignorait.",
-    ],
-  },
-  {
-    range: [31, 50],
-    phrases: [
-      "J'ai une citation d'éléphant sur mon écran. Je commence à le détester.",
-      "Ma thèse n'avance pas. Elle est comme un chat qui dort. Tout le temps.",
-      "J'ai envie de devenir éleveur·se de chèvres. Mais j'ai pas de chèvres.",
-      "Mes amis se marient, ont des enfants. J'ai une thèse. Et des cernes.",
-      "Je suis au milieu de l'éléphant. C'est sombre.",
-      "J'ai peur de mon document Word. Il contient trop de '...'",
-    ],
-  },
-  {
-    range: [51, 75],
-    phrases: [
-      "Je commence à voir la lumière au bout du tunnel. C'est peut-être un train.",
-      "J'ai enfin rédigé le 'Cadre Théorique'. Je n'y comprends toujours rien.",
-      "Je suis devenu·e expert·e en 'discussion'. Surtout avec moi-même.",
-      "Ma thèse est comme un vieux meuble. Elle est bancale, mais je l'aime bien.",
-      "J'ai plus de pages rédigées que restantes. C'est de la magie.",
-      "J'ai l'impression de courir un marathon. J'ai plus de jambes.",
-    ],
-  },
-  {
-    range: [76, 95],
-    phrases: [
-      "Le document Word est devenu trop gros. J'ai peur qu'il explose.",
-      "Mon directeur m'a envoyé un mail. J'ai peur d'ouvrir ma boîte.",
-      "J'ai l'impression de relire les mêmes phrases pour la centième fois.",
-      "Le dénouement approche. J'ai envie de pleurer. De joie, j'espère.",
-      "J'ai une date de fin estimée. J'espère qu'elle est fausse.",
-      "Le stress est inversement proportionnel au nombre de pages restantes.",
-    ],
-  },
-  {
-    range: [96, 100],
-    phrases: [
-      "La conclusion est écrite. C'est la fin. Ou le début.",
-      "Je n'y crois pas. C'est fini. Enfin presque. Il reste les corrections.",
-      "J'ai une thèse. Je suis devenu·e une créature de légende.",
-      "L'éléphant est mangé. Il était bon.",
-      "C'est fait. Enfin. Je vais pouvoir dormir.",
-      "Le document final est prêt. J'ai peur d'appuyer sur 'Envoyer'.",
-    ],
-  },
-];
-
-function getFunnyCaption(pct) {
-  const bucket = FUNNY_CAPTIONS.find(b => pct >= b.range[0] && pct <= b.range[1])
-    ?? FUNNY_CAPTIONS[FUNNY_CAPTIONS.length - 1];
-  return bucket.phrases[Math.floor(Math.random() * bucket.phrases.length)];
 }
 
 /* ============================================================
@@ -289,22 +127,14 @@ const PLAN_TEMPLATES = [
 /* ============================================================
    CONSTANTES V2
 ============================================================ */
-const MOODS       = ['😫', '😕', '😐', '🙂', '🤩'];
-const MOOD_LABELS = ['Difficile', 'Bof', 'Correct', 'Bien', 'Excellent'];
-const REVIEW_LABELS = { sent: '📨 Chez la direction', revise: '✏️ À corriger', ok: '✅ Validé' };
-const REVIEW_PRINT  = { sent: 'Chez la direction', revise: 'À corriger', ok: 'Validé' };
-const GHOST_LINES = [
-  "Le yéti n'a toujours pas été aperçu.",
-  'Pas de nouvelles, bonnes nouvelles ? Rien n\'est moins sûr.',
-  'Votre chapitre fait peut-être le tour des colloques.',
-  "Une relance polie n'a jamais fâché personne.",
-];
+const REVIEW_LABELS = { sent: 'Chez la direction', revise: 'À corriger', ok: 'Validé' };
+const REVIEW_PRINT  = REVIEW_LABELS;
 const WD_LETTERS = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
 const WD_NAMES   = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
 const WD_ORDER   = [1, 2, 3, 4, 5, 6, 0];
 const MONTHS_SHORT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 const WHATSNEW_KEY = 'jdb_whatsnew';
-const WHATSNEW_VER = '2';
+const WHATSNEW_VER = '3'; // à augmenter pour annoncer une mise à jour à la connexion
 
 /* Stockage local : toujours protégé (navigation privée, stockage bloqué…) */
 function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
@@ -319,7 +149,7 @@ function defaultState() {
     startDate: null,
     milestones: { 25: false, 50: false, 75: false, 100: false },
     documentTitle: '',
-    // V2 : échéance & rythme
+    // Échéance & rythme
     deadline: null,          // date de dépôt / de rendu
     marginDays: 21,          // marge avant le dépôt (relecture, mise en forme)
     writingDays: [1, 2, 3, 4, 5],
@@ -327,24 +157,31 @@ function defaultState() {
     introLast: true,         // rétroplanning : intro et conclusion à la fin
     sessionTime: '09:00',    // séances d'écriture (agenda)
     sessionMinutes: 90,
-    // V2 : journal
+    // Journal
     activity: {},            // { 'AAAA-MM-JJ': pages écrites ce jour }
     journal: {},             // { 'AAAA-MM-JJ': [ { p, s, n, m, t } ] }
     trackedSince: null,
-    lastDocImport: null,
+    // Synchro Word
+    docFiles: {},            // { cléFichier: { name, at, inclWords, wpp, scope, mtime, size } }
+    docIgnore: [],           // parties du document que l'utilisateur a choisi d'ignorer
   };
 }
 
 let state        = defaultState();
 let currentUser  = null;     // Firebase User object
-let _currentChId = null;     // chapter id for the add-subsection modal
 let _saveTimer   = null;     // debounce timer for Firestore writes
 let _authMode    = 'signin'; // 'signin' | 'signup'
 let _lastForecast = null;    // dernière prévision calculée (objectif du jour…)
+let _urlIntent   = false;    // la page a été ouverte pour une action précise (raccourci, lien de fiche)
 
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
 function num(v, min = 0) { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(min, n) : min; }
 function cleanId(id) { return String(id || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40); }
+
+/** Clé stable d'un fichier Word (sert de nom de champ : lettres, chiffres, « _ »). */
+function fileKeyOf(name) {
+  return normalizeFull(String(name || '').replace(/\.docx$/i, '')).replace(/ /g, '_').slice(0, 100) || 'fichier';
+}
 
 /** Données Firestore / JSON → état propre (types vérifiés, identifiants sûrs). */
 function normalizeState(d) {
@@ -353,10 +190,15 @@ function normalizeState(d) {
   const seen = new Set();
   const uniq = id => { let v = cleanId(id) || uid(); while (seen.has(v)) v = uid(); seen.add(v); return v; };
   const title = (t, fb) => (typeof t === 'string' && t.trim() ? t.slice(0, 300) : fb);
+  const docRef = (x, o) => {
+    if (typeof x.docKey === 'string' && x.docKey) o.docKey = x.docKey.slice(0, 300);
+    if (typeof x.docFile === 'string' && /^[a-z0-9_]{1,100}$/.test(x.docFile)) o.docFile = x.docFile;
+  };
   const normSs = x => {
     if (!isObj(x)) return null;
     const o = { id: uniq(x.id), title: title(x.title, 'Sans titre'), targetPages: num(x.targetPages), writtenPages: num(x.writtenPages) };
-    if (typeof x.docKey === 'string' && x.docKey) o.docKey = x.docKey.slice(0, 300);
+    if (x.autoT === true) o.autoT = true; // objectif réparti automatiquement, pas encore retouché
+    docRef(x, o);
     return o;
   };
   s.chapters = (Array.isArray(d.chapters) ? d.chapters : []).map(c => {
@@ -373,7 +215,7 @@ function normalizeState(d) {
       o.review = c.review;
       if (isDayKey(c.reviewDate)) o.reviewDate = c.reviewDate;
     }
-    if (typeof c.docKey === 'string' && c.docKey) o.docKey = c.docKey.slice(0, 300);
+    docRef(c, o);
     return o;
   }).filter(Boolean);
   s.startDate     = isDayKey(d.startDate) ? d.startDate : null;
@@ -407,13 +249,25 @@ function normalizeState(d) {
     }
   }
   s.trackedSince = isDayKey(d.trackedSince) ? d.trackedSince : null;
-  if (isObj(d.lastDocImport)) {
-    s.lastDocImport = {
-      at: isDayKey(d.lastDocImport.at) ? d.lastDocImport.at : null,
-      name: String(d.lastDocImport.name || '').slice(0, 200),
-      words: num(d.lastDocImport.words),
-      pages: num(d.lastDocImport.pages),
-    };
+  const docFile = f => ({
+    name: String(f.name || '').slice(0, 200),
+    at: isDayKey(f.at) ? f.at : null,
+    inclWords: Number.isFinite(f.inclWords) ? Math.max(0, Math.round(f.inclWords)) : null,
+    wpp: Number.isFinite(f.wpp) && f.wpp >= 80 && f.wpp <= 1500 ? Math.round(f.wpp) : null,
+    scope: typeof f.scope === 'string' ? cleanId(f.scope) : '',
+    mtime: Number.isFinite(f.mtime) ? f.mtime : null,
+    size: Number.isFinite(f.size) ? f.size : null,
+  });
+  if (isObj(d.docFiles)) {
+    for (const [k, f] of Object.entries(d.docFiles)) {
+      if (isObj(f) && /^[a-z0-9_]{1,100}$/.test(k)) s.docFiles[k] = docFile(f);
+    }
+  } else if (isObj(d.lastDocImport) && d.lastDocImport.name) {
+    // Données de la v2.0 : un seul fichier, sans détail
+    s.docFiles[fileKeyOf(d.lastDocImport.name)] = docFile({ name: d.lastDocImport.name, at: d.lastDocImport.at });
+  }
+  if (Array.isArray(d.docIgnore)) {
+    s.docIgnore = [...new Set(d.docIgnore.filter(x => typeof x === 'string' && x).map(x => x.slice(0, 400)))].slice(0, 300);
   }
   return s;
 }
@@ -435,7 +289,8 @@ function serializeState() {
     activity:       state.activity,
     journal:        state.journal,
     trackedSince:   state.trackedSince,
-    lastDocImport:  state.lastDocImport,
+    docFiles:       state.docFiles,
+    docIgnore:      state.docIgnore,
   };
 }
 
@@ -623,8 +478,7 @@ function populateAppHeader(user) {
   document.getElementById('userEmail').textContent = name;
   const mob = document.getElementById('userEmailMobile');
   if (mob) mob.textContent = name;
-  const q = document.getElementById('crystalQuote');
-  if (q) q.textContent = QUOTES[Math.floor(Math.random() * QUOTES.length)];
+  showFootnote(footnoteOfDay(todayKey()));
 }
 
 function setDataLoading(on) {
@@ -638,7 +492,7 @@ function setReady(on) {
 
 function requireReady() {
   if (_loaded) return true;
-  toast('⏳ Chargement de vos données…', '');
+  toast('Chargement de vos données…', '');
   return false;
 }
 
@@ -669,7 +523,7 @@ const stampOf = d => `${(d && d.updatedAt) || ''}|${(d && d.clientId) || ''}`;
    entier sans les champs v2. Chaque appareil garde donc une copie
    locale de ces champs et les restaure si besoin. */
 const V2_FIELDS = ['deadline', 'marginDays', 'writingDays', 'dailyGoal', 'introLast', 'sessionTime',
-  'sessionMinutes', 'activity', 'journal', 'trackedSince', 'lastDocImport'];
+  'sessionMinutes', 'activity', 'journal', 'trackedSince', 'docFiles', 'docIgnore'];
 const backupKey = () => 'jdb_v2_' + (currentUser && currentUser.uid);
 
 function backupV2() {
@@ -706,16 +560,28 @@ async function _doFirestoreSave(replace = false) {
   backupV2();
   try {
     if (replace) await setDoc(userDocRef(), payload);
-    else await setDoc(userDocRef(), payload, { merge: true });
+    else {
+      // En fusion, une table vide remplacerait celle du serveur : on ne l'envoie pas
+      for (const k of ['activity', 'journal', 'docFiles']) {
+        if (isObj(payload[k]) && !Object.keys(payload[k]).length) delete payload[k];
+      }
+      await setDoc(userDocRef(), payload, { merge: true });
+    }
   } catch (e) {
     console.error('Firestore save error:', e);
-    if (e.code === 'permission-denied') toast('⚠️ Sauvegarde refusée par la base de données', 'warn');
-    else if (e.code !== 'unavailable') toast('⚠️ Erreur de sauvegarde', '');
+    if (e.code === 'permission-denied') toast('Sauvegarde refusée par la base de données.', 'warn');
+    else if (e.code !== 'unavailable') toast('La sauvegarde a échoué. Vos changements restent sur cet appareil.', 'warn');
   }
 }
 
-function saveNow(replace = false) { clearTimeout(_saveTimer); _saveTimer = null; _doFirestoreSave(replace); }
-function saveDebounced() { clearTimeout(_saveTimer); _saveTimer = setTimeout(() => _doFirestoreSave(false), 900); }
+/* Les boutons « Annuler » qui restaurent une copie de l'état ne valent que jusqu'à la
+   modification suivante : au-delà, ils effaceraient aussi ce qui a été fait depuis. */
+function dropStaleUndo() {
+  document.querySelectorAll('#toastBox .toast[data-undo]').forEach(t => t.remove());
+}
+
+function saveNow(replace = false) { dropStaleUndo(); clearTimeout(_saveTimer); _saveTimer = null; _doFirestoreSave(replace); }
+function saveDebounced() { dropStaleUndo(); clearTimeout(_saveTimer); _saveTimer = setTimeout(() => _doFirestoreSave(false), 900); }
 
 // Ne rien perdre si l'app passe en arrière-plan pendant la temporisation
 document.addEventListener('visibilitychange', () => {
@@ -729,6 +595,10 @@ function stopSync() {
   _loaded = false;
   _serverSynced = false;
   _pendingRemote = null;
+  _linked = [];
+  _pendingReview = null;
+  promo.reset();
+  setView('these');
 }
 
 function startSync() {
@@ -776,7 +646,7 @@ function startSync() {
     console.error('Firestore listen error:', err);
     setDataLoading(false);
     if (!_loaded) renderLoadingState('error', err && err.code);
-    else toast('⚠️ Synchronisation interrompue : rechargez la page.', 'warn');
+    else toast('Synchronisation interrompue : rechargez la page.', 'warn');
   });
 }
 
@@ -794,7 +664,7 @@ function applyRemote(data) {
   syncTitleInput();
   if (fixed.restored) saveNow();
   else if (data.version >= 2) backupV2();
-  else if (Date.now() - _firstLoadAt > 6000) toast('🔄 Mis à jour depuis un autre appareil', '');
+  else if (Date.now() - _firstLoadAt > 6000) toast('Mis à jour depuis un autre appareil.', '');
 }
 
 // Applique une modification distante dès que l'utilisateur a fini de saisir
@@ -824,36 +694,59 @@ function onServerSynced() {
   updateDashboard(); // jalons de progression, désormais vérifiables
 }
 
+/** Les petits marqueurs du jour (objectif atteint, palier de série, bingo de la semaine) ne s'accumulent pas. */
+function pruneLocalMarks() {
+  try {
+    const today = todayKey();
+    const week = isoWeek().id;
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      const stale = ((k.startsWith('jdb_goal_') || k.startsWith('jdb_streak_')) && !k.endsWith('_' + today))
+        || (k.startsWith('jdb_bingo_') && !k.endsWith('_' + week));
+      if (stale) localStorage.removeItem(k);
+    }
+  } catch { /* ignoré */ }
+}
+
 function onFirstLoad(isNew) {
   _firstLoadAt = Date.now();
+  pruneLocalMarks();
   setReady(true);
   if (isNew && !state.trackedSince) state.trackedSince = todayKey();
   render();
   syncTitleInput();
-  const fresh = state.chapters.length === 0 && !state.startDate;
-  if (fresh) {
-    lsSet(WHATSNEW_KEY, WHATSNEW_VER);
-    openProjectModal('welcome');
-  } else if (lsGet(WHATSNEW_KEY) !== WHATSNEW_VER) {
-    openModal('whatsNewModal');
-  }
   handleUrlAction();
+  initLinkedFiles();
+  // Nouveau compte : aucune fenêtre. Compte existant : l'annonce de la mise à jour, une seule fois,
+  // affichée quand on sait si la promo est ouverte (elle y est mentionnée seulement dans ce cas).
+  const fresh = isNew || (state.chapters.length === 0 && !state.startDate);
+  if (fresh) lsSet(WHATSNEW_KEY, WHATSNEW_VER);
+  const announce = () => {
+    if (!currentUser || lsGet(WHATSNEW_KEY) === WHATSNEW_VER) return;
+    // Arrivée par un raccourci (rappel d'agenda, lien de fiche) ou fenêtre déjà ouverte :
+    // on ne dérange pas, l'annonce attendra la prochaine ouverture.
+    if (_urlIntent || document.querySelector('.modal-overlay:not(.hidden)')) return;
+    openModal('whatsNewModal');
+  };
+  promo.init();
+  Promise.race([promo.whenReady(), new Promise(r => setTimeout(r, 2500))]).then(announce);
 }
 
 function renderLoadingState(kind, code) {
   const c = document.getElementById('chaptersContainer');
   if (!c) return;
   if (kind === 'loading') {
-    c.innerHTML = '<div class="empty-state"><div class="spinner" style="margin:0 auto 14px"></div><p>Chargement de votre journal…</p></div>';
+    c.innerHTML = '<div class="empty-state"><div class="spinner"></div><p>Chargement de votre journal…</p></div>';
   } else if (kind === 'slow') {
-    c.innerHTML = `<div class="empty-state"><div class="empty-icon">📡</div><h3>La connexion est lente…</h3>
+    c.innerHTML = `<div class="empty-state"><h3>La connexion est lente…</h3>
       <p>Hors ligne, la toute première ouverture sur un appareil a besoin d'internet. Ensuite, le journal fonctionne même sans réseau.</p>
       <button class="btn btn-primary" onclick="location.reload()">Réessayer</button></div>`;
   } else {
     const why = code === 'permission-denied'
       ? 'La base de données a refusé l\'accès à vos données.'
       : 'Impossible de joindre la base de données.';
-    c.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><h3>Chargement impossible</h3>
+    c.innerHTML = `<div class="empty-state"><h3>Chargement impossible</h3>
       <p>${why} Vos données ne sont pas perdues : réessayez dans un instant.</p>
       <button class="btn btn-primary" onclick="location.reload()">Réessayer</button></div>`;
   }
@@ -967,8 +860,48 @@ function addActivity(delta, day = todayKey()) {
   scheduleJournalRender();
 }
 
+/* Partie « en cours » : la dernière sur laquelle des pages ont été notées.
+   C'est elle que vise le bouton « +1 page ». */
+const curKey = () => 'jdb_lastSection_' + (currentUser && currentUser.uid);
+
+function leafProgress(l) { return l.ss ? ssProgress(l.ss) : chapterStats(l.ch).prog; }
+function leafTitle(l) { return l.ss ? l.ss.title : l.ch.title; }
+
+function currentLeaf() {
+  const leaves = leafSections();
+  if (!leaves.length) return null;
+  const last = lsGet(curKey());
+  return leaves.find(l => l.id === last) || leaves.find(l => leafProgress(l) < 100) || leaves[0];
+}
+
+function setCurrentLeaf(id) {
+  if (lsGet(curKey()) === id) return;
+  lsSet(curKey(), id);
+  renderPrimary();
+}
+
+/* Mise à jour initiale : le jour où l'on crée son plan, les pages saisies
+   dans le plan sont « déjà écrites » et ne comptent pas comme le travail du jour
+   (sinon : objectif du jour explosé et date de fin fantaisiste dès le premier soir). */
+const setupKey = () => 'jdb_setup_' + (currentUser && currentUser.uid);
+function inSetup() { return !!currentUser && lsGet(setupKey()) === todayKey(); }
+function startSetup() { lsSet(setupKey(), todayKey()); }
+function endSetup() {
+  lsSet(setupKey(), '');
+  renderSetupBanner();
+  toast('C\'est noté. Désormais, chaque page ajoutée compte pour votre journal.', 'success');
+}
+
+function renderSetupBanner() {
+  const el = document.getElementById('setupBanner');
+  if (el) el.classList.toggle('hidden', !(inSetup() && state.chapters.length > 0));
+}
+
 /* ============================================================
-   DASHBOARD UPDATE — surgical DOM patches only
+   PAGE DE TITRE — mises à jour ciblées, sans tout redessiner
+   Trois réponses, d'un coup d'œil : où j'en suis (le chiffre),
+   suis-je dans les temps (dépôt, fin estimée),
+   que faire aujourd'hui (objectif et bouton).
 ============================================================ */
 function updateDashboard() {
   const t         = totals();
@@ -980,109 +913,102 @@ function updateDashboard() {
   const remaining = total - written;
   const progress  = total === 0 ? 0 : Math.min(100, Math.round((written / total) * 100));
 
-  // Circular gauge
-  const CIRC   = 502.65; // 2π × 80
-  const offset = CIRC - (progress / 100) * CIRC;
-  document.getElementById('gaugeFill').style.strokeDashoffset = offset;
-  setText('gaugePct', progress + '%');
-
-  // Milestone pips
-  const pipClass = { 25: 'r25', 50: 'r50', 75: 'r75', 100: 'r100' };
-  Object.entries(pipClass).forEach(([ms, cls]) => {
-    const el = document.getElementById('ms' + ms);
-    if (el) el.className = 'ms-pip' + (progress >= Number(ms) ? ' ' + cls : '');
-  });
-
-  // Stats
-  animNum('sTotal',     total);
+  // Le chiffre, le filet de progression, les pages
+  setText('gaugePct', progress + '\u00A0%');
+  document.getElementById('gaugeFill').style.width = progress + '%';
   animNum('sWritten',   written);
+  animNum('sTotal',     total);
   animNum('sRemaining', Math.max(0, remaining));
+  const rest = document.getElementById('dbPagesRest');
+  if (rest) rest.classList.toggle('hidden', total === 0 || remaining <= 0);
+  setText('gradeLine', total > 0 ? gradeFor(progress) : '');
 
-  const chCnt = state.chapters.length;
-  const ssCnt = state.chapters.reduce((s, ch) => s + ch.subsections.length, 0);
-  const okCnt = state.chapters.filter(c => c.review === 'ok').length;
-  animNum('sChapters', chCnt);
-  setText('sSections', `${ssCnt} sous-section${ssCnt !== 1 ? 's' : ''}` + (okCnt ? ` · ${okCnt} validé${okCnt > 1 ? 's' : ''}` : ''));
-
-  // Rythme
+  // Fin estimée
   const p = fc.pace;
-  if (p.forecast > 0) {
-    setText('sVelocity', (p.forecast < 0.05 ? '< 0,1' : fmt1(p.forecast)) + ' p/j');
-    setText('sDays', `≈ ${fmt1(p.forecast * 7)} p./sem. · ${p.basis === 'recent' ? '4 dernières sem.' : 'depuis le début'}`);
-  } else if (state.startDate) {
-    const days = Math.max(1, diffDays(state.startDate, today) + 1);
-    setText('sVelocity', '0 p/j');
-    setText('sDays', `${days} jour${days > 1 ? 's' : ''} de rédaction`);
-  } else {
-    setText('sVelocity', '—');
-    setText('sDays', 'Définir une date de début');
-  }
-
-  // Boule de cristal : date de fin estimée
   if (total > 0 && remaining <= 0) {
-    setText('sEndDate', '🎉 Terminé !');
-    setText('sEndMsg',  'Champagne ! 🥂');
+    setText('sEndDate', 'Terminé');
+    setText('sEndLbl',  'La dernière page est écrite.');
   } else if (fc.projectedEnd) {
-    const dLeft = diffDays(today, fc.projectedEnd);
+    const perWeek = p.forecast * 7;
+    const basis = { recent: 'à votre rythme des 4 dernières semaines', average: 'à votre rythme moyen', early: 'première estimation, elle va s\'affiner' }[p.basis];
     setText('sEndDate', fmtDateShort(fc.projectedEnd));
-    setText('sEndMsg',  `🥂 dans ${dLeft} jour${dLeft !== 1 ? 's' : ''} · à votre rythme ${p.basis === 'recent' ? 'récent' : 'moyen'}`);
+    setText('sEndLbl',  `${basis} (${perWeek < 0.95 ? 'moins d\'1' : fmt1(perWeek)} p./sem.)`);
   } else {
     setText('sEndDate', '—');
-    setText('sEndMsg',  total === 0 ? 'Construisez votre plan pour commencer' : 'Notez vos premières pages !');
+    setText('sEndLbl',  total === 0 ? '' : 'elle apparaîtra dès vos premières pages notées');
   }
 
-  setText('startDateDisplay', state.startDate ? formatDateFr(state.startDate) : 'Non définie');
   renderDeadline(fc);
   renderToday(fc);
   renderReviewStrip();
   updateDueChips(fc);
   checkMilestones(progress);
   scheduleJournalRender();
+  if (typeof onStatsChanged === 'function') onStatsChanged();
 }
 
 function animNum(id, newVal) {
   const el = document.getElementById(id);
-  if (!el || el.textContent === String(newVal)) return;
-  el.textContent = newVal;
-  el.classList.remove('pulse');
-  void el.offsetWidth;
-  el.classList.add('pulse');
+  if (el && el.textContent !== String(newVal)) el.textContent = newVal;
 }
 
-/** Ligne « échéance » sous la date de fin estimée. */
+/** Ligne « Dépôt » : un champ date tant qu'elle n'est pas fixée, puis le verdict. */
 function renderDeadline(fc) {
   const el = document.getElementById('dbDeadline');
   if (!el) return;
   if (!state.deadline) {
+    if (el.dataset.mode === 'set') return; // ne pas recréer le champ pendant la saisie
+    el.dataset.mode = 'set';
     el.className = 'db-deadline';
-    el.innerHTML = '<button class="db-link" onclick="openProjectModal()">📌 Fixer ma date de dépôt</button>'
-      + '<span class="db-dl-sub">pour connaître le rythme à tenir et mon objectif du jour</span>';
+    el.innerHTML = `<label class="dl-set">Indiquez votre date de dépôt
+        <input type="date" id="dlInline" min="${addDays(todayKey(), 1)}" aria-label="Ma date de dépôt"
+               onchange="setDeadlineInline(this.value)" onblur="setDeadlineInline(this.value, true)"></label>
+      <span class="db-dl-sub">pour savoir si vous êtes dans les temps, et quel rythme tenir</span>`;
     return;
   }
+  el.dataset.mode = 'show';
   let cls = '';
-  let line = '';
-  let sub = '';
+  let verdict = '';
   switch (fc.status) {
-    case 'done':
-      cls = 'ok'; line = '🎉 Rédaction terminée, place à la relecture !'; break;
-    case 'overdue':
-      cls = 'late'; line = `⏰ fin de rédaction visée dépassée (${fmtDue(fc.writingEnd)})`;
-      sub = 'Mettez à jour votre échéance dans ⚙️ Mon projet.'; break;
-    case 'ontrack':
-      cls = 'ok'; line = fc.margin > 0 ? `✅ dans les temps, ${fc.margin} j d'avance` : '✅ pile dans les temps'; break;
-    case 'behind':
-      cls = 'warn'; line = `⚠️ ${Math.abs(fc.margin)} j de retard au rythme actuel`; break;
+    case 'done':    cls = 'ok';   verdict = 'rédaction terminée, place à la relecture'; break;
+    case 'overdue': cls = 'late'; verdict = 'fin de rédaction dépassée : ajustez la date'; break;
+    case 'ontrack': cls = 'ok';   verdict = fc.margin > 0 ? `dans les temps, ${fc.margin} jour${fc.margin > 1 ? 's' : ''} d'avance` : 'pile dans les temps'; break;
+    case 'behind':  cls = 'warn'; verdict = `en retard : il faudrait ${fmt1(fc.perWeek)} pages par semaine`; break;
+    case 'nopace':  verdict = `à tenir : ${fmt1(fc.perWeek)} pages par semaine`; break;
     default: break;
   }
-  if (fc.perWeek && fc.status !== 'done' && fc.status !== 'overdue') {
-    sub = `À tenir : ${fmt1(fc.perWeek)} p./sem., soit ${fmt1(fc.perWritingDay)} p. par jour d'écriture jusqu'au ${fmtDue(fc.writingEnd)}`;
-  }
   el.className = 'db-deadline ' + cls;
-  el.innerHTML = `<div class="db-dl-main">📌 Dépôt le <b>${fmtDateShort(state.deadline)}</b>${line ? ' · ' + line : ''}</div>`
-    + (sub ? `<div class="db-dl-sub">${sub}</div>` : '');
+  el.innerHTML = `<button type="button" class="dl-show" onclick="openProjectModal()" title="Modifier ma date de dépôt"><b>${fmtDateShort(state.deadline)}</b>${verdict ? ` <span class="dl-verdict">· ${verdict}</span>` : ''}</button>`;
 }
 
-/** Bandeau « Aujourd'hui » : objectif du jour, série, semaine. */
+/** Date de dépôt saisie directement sur la page (pas de fenêtre). */
+function setDeadlineInline(val, onBlur) {
+  if (!val || !_loaded) return;
+  // Pendant la frappe de l'année (« 0002 », « 0020 »…), la date est valide mais passée : on attend.
+  if (!isDayKey(val) || val <= todayKey()) {
+    if (onBlur) toast('Cette date est déjà passée : vérifiez l\'année.', 'warn');
+    return;
+  }
+  if (state.deadline === val) return;
+  state.deadline = val;
+  saveNow();
+  render();
+  const fc = _lastForecast;
+  toast(fc && fc.perWeek
+    ? `Dépôt le ${fmtDateShort(val)} : ${fmt1(fc.perWeek)} pages par semaine à tenir.`
+    : `Date de dépôt enregistrée : ${fmtDateShort(val)}.`, 'success');
+}
+
+/** Nombre de jours depuis la dernière page notée (0 si l'on vient de commencer). */
+function idleDays(today) {
+  let last = '';
+  for (const [k, v] of Object.entries(state.activity)) if (v > 0 && k > last && k <= today) last = k;
+  for (const k of Object.keys(state.journal)) if (hasNotes(state.journal, k) && k > last && k <= today) last = k;
+  if (!last) return 0;
+  return Math.max(0, diffDays(last, today));
+}
+
+/** Bandeau « Aujourd'hui » : objectif du jour, série, semaine, geste principal. */
 function renderToday(fc) {
   const today = todayKey();
   const done  = pagesOn(state.activity, today);
@@ -1090,23 +1016,70 @@ function renderToday(fc) {
   const pct   = goal > 0 ? clamp(done / goal, 0, 1) * 100 : 0;
   setText('tdVal', `${fmt1(Math.max(0, done))} / ${fmt1(goal)} p.`);
   const fill = document.getElementById('tdFill');
-  if (fill) { fill.style.width = pct + '%'; fill.classList.toggle('done', done >= goal); }
-  const writingDay = state.writingDays.includes(weekday(today));
-  let sub;
-  if (done >= goal) sub = 'Objectif du jour atteint 🎉';
-  else if (!writingDay) sub = 'Jour de repos (bonus si vous écrivez 😌)';
-  else if (!fc.goalIsAuto) sub = 'Votre objectif du jour';
-  else sub = state.deadline ? 'Objectif du jour, calculé pour tenir le dépôt' : 'Objectif du jour';
-  setText('tdSub', sub);
+  if (fill) { fill.style.width = pct + '%'; fill.classList.toggle('done', done > 0 && done >= goal); }
   const s = streak(state, today);
+  setText('tdSub', todayLine({
+    done, goal,
+    restDay: !state.writingDays.includes(weekday(today)),
+    idleDays: idleDays(today),
+    streak: s.includesToday ? 0 : s.count,
+    hasDeadline: !!state.deadline && fc.goalIsAuto,
+    weekday: weekday(today),
+  }));
   setText('tdStreak', s.count);
   setText('tdStreakLbl', plural(s.count, 'jour', 'jours'));
-  setText('tdStreakSub', s.count === 0 ? 'de série' : s.includesToday ? 'de série 🔥' : 'à prolonger aujourd\'hui');
+  setText('tdStreakSub', s.count === 0 || s.includesToday ? 'de série' : 'à prolonger');
   const wk = sumRange(state.activity, mondayOf(today), today);
   setText('tdWeek', (wk > 0 ? '+' : '') + fmt1(wk));
+  renderPrimary();
 }
 
-/** Encart « chez la direction » dans le tableau de bord. */
+/** Geste principal du jour : « +1 page », ou « Synchroniser » si un fichier Word est lié ici. */
+function renderPrimary() {
+  const btn = document.getElementById('tdPrimary');
+  const cap = document.getElementById('tdCap');
+  const act = document.getElementById('tdAct');
+  const fab = document.querySelector('.fab');
+  if (!btn || !cap || !act) return;
+  const leaf = currentLeaf();
+  const linked = _linked.length > 0;
+  const usable = !!leaf || linked;
+  act.classList.toggle('hidden', !usable);
+  document.body.classList.toggle('no-plan', !usable);
+  if (!usable) return;
+  const label = linked ? 'Synchroniser' : '+1 page';
+  btn.textContent = label;
+  if (fab) fab.textContent = label;
+  btn.title = linked ? 'Relire mon fichier Word et mettre à jour mes pages' : 'Ajouter une page à la partie en cours';
+  cap.classList.remove('alert');
+  if (_pendingReview) {
+    cap.textContent = `Du nouveau dans ${trunc(_pendingReview.name, 24)} : vérifier`;
+    cap.classList.add('alert');
+    cap.title = 'Vérifier les nouvelles parties avant de les ajouter';
+  } else if (linked) {
+    cap.textContent = _linked.length === 1 ? trunc(_linked[0].name, 30) : `${_linked.length} fichiers Word liés`;
+    cap.title = 'Gérer les fichiers liés';
+  } else {
+    cap.textContent = `sur « ${trunc(leafTitle(leaf), 26)} » · détailler`;
+    cap.title = 'Autre partie, plusieurs pages, hier, ou une note';
+  }
+}
+
+function primaryAction() {
+  if (!requireReady()) return;
+  if (_linked.length) syncLinked({ manual: true });
+  else quickAdd(1);
+}
+
+/** Clic sur la légende du bouton : détailler la saisie, ou gérer les fichiers liés. */
+function captionAction() {
+  if (!requireReady()) return;
+  if (_pendingReview) { const m = _pendingReview; _pendingReview = null; openDocxPreview(m); renderPrimary(); }
+  else if (_linked.length) openDocxModal();
+  else openLogModal();
+}
+
+/** Chapitres chez la direction : annotés comme au stylo, avec relance possible. */
 function renderReviewStrip() {
   const el = document.getElementById('reviewStrip');
   if (!el) return;
@@ -1116,15 +1089,15 @@ function renderReviewStrip() {
   const items = sent.slice(0, 3).map(c => {
     const d = c.reviewDate ? Math.max(0, diffDays(c.reviewDate, today)) : 0;
     const since = d === 0 ? "depuis aujourd'hui" : `depuis ${d} jour${d > 1 ? 's' : ''}`;
-    const ghost = d >= 21 ? ` 👻 <span class="rv-ghost">${GHOST_LINES[d % GHOST_LINES.length]}</span>` : '';
-    const btn = d >= 10 ? `<button class="rv-btn" onclick="remindSupervisor('${c.id}')">✉️ Relancer</button>` : '';
-    return `<div class="rv-item"><span class="rv-txt">📨 <b>${esc(trunc(c.title, 50))}</b> chez la direction ${since}${ghost}</span>${btn}</div>`;
+    const ghost = d >= 21 ? ` <span class="rv-ghost">${GHOST_LINES[d % GHOST_LINES.length]}</span>` : '';
+    const btn = d >= 10 ? `<button type="button" class="link-btn" onclick="remindSupervisor('${c.id}')">Relancer</button>` : '';
+    return `<div class="rv-item"><span class="rv-txt"><b>${esc(trunc(c.title, 50))}</b> est chez la direction ${since}.${ghost}</span>${btn}</div>`;
   }).join('');
   el.innerHTML = items + (sent.length > 3 ? `<div class="rv-more">et ${sent.length - 3} autre${sent.length - 3 > 1 ? 's' : ''}…</div>` : '');
   el.classList.remove('hidden');
 }
 
-/** Échéances proposées par le rétroplanning, affichées sur chaque chapitre. */
+/** Échéances conseillées pour tenir le dépôt, affichées sur chaque chapitre. */
 function currentSchedule(fc) {
   const chs = state.chapters.map(c => {
     const s = chapterStats(c);
@@ -1141,101 +1114,122 @@ function updateDueChips(fc) {
     if (!el) continue;
     const k = sch[c.id];
     if (!k) { el.textContent = ''; el.className = 'due-chip'; el.removeAttribute('title'); continue; }
-    el.textContent = `🎯 à finir le ${fmtDue(k)}`;
+    el.textContent = `pour le ${fmtDue(k)}`;
     el.className = 'due-chip' + (diffDays(today, k) <= 7 ? ' soon' : '');
-    el.title = 'Échéance proposée par votre rétroplanning (⚙️ Mon projet)';
+    el.title = 'À finir pour cette date si vous voulez tenir votre dépôt';
   }
 }
 
 /* ============================================================
-   GAMIFICATION
+   ÉTAPES — quelques mots au bon moment, pas de feu d'artifice
+   (sauf le jour où la dernière page est écrite).
 ============================================================ */
 function checkMilestones(progress) {
-  // Pas de fête (ni d'écriture) sur la base d'un cache local peut-être périmé :
+  // Pas d'annonce (ni d'écriture) sur la base d'un cache local peut-être périmé :
   // on attend la confirmation du serveur (onServerSynced relance la vérification).
   if (!_serverSynced) return;
   [25, 50, 75, 100].forEach(ms => {
     if (progress >= ms && !state.milestones[ms]) {
       state.milestones[ms] = true;
       saveNow();
-      celebrateMilestone(ms);
+      if (ms === 100) launchConfetti(160);
+      toast(MILESTONE_LINES[ms], 'success', { duration: 6500 });
     }
   });
 }
 
-function celebrateMilestone(ms) {
-  const msgs = {
-    25:  '🌱 25 % ! Un beau début : vous êtes lancé(e) !',
-    50:  '🔥 Mi-chemin ! La moitié est derrière vous !',
-    75:  '⚡ 75 % ! Vous êtes en feu, ne lâchez rien !',
-    100: '🏆 THÈSE TERMINÉE ! CHAMPAGNE !!!!',
-  };
-  launchConfetti(ms === 100 ? 220 : ms >= 75 ? 130 : 80);
-  toast(msgs[ms], ms === 100 ? 'special' : 'success');
-}
-
-/** Objectif du jour atteint, paliers de série : une seule fête par jour. */
+/** Objectif du jour atteint, paliers de série : une seule annonce par jour. */
 function checkDailyGoal() {
   if (!currentUser || !_lastForecast) return;
   const today = todayKey();
   const done = pagesOn(state.activity, today);
   const goalKey = `jdb_goal_${currentUser.uid}_${today}`;
+  const streakKey = `jdb_streak_${currentUser.uid}_${today}`;
+  const s = streak(state, today);
+  const streakStep = s.includesToday && [3, 7, 14, 21, 30, 50, 75, 100, 150, 200, 365].includes(s.count) && !lsGet(streakKey);
+  // Un seul message de félicitations à la fois : le palier de série l'emporte sur l'objectif du jour
+  // (déjà visible dans le bandeau « Aujourd'hui »).
   if (done > 0 && done >= _lastForecast.dailyGoal && !lsGet(goalKey)) {
     lsSet(goalKey, '1');
-    launchConfetti(45);
-    toast('🎯 Objectif du jour atteint ! Bravo.', 'success');
+    if (!streakStep) toast('Objectif du jour atteint.', 'success', { key: 'cheer' });
   }
-  const s = streak(state, today);
-  if (s.includesToday && [3, 7, 14, 21, 30, 50, 75, 100, 150, 200, 365].includes(s.count)) {
-    const k = `jdb_streak_${currentUser.uid}_${today}`;
-    if (!lsGet(k)) {
-      lsSet(k, '1');
-      launchConfetti(70);
-      toast(`🔥 ${s.count} jours de série ! Quelle régularité.`, 'special');
-    }
+  if (streakStep) {
+    lsSet(streakKey, '1');
+    toast(streakLine(s.count), 'success', { key: 'cheer', duration: 6000 });
   }
 }
 
+/** Réservé à la toute dernière page : quelques confettis aux couleurs de la maison. */
 function launchConfetti(count) {
-  const colors = ['#4A90E2','#8B5CF6','#10B981','#F59E0B','#EF4444','#EC4899','#06B6D4','#FBBF24'];
-  const shapes = ['square','circle','rect'];
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const colors = ['#1E1C19', '#7A2E2E', '#E3A446', '#2E5A52', '#CEC6B5'];
   for (let i = 0; i < count; i++) {
     setTimeout(() => {
-      const el     = document.createElement('div');
-      el.className = 'confetti-piece';
-      const c   = colors[Math.floor(Math.random() * colors.length)];
-      const s   = shapes[Math.floor(Math.random() * shapes.length)];
-      const sz  = Math.random() * 9 + 6;
-      const dur = Math.random() * 1.8 + 2.2;
-      const del = Math.random() * 0.5;
-      el.style.cssText = `left:${(Math.random()*100).toFixed(1)}vw;width:${sz.toFixed(1)}px;`
-        + `height:${s==='rect'?(sz*0.4).toFixed(1):sz.toFixed(1)}px;`
-        + `background:${c};border-radius:${s==='circle'?'50%':'2px'};`
-        + `animation-duration:${dur.toFixed(2)}s;animation-delay:${del.toFixed(2)}s;`;
+      const el  = document.createElement('div');
+      const sz  = Math.random() * 7 + 5;
+      const dur = Math.random() * 1.8 + 2.4;
+      el.style.cssText = `position:fixed;top:-14px;z-index:9999;pointer-events:none;left:${(Math.random() * 100).toFixed(1)}vw;`
+        + `width:${sz.toFixed(1)}px;height:${(sz * 0.45).toFixed(1)}px;background:${colors[i % colors.length]};`;
       document.body.appendChild(el);
-      setTimeout(() => el.remove(), (dur + del + 0.6) * 1000);
-    }, Math.random() * 400);
+      el.animate(
+        [{ transform: 'translateY(0) rotate(0deg)', opacity: 1 }, { transform: `translateY(105vh) rotate(${360 + Math.random() * 360}deg)`, opacity: 0.2 }],
+        { duration: dur * 1000, easing: 'linear' },
+      ).onfinish = () => el.remove();
+    }, Math.random() * 500);
   }
 }
 
 /* ============================================================
-   TOAST
+   TOAST — message bref, avec action facultative (« Annuler »)
+   opts : { key, action: { label, fn }, duration }
+   Un message de même « key » remplace le précédent.
 ============================================================ */
-function toast(msg, type) {
+function toast(msg, type, opts = {}) {
   const box = document.getElementById('toastBox');
-  const el  = document.createElement('div');
-  el.className   = 'toast ' + (type || '');
-  el.textContent = msg;
+  if (opts.key) box.querySelectorAll('.toast').forEach(e => { if (e.dataset.key === opts.key) e.remove(); });
+  const el = document.createElement('div');
+  el.className = 'toast ' + (type || '');
   el.setAttribute('role', 'status');
+  if (opts.key) el.dataset.key = opts.key;
+  if (opts.undo) el.dataset.undo = '1';
+  const span = document.createElement('span');
+  span.textContent = typo(msg); // pas de « : » ni de « ? » rejeté seul à la ligne
+  el.appendChild(span);
+  if (opts.action) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'toast-act';
+    b.textContent = opts.action.label;
+    b.onclick = () => { el.remove(); opts.action.fn(); };
+    el.appendChild(b);
+  }
   box.appendChild(el);
-  setTimeout(() => el.remove(), 3300);
+  setTimeout(() => {
+    el.classList.add('out');
+    setTimeout(() => el.remove(), 300);
+  }, opts.duration || (opts.action ? 7000 : 3200));
+  return el;
+}
+
+/** Charge un script externe à la demande (image de partage…). */
+function loadScript(src, integrity) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    if (integrity) { s.integrity = integrity; s.crossOrigin = 'anonymous'; }
+    s.referrerPolicy = 'no-referrer';
+    s.onload = () => resolve();
+    s.onerror = () => { s.remove(); reject(new Error('script')); };
+    document.head.appendChild(s);
+  });
 }
 
 /* ============================================================
-   FULL RENDER
+   TABLE DES MATIÈRES — rendu complet
 ============================================================ */
 function render() {
   renderChapters();
+  renderSetupBanner();
   updateDashboard();
   initSortable(); // must come after renderChapters() so DOM elements exist
   renderJournal();
@@ -1243,17 +1237,37 @@ function render() {
 
 function renderChapters() {
   const c = document.getElementById('chaptersContainer');
-  if (state.chapters.length === 0) {
+  const empty = state.chapters.length === 0;
+  const addRow = document.getElementById('addChapterRow');
+  if (addRow) addRow.classList.toggle('hidden', empty);
+  // Sans plan, la page de titre n'a rien à dire : on laisse toute la place au démarrage
+  document.body.classList.toggle('empty-plan', empty);
+  updateWordButton();
+  if (empty) {
+    // Trois façons de créer son plan, de la plus automatique à la plus manuelle
     c.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">📖</div>
-        <h3>Votre thèse commence ici !</h3>
-        <p>Construisez votre plan : chapitres, sous-sections et objectifs de pages.
-           Ensuite, notez vos pages au fil des jours, le journal calcule le reste.</p>
-        <div class="empty-actions">
-          <button class="btn btn-outline" onclick="event.stopPropagation(); openTemplateMenuFromEmpty()">🪄 Partir d'un plan type</button>
-          <button class="btn btn-outline" onclick="openDocxModal()">📄 Importer mon fichier Word</button>
-          <button class="btn btn-primary" onclick="openAddChapterModal()">＋ Créer mon premier chapitre</button>
+      <div class="empty-state onboarding">
+        <p class="kicker">Pour commencer</p>
+        <h3>Votre table des matières<br>en trente secondes</h3>
+        <button type="button" class="dropzone ob-drop" onclick="pickWordFile()">
+          <span class="dz-main">Déposer mon fichier Word</span>
+          <span class="dz-sub">Chapitres et pages rédigées se remplissent tout seuls.<br>Le fichier est lu sur votre appareil, il n'est envoyé nulle part.</span>
+        </button>
+        <p class="ob-or">Pas de fichier sous la main ? Partez d'un modèle :</p>
+        <div class="ob-choices">
+          <button type="button" class="btn btn-outline" onclick="applyTemplate(0)">Thèse SHS</button>
+          <button type="button" class="btn btn-outline" onclick="applyTemplate(1)">Thèse IMRAD</button>
+          <button type="button" class="btn btn-outline" onclick="applyTemplate(2)">Thèse par articles</button>
+          <button type="button" class="btn btn-outline" onclick="applyTemplate(3)">Mémoire</button>
+        </div>
+        <button type="button" class="link-btn ob-link" onclick="togglePlanTyping()">ou saisir (coller) mon propre plan</button>
+        <div class="ob-type hidden" id="obType">
+          <textarea id="planText" class="form-control" rows="7" aria-label="Votre plan, un chapitre par ligne"
+            placeholder="Un chapitre par ligne. Décalez une ligne pour une sous-partie.&#10;&#10;Introduction&#10;État de l'art&#10;   Contexte historique&#10;   Travaux récents&#10;Méthodologie&#10;Conclusion"></textarea>
+          <div class="ob-type-row">
+            <label>Objectif total&nbsp;: <input type="number" id="planTotal" min="1" inputmode="numeric" placeholder="ex. 300" aria-label="Objectif total de pages"> pages</label>
+            <button type="button" class="btn btn-primary" onclick="createPlanFromText()">Créer mon plan</button>
+          </div>
         </div>
       </div>`;
     return;
@@ -1261,81 +1275,70 @@ function renderChapters() {
   c.innerHTML = state.chapters.map(ch => buildChapterHTML(ch)).join('');
 }
 
-function statusAutoLabel(prog) {
-  return prog >= 100 ? '✔️ Rédigé' : prog > 0 ? '✍️ En cours' : '○ À écrire';
+/** Pages rédigées / objectif d'une partie : − et + pour aller vite, saisie directe possible. */
+function pagesCtlHTML(leafId, chId, ssId, written, target) {
+  const onW = ssId ? `updateWritten('${chId}','${ssId}',this.value)` : `updateChWritten('${chId}',this.value)`;
+  const onT = ssId ? `updateTarget('${chId}','${ssId}',this.value)` : `updateChTarget('${chId}',this.value)`;
+  return `<span class="pages-ctl" onclick="event.stopPropagation()">
+      <button type="button" class="pg-btn" onclick="stepPages('${leafId}',-1)" aria-label="Une page de moins" title="Une page de moins">−</button>
+      <input type="number" class="pages-input" id="win-${leafId}" value="${written || 0}" min="0" inputmode="numeric"
+             onfocus="this.select()" oninput="${onW}" title="Pages rédigées" aria-label="Pages rédigées" />
+      <button type="button" class="pg-btn plus" onclick="stepPages('${leafId}',1)" aria-label="Une page de plus" title="Une page de plus">+</button>
+      <span class="pg-sep">/</span>
+      <input type="number" class="target-input" value="${target || 0}" min="1" inputmode="numeric"
+             onfocus="this.select()" oninput="${onT}" title="Objectif de pages (modifiable)" aria-label="Objectif de pages" />
+      <span class="pg-unit">p.</span>
+    </span>`;
 }
 
-function statusSelectHTML(ch, prog) {
-  const cur = ch.review || '';
-  const opts = [['', statusAutoLabel(prog)], ['sent', REVIEW_LABELS.sent], ['revise', REVIEW_LABELS.revise], ['ok', REVIEW_LABELS.ok]];
-  return `<select class="ch-status st-${cur || 'auto'}" id="st-${ch.id}" title="Statut du chapitre" aria-label="Statut du chapitre"
-            onclick="event.stopPropagation()" onchange="setChapterReview('${ch.id}', this.value)">${
-    opts.map(([v, l]) => `<option value="${v}"${v === cur ? ' selected' : ''}>${l}</option>`).join('')
-  }</select>`;
-}
-
-function chStatsText(ch, st) {
-  let s = `${st.wP} / ${st.tP} pages · ${st.prog} %`;
-  if (ch.subsections.length) s += ` · ${ch.subsections.length} sous-section${ch.subsections.length !== 1 ? 's' : ''}`;
-  if (ch.review === 'sent' && ch.reviewDate) {
-    const d = Math.max(0, diffDays(ch.reviewDate, todayKey()));
-    s += d === 0 ? " · envoyé aujourd'hui" : ` · envoyé il y a ${d} j`;
-  }
-  return s;
+/** Annotation de statut, comme une mention portée au stylo dans la marge. */
+function badgeHTML(ch) {
+  if (!ch.review) return '';
+  const d = ch.reviewDate ? Math.max(0, diffDays(ch.reviewDate, todayKey())) : 0;
+  const txt = ch.review === 'sent' ? `chez la direction${d ? ` depuis ${d} j` : ''}`
+    : ch.review === 'revise' ? 'à corriger' : 'validé';
+  return `<button type="button" class="ch-badge st-${ch.review}" title="Changer le statut"
+            onclick="event.stopPropagation(); openChapterMenu('${ch.id}')">${txt}</button>`;
 }
 
 function buildChapterHTML(ch) {
-  const st      = chapterStats(ch);
-  const { tP, wP, prog } = st;
-  const isDone  = prog >= 100;
-  const isExp   = ch.expanded !== false;
-  const hasS    = ch.subsections.length > 0;
-  const body = hasS
-    ? `<div class="ss-list" id="ssl-${ch.id}">${ch.subsections.map(ss => buildSsHTML(ss, ch.id)).join('')}</div>`
-    : `<div class="ch-direct-pages">
-        <div class="ss-progress-row">
-          <div class="prog-track">
-            <div class="prog-fill${isDone ? ' done' : ''}" id="chbar-${ch.id}" style="width:${prog}%"></div>
-          </div>
-          <div class="pages-row">
-            <input type="number" class="pages-input" value="${wP}" min="0" inputmode="numeric"
-                   oninput="updateChWritten('${ch.id}',this.value)" title="Pages rédigées" aria-label="Pages rédigées" />
-            <span>/</span>
-            <input type="number" class="pages-input" value="${tP}" min="1" inputmode="numeric"
-                   oninput="updateChTarget('${ch.id}',this.value)" title="Objectif" aria-label="Objectif de pages" />
-            <span>p.</span>
-          </div>
-          <div class="prog-pct${isDone ? ' done' : ''}" id="chpct-${ch.id}">${prog}%</div>
-        </div>
-      </div>`;
+  const { tP, wP, prog } = chapterStats(ch);
+  const isDone   = prog >= 100;
+  const hasS     = ch.subsections.length > 0;
+  const showBody = hasS ? ch.expanded !== false : _addOpen.has(ch.id);
+  // Chapitre sans sous-section : ses pages se règlent directement sur sa ligne, sans rien déplier
+  const pages = hasS
+    ? `<span class="ch-pages-txt">${wP} / ${tP} p.</span>`
+    : pagesCtlHTML(ch.id, ch.id, '', wP, tP);
   return `
-<div class="chapter-card${isDone ? ' completed' : ''}${isExp ? ' expanded' : ''}" id="ch-${ch.id}">
-  <div class="chapter-header" onclick="toggleChapter('${ch.id}')">
+<div class="chapter-card${isDone ? ' completed' : ''}${showBody ? ' expanded' : ''}${hasS ? ' has-subs' : ' leaf'}" id="ch-${ch.id}">
+  <div class="chapter-header"${hasS ? ` onclick="toggleChapter('${ch.id}')"` : ''}>
     <span class="ch-drag-handle" onclick="event.stopPropagation()" title="Déplacer">⋮⋮</span>
-    <span class="ch-arrow">▶</span>
-    <div class="ch-info">
-      <div class="ch-title-row">
-        <div class="ch-title" style="flex:1;min-width:0;">
-          <input class="editable" value="${esc(ch.title)}"
-                 onclick="event.stopPropagation()"
-                 onblur="updateChTitle('${ch.id}',this.value)"
-                 onkeydown="if(event.key==='Enter')this.blur()"
-                 title="Cliquez pour modifier" aria-label="Titre du chapitre" />
-        </div>
-        ${statusSelectHTML(ch, prog)}
+    <div class="toc-main">
+      <div class="toc-line">
+        ${hasS ? '<span class="ch-arrow" aria-hidden="true">›</span>' : ''}
+        <input class="editable" value="${esc(ch.title)}"
+               onclick="event.stopPropagation()"
+               onblur="updateChTitle('${ch.id}',this.value)"
+               onkeydown="if(event.key==='Enter')this.blur()"
+               title="Cliquez pour modifier" aria-label="Titre du chapitre" />
+        <span class="ch-badge-slot" id="bd-${ch.id}">${badgeHTML(ch)}</span>
+        <span class="due-chip" id="due-${ch.id}"></span>
+        ${pages}
+        <span class="ch-pct${isDone ? ' done' : ''}">${prog}\u00A0%</span>
       </div>
-      <div class="ch-progress-bar">
-        <div class="ch-progress-fill${isDone ? ' done' : ''}" style="width:${prog}%"></div>
-      </div>
-      <div class="ch-stats"><span class="ch-stats-main">${esc(chStatsText(ch, st))}</span><span class="due-chip" id="due-${ch.id}"></span></div>
+      <div class="leader"><div class="leader-fill ch-progress-fill${isDone ? ' done' : ''}" style="width:${prog}%"></div></div>
     </div>
-    <div class="ch-actions" onclick="event.stopPropagation()">
-      <button class="btn btn-icon btn-danger-soft" title="Supprimer" aria-label="Supprimer le chapitre" onclick="deleteChapter('${ch.id}')">🗑</button>
-    </div>
+    <button type="button" class="btn-more" aria-label="Actions du chapitre" title="Statut, sous-sections, suppression"
+            onclick="event.stopPropagation(); openChapterMenu('${ch.id}')">⋯</button>
   </div>
   <div class="chapter-body">
-    ${body}
-    <button class="add-ss-btn" onclick="openAddSsModal('${ch.id}')">＋ Ajouter une sous-section</button>
+    ${hasS ? `<div class="ss-list" id="ssl-${ch.id}">${ch.subsections.map(ss => buildSsHTML(ss, ch.id)).join('')}</div>` : ''}
+    <div class="add-row sub">
+      <input type="text" class="add-input" maxlength="300" placeholder="Ajouter une sous-section" aria-label="Nouvelle sous-section"
+             onkeydown="if(event.key==='Enter')addSsInline('${ch.id}',this)" />
+      <button type="button" class="add-btn" onclick="addSsInline('${ch.id}',this.previousElementSibling)">Ajouter</button>
+    </div>
   </div>
 </div>`;
 }
@@ -1345,36 +1348,24 @@ function buildSsHTML(ss, chId) {
   const isDone = prog >= 100;
   return `
 <div class="subsection" id="ss-${ss.id}">
-  <div class="ss-header">
-    <span class="ss-drag-handle" title="Déplacer">⋮⋮</span>
-    <div class="ss-dot${isDone ? ' done' : ''}"></div>
-    <div class="ss-title">
+  <span class="ss-drag-handle" title="Déplacer">⋮⋮</span>
+  <div class="toc-main">
+    <div class="toc-line">
       <input class="editable" value="${esc(ss.title)}"
              onblur="updateSsTitle('${chId}','${ss.id}',this.value)"
              onkeydown="if(event.key==='Enter')this.blur()"
              title="Cliquez pour modifier" aria-label="Titre de la sous-section" />
+      ${pagesCtlHTML(ss.id, chId, ss.id, ss.writtenPages, ss.targetPages)}
+      <span class="prog-pct${isDone ? ' done' : ''}" id="pct-${ss.id}">${prog}\u00A0%</span>
     </div>
-    <button class="btn btn-icon btn-danger-soft" title="Supprimer" aria-label="Supprimer la sous-section" onclick="deleteSs('${chId}','${ss.id}')">✕</button>
+    <div class="leader"><div class="leader-fill${isDone ? ' done' : ''}" id="bar-${ss.id}" style="width:${prog}%"></div></div>
   </div>
-  <div class="ss-progress-row">
-    <div class="prog-track">
-      <div class="prog-fill${isDone ? ' done' : ''}" id="bar-${ss.id}" style="width:${prog}%"></div>
-    </div>
-    <div class="pages-row">
-      <input type="number" class="pages-input" value="${ss.writtenPages || 0}" min="0" inputmode="numeric"
-             oninput="updateWritten('${chId}','${ss.id}',this.value)" title="Pages rédigées" aria-label="Pages rédigées" />
-      <span>/</span>
-      <input type="number" class="pages-input" value="${ss.targetPages || 0}" min="1" inputmode="numeric"
-             oninput="updateTarget('${chId}','${ss.id}',this.value)" title="Objectif" aria-label="Objectif de pages" />
-      <span>p.</span>
-    </div>
-    <div class="prog-pct${isDone ? ' done' : ''}" id="pct-${ss.id}">${prog}%</div>
-  </div>
+  <button type="button" class="btn-x" title="Supprimer" aria-label="Supprimer la sous-section" onclick="deleteSs('${chId}','${ss.id}')">×</button>
 </div>`;
 }
 
 /* ============================================================
-   JOURNAL — carte « Mon journal » (heatmap + entrées)
+   JOURNAL — calendrier de régularité et notes (replié par défaut)
 ============================================================ */
 let _journalRaf = 0;
 let _journalShowAll = false;
@@ -1394,78 +1385,88 @@ function heatLevel(p, note, goal) {
   return note ? 1 : 0;
 }
 
-function renderJournal() {
-  const card = document.getElementById('journalCard');
-  if (!card) return;
-  card.classList.toggle('hidden', state.chapters.length === 0);
-  card.classList.toggle('collapsed', lsGet('jdb_journal_collapsed') === '1');
-  if (state.chapters.length === 0) return;
-
-  const today = todayKey();
-  const goal  = (_lastForecast && _lastForecast.dailyGoal) || 1;
-  const wk    = sumRange(state.activity, mondayOf(today), today);
-  const s     = streak(state, today);
-  setText('jcSummary', `${wk > 0 ? '+' : ''}${fmt1(wk)} p. cette semaine · 🔥 ${s.count} ${plural(s.count, 'jour', 'jours')}`);
-
-  // Heatmap : 26 semaines sur grand écran, 16 sur mobile
-  const WEEKS = card.clientWidth > 640 ? 26 : 16;
-  const start = addDays(mondayOf(today), -7 * (WEEKS - 1));
+/**
+ * Calendrier de régularité : une colonne par semaine, du lundi au dimanche.
+ * Dessiné en SVG : il garde ses proportions quelle que soit la largeur disponible.
+ */
+function heatmapHTML(activity, journal, opts) {
+  const { weeks, today, goal, since } = opts;
+  const start = addDays(mondayOf(today), -7 * (weeks - 1));
+  const C = 11;        // côté d'une case
+  const P = C + 2;     // pas (case + espace)
   let cells = '';
   let months = '';
   let lastMonth = -1;
-  for (let w = 0; w < WEEKS; w++) {
+  for (let w = 0; w < weeks; w++) {
     const monday = addDays(start, 7 * w);
     const m = parseDay(monday).getMonth();
     months += `<span>${m !== lastMonth ? MONTHS_SHORT[m] : ''}</span>`;
     lastMonth = m;
     for (let d = 0; d < 7; d++) {
       const k = addDays(monday, d);
-      if (k > today) { cells += '<i class="hm fut"></i>'; continue; }
-      const p    = pagesOn(state.activity, k);
-      const note = hasNotes(state.journal, k);
-      const pre  = state.trackedSince && k < state.trackedSince;
-      const lbl  = p ? `${fmt1(p)} p.` : note ? 'note' : '—';
-      cells += `<i class="hm l${heatLevel(p, note, goal)}${k === today ? ' today' : ''}${pre ? ' pre' : ''}" title="${fmtDateLong(k)} : ${lbl}"></i>`;
+      if (k > today) continue;
+      const p    = pagesOn(activity, k);
+      const note = hasNotes(journal, k);
+      const pre  = since && k < since;
+      const lbl  = p ? `${fmt1(p)} p.` : note ? 'note' : 'rien';
+      cells += `<rect class="hm l${heatLevel(p, note, goal)}${k === today ? ' today' : ''}${pre ? ' pre' : ''}" x="${w * P}" y="${d * P}" width="${C}" height="${C}" rx="1.5"><title>${fmtDateLong(k)} : ${lbl}</title></rect>`;
     }
   }
-  setHTML('heatmap', `<div class="hm-months" style="grid-template-columns:repeat(${WEEKS},1fr)">${months}</div>`
-    + `<div class="hm-grid" style="grid-template-columns:repeat(${WEEKS},1fr)">${cells}</div>`);
+  return `<div class="hm-months" style="grid-template-columns:repeat(${weeks},1fr)">${months}</div>`
+    + `<svg class="hm-grid" viewBox="-1 -1 ${weeks * P} ${7 * P}" role="img" aria-label="Calendrier de régularité des ${weeks} dernières semaines">${cells}</svg>`;
+}
 
-  // Entrées récentes
+function renderJournal() {
+  const card = document.getElementById('journalCard');
+  if (!card) return;
+  card.classList.toggle('hidden', state.chapters.length === 0);
+  const collapsed = lsGet('jdb_journal_collapsed') !== '0'; // replié par défaut : le plan d'abord
+  card.classList.toggle('collapsed', collapsed);
+  if (state.chapters.length === 0) return;
+
+  const today = todayKey();
+  const goal  = (_lastForecast && _lastForecast.dailyGoal) || 1;
+  const wk    = sumRange(state.activity, mondayOf(today), today);
+  const s     = streak(state, today);
+  setText('jcSummary', `${wk > 0 ? '+' : ''}${fmt1(wk)} p. cette semaine · ${s.count} ${plural(s.count, 'jour', 'jours')} d'affilée`);
+  if (collapsed) return;
+
+  setHTML('heatmap', heatmapHTML(state.activity, state.journal, {
+    weeks: card.clientWidth > 560 ? 26 : 16, today, goal, since: state.trackedSince,
+  }));
+
   const days = new Set();
   for (const [k, v] of Object.entries(state.activity)) if (v && k <= today) days.add(k);
   for (const k of Object.keys(state.journal)) if (hasNotes(state.journal, k) && k <= today) days.add(k);
   const sorted = [...days].sort().reverse();
   const shown = sorted.slice(0, _journalShowAll ? 60 : 6);
   if (!shown.length) {
-    setHTML('jcEntries', `<p class="jc-empty">Votre journal commence aujourd'hui. Après chaque séance, cliquez sur
-      <b>＋ J'ai écrit</b> (ou modifiez vos pages dans le plan) : série, rythme et date de fin se calculent tout seuls.</p>`);
+    setHTML('jcEntries', '<p class="jc-empty">Rien pour l\'instant. Le journal se remplit tout seul, au fil de vos pages.</p>');
     return;
   }
   const html = shown.map(k => {
     const p = pagesOn(state.activity, k);
     const entries = state.journal[k] || [];
     const lines = entries.map((e, i) => {
-      if (!e.n && !e.m && !e.s) return '';
-      const mood = e.m ? `<span class="je-mood" title="${MOOD_LABELS[e.m - 1]}">${MOODS[e.m - 1]}</span>` : '';
+      if (!e.n && !e.s) return '';
       const text = e.n ? `<span class="je-text">${esc(e.n)}</span>` : '';
       const meta = [e.p ? `+${fmt1(e.p)} p.` : '', e.s ? sectionLabel(e.s) : ''].filter(Boolean).join(' · ');
-      const del = (e.n || e.m) ? `<button class="je-del" onclick="deleteNote('${k}', ${i})" title="Supprimer la note" aria-label="Supprimer la note">✕</button>` : '';
-      return `<div class="je-line">${mood}${text}${meta ? `<span class="je-meta">${esc(meta)}</span>` : ''}${del}</div>`;
+      const del = e.n ? `<button type="button" class="je-del" onclick="deleteNote('${k}', ${i})" title="Supprimer la note" aria-label="Supprimer la note">×</button>` : '';
+      return `<div class="je-line">${text}${meta ? `<span class="je-meta">${esc(meta)}</span>` : ''}${del}</div>`;
     }).join('');
     const pCls = p > 0 ? 'pos' : p < 0 ? 'neg' : '';
     return `<div class="je"><div class="je-date">${relDay(k)}</div>
-      <div class="je-pages ${pCls}">${p ? (p > 0 ? '+' : '') + fmt1(p) + ' p.' : '·'}</div>
+      <div class="je-pages ${pCls}">${p ? (p > 0 ? '+' : '') + fmt1(p) + ' p.' : ''}</div>
       <div class="je-notes">${lines}</div></div>`;
   }).join('');
   const more = sorted.length > shown.length
-    ? `<button class="jc-more" onclick="toggleJournalAll()">Voir tout le journal (${sorted.length} jours)</button>`
-    : (_journalShowAll && sorted.length > 6 ? '<button class="jc-more" onclick="toggleJournalAll()">Réduire</button>' : '');
+    ? `<button type="button" class="jc-more" onclick="toggleJournalAll()">Voir tout le journal (${sorted.length} jours)</button>`
+    : (_journalShowAll && sorted.length > 6 ? '<button type="button" class="jc-more" onclick="toggleJournalAll()">Réduire</button>' : '');
   setHTML('jcEntries', html + more);
 }
 
 function toggleJournalCard() {
-  const collapsed = lsGet('jdb_journal_collapsed') === '1';
+  const collapsed = lsGet('jdb_journal_collapsed') !== '0';
   lsSet('jdb_journal_collapsed', collapsed ? '0' : '1');
   renderJournal();
 }
@@ -1475,7 +1476,7 @@ function toggleJournalAll() { _journalShowAll = !_journalShowAll; renderJournal(
 function deleteNote(k, i) {
   const arr = state.journal[k];
   if (!arr || !arr[i]) return;
-  if (!confirm('Supprimer cette note du journal ?\n(Les pages notées restent comptées.)')) return;
+  const snap = snapshotState();
   const copy = arr.map(e => ({ ...e }));
   if (copy[i].p) { copy[i].n = ''; copy[i].m = 0; }
   else copy.splice(i, 1);
@@ -1483,11 +1484,17 @@ function deleteNote(k, i) {
   saveNow();
   renderJournal();
   renderToday(_lastForecast || forecast(state, totals(), todayKey()));
+  toast('Note supprimée (les pages restent comptées).', '',
+    { undo: true, action: { label: 'Annuler', fn: () => restoreSnapshot(snap, 'Note rétablie.') } });
 }
 
 /* ============================================================
-   CHAPTER CRUD
+   LE PLAN — chapitres et sous-sections
+   Tout se fait sur place : titres modifiables, ajout par une
+   simple ligne de saisie, suppression annulable.
 ============================================================ */
+const _addOpen = new Set(); // chapitres sans sous-section dont la ligne d'ajout est ouverte
+
 function toggleChapter(id) {
   const ch = findCh(id);
   if (!ch) return;
@@ -1497,40 +1504,157 @@ function toggleChapter(id) {
   if (card) card.classList.toggle('expanded', ch.expanded);
 }
 
-function openAddChapterModal() {
-  if (!requireReady()) return;
-  document.getElementById('chTitleInput').value = '';
-  openModal('addChapterModal');
-  setTimeout(() => document.getElementById('chTitleInput').focus(), 100);
+/** Moyenne des objectifs existants, pour proposer un objectif plausible à une nouvelle partie. */
+function avgTarget(list, fallback) {
+  const v = list.filter(x => x > 0);
+  return v.length ? Math.max(1, Math.round(v.reduce((a, b) => a + b, 0) / v.length)) : fallback;
 }
 
-function saveChapter() {
-  const title = document.getElementById('chTitleInput').value.trim();
-  if (!title) { toast('Veuillez entrer un titre !', 'warn'); return; }
-  state.chapters.push({ id: uid(), title: title.slice(0, 300), expanded: true, targetPages: 0, writtenPages: 0, subsections: [] });
-  saveNow();
-  closeModal('addChapterModal');
+/** Restaure un état antérieur (bouton « Annuler »). */
+function restoreSnapshot(snapshot, msg) {
+  state = normalizeState(JSON.parse(snapshot));
+  syncTitleInput();
+  saveNow(true);
   render();
-  toast('✅ Chapitre ajouté !', 'success');
+  if (msg) toast(msg, '');
+}
+const snapshotState = () => JSON.stringify(serializeState());
+
+function addChapterInline() {
+  if (!requireReady()) return;
+  const input = document.getElementById('addChapterInput');
+  const title = input.value.trim();
+  if (!title) { input.focus(); return; }
+  state.chapters.push({
+    id: uid(), title: title.slice(0, 300), expanded: true,
+    targetPages: avgTarget(state.chapters.map(c => chapterStats(c).tP), 20),
+    writtenPages: 0, subsections: [],
+  });
+  input.value = '';
+  saveNow();
+  render();
+  document.getElementById('addChapterInput').focus();
+}
+
+/** Coller plusieurs lignes dans « Ajouter un chapitre » crée tout le plan d'un coup. */
+function handlePlanPaste(e) {
+  const text = e.clipboardData ? e.clipboardData.getData('text') : '';
+  if (!text || !/\n/.test(text.trim())) return; // une seule ligne : collage normal
+  const plan = parsePlanText(text);
+  if (plan.length < 2 && !(plan[0] && plan[0].subs.length)) return;
+  e.preventDefault();
+  if (!requireReady()) return;
+  const snap = snapshotState();
+  state.chapters.push(...planToChapters(plan, 0));
+  saveNow();
+  render();
+  const n = plan.length;
+  toast(`${n} chapitre${n > 1 ? 's' : ''} ajouté${n > 1 ? 's' : ''}`, 'success',
+    { undo: true, action: { label: 'Annuler', fn: () => restoreSnapshot(snap, 'Ajout annulé') } });
+}
+
+/** Plan saisi → chapitres. Les objectifs manquants sont répartis sur l'objectif total. */
+function planToChapters(plan, total) {
+  const free = [];
+  let fixed = 0;
+  const chapters = plan.map(c => {
+    const ch = { id: uid(), title: c.title, expanded: true, targetPages: 0, writtenPages: 0, subsections: [] };
+    if (c.subs.length) {
+      ch.subsections = c.subs.map(s => ({ id: uid(), title: s.title, targetPages: s.target || 0, writtenPages: 0 }));
+      const given = ch.subsections.reduce((a, s) => a + s.targetPages, 0);
+      const open = ch.subsections.filter(s => !s.targetPages);
+      if (c.target > given && open.length) {
+        // Objectif donné pour le chapitre : réparti entre ses sous-parties
+        distribute(c.target - given, open.map(() => 1)).forEach((v, i) => { open[i].targetPages = Math.max(1, v); });
+      }
+      for (const s of ch.subsections) {
+        if (s.targetPages) fixed += s.targetPages;
+        else { s.autoT = true; free.push({ node: s, fallback: 10 }); }
+      }
+    } else if (c.target) { ch.targetPages = c.target; fixed += c.target; }
+    else free.push({ node: ch, fallback: 20 });
+    return ch;
+  });
+  if (free.length) {
+    const pool = total > fixed ? total - fixed : 0;
+    const shares = pool ? distribute(pool, free.map(() => 1)) : null;
+    free.forEach((f, i) => { f.node.targetPages = Math.max(1, shares ? shares[i] : f.fallback); });
+  }
+  return chapters;
+}
+
+function togglePlanTyping() {
+  const box = document.getElementById('obType');
+  if (!box) return;
+  box.classList.toggle('hidden');
+  if (!box.classList.contains('hidden')) document.getElementById('planText').focus();
+}
+
+function createPlanFromText() {
+  if (!requireReady()) return;
+  const plan = parsePlanText(document.getElementById('planText').value);
+  if (!plan.length) { toast('Écrivez au moins un chapitre (une ligne par chapitre)', 'warn'); return; }
+  const total = parseInt(document.getElementById('planTotal').value, 10) || 0;
+  state.chapters = planToChapters(plan, total);
+  startSetup();
+  saveNow();
+  render();
+  toast(`Plan créé : ${plan.length} chapitre${plan.length > 1 ? 's' : ''}. Ajustez les objectifs si besoin.`, 'success');
 }
 
 function deleteChapter(id) {
   const ch = findCh(id);
-  if (!ch || !confirm(`Supprimer "${ch.title}" et toutes ses sous-sections ?`)) return;
+  if (!ch) return;
+  const snap = snapshotState();
   state.chapters = state.chapters.filter(c => c.id !== id);
+  _addOpen.delete(id);
   saveNow();
   render();
-  toast('🗑 Chapitre supprimé');
+  toast(`« ${trunc(ch.title, 30)} » supprimé`, '',
+    { undo: true, action: { label: 'Annuler', fn: () => restoreSnapshot(snap, 'Chapitre rétabli') } });
 }
 
 function updateChTitle(id, val) {
   const ch = findCh(id);
-  if (ch && val.trim() && val.trim() !== ch.title) { ch.title = val.trim().slice(0, 300); saveNow(); }
+  if (ch && val.trim() && val.trim() !== ch.title) { ch.title = val.trim().slice(0, 300); saveNow(); renderPrimary(); }
 }
 
 /* ============================================================
-   STATUT DE RELECTURE (chez la direction, à corriger, validé)
+   MENU D'UN CHAPITRE (⋯) — statut de relecture, sous-sections,
+   suppression. Garde la ligne du chapitre légère.
 ============================================================ */
+let _menuChId = null;
+
+function openChapterMenu(id) {
+  const ch = findCh(id);
+  if (!ch) return;
+  _menuChId = id;
+  setText('cmTitle', ch.title);
+  const due = _lastForecast ? currentSchedule(_lastForecast)[id] : null;
+  setText('cmDue', due ? `À boucler pour le ${formatDateFr(due)} si vous voulez tenir votre dépôt.` : '');
+  document.querySelectorAll('#chapterMenuModal [data-review]').forEach(b => {
+    b.classList.toggle('on', b.dataset.review === ch.review);
+  });
+  document.getElementById('cmClear').classList.toggle('hidden', !ch.review);
+  document.getElementById('cmRemind').classList.toggle('hidden', ch.review !== 'sent');
+  document.getElementById('cmAddSs').classList.toggle('hidden', ch.subsections.length > 0);
+  openModal('chapterMenuModal');
+}
+
+function chapterMenuDo(action) {
+  const id = _menuChId;
+  closeModal('chapterMenuModal');
+  if (!id || !findCh(id)) return;
+  if (action === 'delete') deleteChapter(id);
+  else if (action === 'remind') remindSupervisor(id);
+  else if (action === 'addss') {
+    _addOpen.add(id);
+    render();
+    const input = document.querySelector(`#ch-${id} .add-row.sub .add-input`);
+    if (input) input.focus();
+  } else setChapterReview(id, action === 'clear' ? '' : action);
+}
+
 function setChapterReview(id, val) {
   const ch = findCh(id);
   if (!ch) return;
@@ -1544,9 +1668,9 @@ function setChapterReview(id, val) {
   saveNow();
   _refreshChCard(ch);
   updateDashboard();
-  if (val === 'ok') { launchConfetti(60); toast('✅ Chapitre validé ! Savourez ce moment.', 'success'); }
-  else if (val === 'sent') toast('📨 Chapitre envoyé. Le compteur d\'attente est lancé…', '');
-  else if (val === 'revise') toast('✏️ Retours reçus : courage pour les corrections !', '');
+  if (val === 'ok') toast('Chapitre validé. Encadrez ce moment.', 'success');
+  else if (val === 'sent') toast('Chapitre envoyé. Le compteur d\'attente est lancé.', '');
+  else if (val === 'revise') toast('Retours reçus. « À retravailler » veut dire que vous êtes sur la bonne voie.', '');
 }
 
 function remindSupervisor(id) {
@@ -1564,59 +1688,63 @@ function remindSupervisor(id) {
 }
 
 /* ============================================================
-   SUBSECTION CRUD
+   SOUS-SECTIONS
 ============================================================ */
-function openAddSsModal(chId) {
-  if (!requireReady()) return;
-  _currentChId = chId;
-  document.getElementById('ssTitleInput').value = '';
-  document.getElementById('ssPagesInput').value = '';
-  openModal('addSsModal');
-  setTimeout(() => document.getElementById('ssTitleInput').focus(), 100);
-}
-
-function saveSubsection() {
-  const title = document.getElementById('ssTitleInput').value.trim();
-  const pages = parseInt(document.getElementById('ssPagesInput').value, 10);
-  if (!title)        { toast('Veuillez entrer un titre !', 'warn'); return; }
-  if (!pages || pages < 1) { toast('Objectif de pages invalide !', 'warn'); return; }
-  const ch = findCh(_currentChId);
+function addSsInline(chId, input) {
+  if (!requireReady() || !input) return;
+  const ch = findCh(chId);
   if (!ch) return;
-  const ss = { id: uid(), title: title.slice(0, 300), targetPages: pages, writtenPages: 0 };
-  // Premier découpage d'un chapitre qui comptait déjà des pages : on les reporte
-  if (ch.subsections.length === 0 && (ch.writtenPages || 0) > 0) {
-    if (confirm(`Ce chapitre comptait déjà ${ch.writtenPages} page(s) rédigée(s).\nLes attribuer à « ${title} » ?`)) {
-      ss.writtenPages = ch.writtenPages;
-      ss.targetPages = Math.max(pages, ch.writtenPages);
-    }
-  }
+  const title = input.value.trim();
+  if (!title) { input.focus(); return; }
+  const first = ch.subsections.length === 0;
+  const ss = { id: uid(), title: title.slice(0, 300), targetPages: 0, writtenPages: 0, autoT: true };
+  if (first) ss.writtenPages = ch.writtenPages || 0; // elle reprend les pages déjà notées sur le chapitre
   ch.subsections.push(ss);
+  // Tant qu'aucun objectif n'a été retouché, l'objectif du chapitre est partagé à parts égales
+  if (ch.subsections.every(s => s.autoT)) {
+    const budget = ch.targetPages > 0 ? ch.targetPages : 10 * ch.subsections.length;
+    distribute(budget, ch.subsections.map(() => 1))
+      .forEach((v, i) => { ch.subsections[i].targetPages = Math.max(1, v, ch.subsections[i].writtenPages); });
+  } else {
+    ss.targetPages = avgTarget(ch.subsections.slice(0, -1).map(s => s.targetPages), 10);
+  }
+  ch.expanded = true;
+  _addOpen.delete(chId);
   saveNow();
-  closeModal('addSsModal');
   render();
-  toast('✅ Sous-section ajoutée !', 'success');
+  const next = document.querySelector(`#ch-${chId} .add-row.sub .add-input`);
+  if (next) next.focus();
 }
 
 function deleteSs(chId, ssId) {
   const ch = findCh(chId);
   if (!ch) return;
   const ss = ch.subsections.find(s => s.id === ssId);
-  if (!ss || !confirm(`Supprimer "${ss.title}" ?`)) return;
+  if (!ss) return;
+  const snap = snapshotState();
   ch.subsections = ch.subsections.filter(s => s.id !== ssId);
+  if (!ch.subsections.length) {
+    // Dernière sous-section retirée : le chapitre redevient une seule partie et garde ses chiffres
+    ch.writtenPages = ss.writtenPages || 0;
+    ch.targetPages = Math.max(ch.targetPages || 0, ss.targetPages || 0);
+  }
   saveNow();
   render();
+  toast(`« ${trunc(ss.title, 30)} » supprimé`, '',
+    { undo: true, action: { label: 'Annuler', fn: () => restoreSnapshot(snap, 'Sous-section rétablie') } });
 }
 
 function updateSsTitle(chId, ssId, val) {
   const ch = findCh(chId);
   if (!ch) return;
   const ss = ch.subsections.find(s => s.id === ssId);
-  if (ss && val.trim() && val.trim() !== ss.title) { ss.title = val.trim().slice(0, 300); saveNow(); }
+  if (ss && val.trim() && val.trim() !== ss.title) { ss.title = val.trim().slice(0, 300); saveNow(); renderPrimary(); }
 }
 
 /* ============================================================
-   LIVE PAGE UPDATES — surgical DOM patch (no full re-render)
-   Chaque variation des pages rédigées alimente le journal du jour.
+   PAGES — trois façons de les noter, du plus rapide au plus précis :
+   « +1 page » (partie en cours), boutons − / + d'une partie,
+   ou saisie du total. Chaque variation alimente le journal du jour.
 ============================================================ */
 function _findSs(chId, ssId) {
   const ch = findCh(chId);
@@ -1625,23 +1753,70 @@ function _findSs(chId, ssId) {
   return ss ? { ch, ss } : null;
 }
 
+/** Applique une variation de pages à une partie et met à jour l'écran sans tout redessiner. */
+function applyDelta(leaf, delta, count) {
+  const obj  = leaf.ss || leaf.ch;
+  const old  = obj.writtenPages || 0;
+  const next = Math.max(0, old + delta);
+  if (next === old) return 0;
+  obj.writtenPages = next;
+  if (count) addActivity(next - old);
+  setCurrentLeaf(leaf.id);
+  const input = document.getElementById('win-' + leaf.id);
+  if (input && document.activeElement !== input) input.value = next;
+  if (leaf.ss) _refreshSsBar(leaf.ss);
+  _refreshChCard(leaf.ch);
+  saveDebounced();
+  updateDashboard();
+  if (count) checkDailyGoal();
+  return next - old;
+}
+
+/** Boutons − / + d'une partie du plan. */
+function stepPages(leafId, delta) {
+  if (!requireReady()) return;
+  const leaf = leafSections().find(l => l.id === leafId);
+  if (leaf) applyDelta(leaf, delta, !inSetup());
+}
+
+/** « +1 page » : un geste, sur la partie en cours. */
+function quickAdd(delta = 1) {
+  if (!requireReady()) return;
+  const leaf = currentLeaf();
+  if (!leaf) { toast('Créez d\'abord votre plan.', 'warn'); return; }
+  const d = applyDelta(leaf, delta, true);
+  if (!d) return;
+  const day = pagesOn(state.activity, todayKey());
+  const leafId = leaf.id;
+  toast(`${d > 0 ? '+' : '−'}${Math.abs(d)} page · ${trunc(leafTitle(leaf), 28)} (aujourd'hui : ${fmt1(day)} p.)`, 'success', {
+    key: 'quick',
+    action: d > 0 ? { label: 'Annuler', fn: () => {
+      const l = leafSections().find(x => x.id === leafId);
+      if (l && applyDelta(l, -d, true)) toast('Page retirée.', '', { key: 'quick' });
+    } } : null,
+  });
+}
+
 function updateWritten(chId, ssId, rawVal) {
   const found = _findSs(chId, ssId);
   if (!found) return;
   const old = found.ss.writtenPages || 0;
   found.ss.writtenPages = Math.max(0, parseInt(rawVal, 10) || 0);
-  addActivity(found.ss.writtenPages - old);
+  const count = !inSetup();
+  if (count) addActivity(found.ss.writtenPages - old);
+  setCurrentLeaf(ssId);
   _refreshSsBar(found.ss);
   _refreshChCard(found.ch);
   saveDebounced(); // debounced — user may still be typing
   updateDashboard();
-  checkDailyGoal();
+  if (count) checkDailyGoal();
 }
 
 function updateTarget(chId, ssId, rawVal) {
   const found = _findSs(chId, ssId);
   if (!found) return;
   found.ss.targetPages = Math.max(1, parseInt(rawVal, 10) || 1);
+  delete found.ss.autoT; // objectif choisi : il ne sera plus réparti automatiquement
   _refreshSsBar(found.ss);
   _refreshChCard(found.ch);
   saveDebounced();
@@ -1653,11 +1828,13 @@ function updateChWritten(chId, rawVal) {
   if (!ch || ch.subsections.length > 0) return;
   const old = ch.writtenPages || 0;
   ch.writtenPages = Math.max(0, parseInt(rawVal, 10) || 0);
-  addActivity(ch.writtenPages - old);
+  const count = !inSetup();
+  if (count) addActivity(ch.writtenPages - old);
+  setCurrentLeaf(chId);
   _refreshChCard(ch);
   saveDebounced();
   updateDashboard();
-  checkDailyGoal();
+  if (count) checkDailyGoal();
 }
 
 function updateChTarget(chId, rawVal) {
@@ -1675,52 +1852,81 @@ function _refreshSsBar(ss) {
   const bar  = document.getElementById('bar-' + ss.id);
   const pct  = document.getElementById('pct-' + ss.id);
   const ssEl = document.getElementById('ss-'  + ss.id);
-  if (bar)  { bar.style.width = prog + '%'; bar.className = 'prog-fill' + (isDone ? ' done' : ''); }
-  if (pct)  { pct.textContent = prog + '%'; pct.className = 'prog-pct'  + (isDone ? ' done' : ''); }
-  if (ssEl) { const dot = ssEl.querySelector('.ss-dot'); if (dot) dot.className = 'ss-dot' + (isDone ? ' done' : ''); }
+  if (bar)  { bar.style.width = prog + '%'; bar.classList.toggle('done', isDone); }
+  if (pct)  { pct.textContent = prog + '\u00A0%'; pct.classList.toggle('done', isDone); }
+  if (ssEl) ssEl.classList.toggle('completed', isDone);
 }
 
 function _refreshChCard(ch) {
-  const st = chapterStats(ch);
-  const { prog } = st;
+  const { tP, wP, prog } = chapterStats(ch);
   const isDone = prog >= 100;
   const card   = document.getElementById('ch-' + ch.id);
   if (!card) return;
   card.classList.toggle('completed', isDone);
   const fill = card.querySelector('.ch-progress-fill');
-  if (fill) { fill.style.width = prog + '%'; fill.className = 'ch-progress-fill' + (isDone ? ' done' : ''); }
-  const statsEl = card.querySelector('.ch-stats-main');
-  if (statsEl) statsEl.textContent = chStatsText(ch, st);
-  const chBar = document.getElementById('chbar-' + ch.id);
-  const chPct = document.getElementById('chpct-' + ch.id);
-  if (chBar) { chBar.style.width = prog + '%'; chBar.className = 'prog-fill' + (isDone ? ' done' : ''); }
-  if (chPct) { chPct.textContent = prog + '%'; chPct.className = 'prog-pct' + (isDone ? ' done' : ''); }
-  const sel = document.getElementById('st-' + ch.id);
-  if (sel) {
-    sel.options[0].textContent = statusAutoLabel(prog);
-    sel.value = ch.review || '';
-    sel.className = 'ch-status st-' + (ch.review || 'auto');
-  }
+  if (fill) { fill.style.width = prog + '%'; fill.classList.toggle('done', isDone); }
+  const txt = card.querySelector('.ch-pages-txt');
+  if (txt) txt.textContent = `${wP} / ${tP} p.`;
+  const pct = card.querySelector('.ch-pct');
+  if (pct) { pct.textContent = prog + '\u00A0%'; pct.classList.toggle('done', isDone); }
+  const slot = document.getElementById('bd-' + ch.id);
+  if (slot) slot.innerHTML = badgeHTML(ch);
 }
 
 /* ============================================================
    MODAL HELPERS
 ============================================================ */
-function openModal(id)  { document.getElementById(id).classList.remove('hidden'); }
-function closeModal(id) { document.getElementById(id).classList.add('hidden'); }
+const _modalReturn = {}; // l'élément qui avait le focus avant l'ouverture de chaque fenêtre
+
+/** Ouvre une fenêtre : le clavier (et les lecteurs d'écran) y entrent aussitôt. */
+function openModal(id) {
+  const m = document.getElementById(id);
+  if (m.classList.contains('hidden')) _modalReturn[id] = document.activeElement;
+  m.classList.remove('hidden');
+  const box = m.querySelector('.modal');
+  if (box) { box.setAttribute('tabindex', '-1'); box.focus({ preventScroll: true }); }
+}
+
+/** Ferme une fenêtre et rend le focus à l'endroit d'où l'on venait. */
+function closeModal(id) {
+  const m = document.getElementById(id);
+  if (!m || m.classList.contains('hidden')) return;
+  m.classList.add('hidden');
+  // Fermée d'un clic à côté ou avec Échap, l'annonce de mise à jour est lue quand même
+  if (id === 'whatsNewModal') lsSet(WHATSNEW_KEY, WHATSNEW_VER);
+  const back = _modalReturn[id];
+  delete _modalReturn[id];
+  if (back && back !== document.body && document.contains(back) && typeof back.focus === 'function') back.focus({ preventScroll: true });
+}
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
 
 document.addEventListener('click', e => {
   if (!e.target.classList.contains('modal-overlay')) return;
   closeModal(e.target.id);
 });
 document.addEventListener('keydown', e => {
+  if (e.key === 'Tab') {
+    // Tab reste dans la fenêtre ouverte, au lieu de se promener dans la page derrière
+    const open = [...document.querySelectorAll('.modal-overlay:not(.hidden)')].pop();
+    if (!open) return;
+    const items = [...open.querySelectorAll(FOCUSABLE)].filter(el => el.offsetParent !== null);
+    if (!items.length) { e.preventDefault(); return; }
+    const first = items[0];
+    const last = items[items.length - 1];
+    const inside = open.contains(document.activeElement);
+    if (e.shiftKey && (!inside || document.activeElement === first || document.activeElement === open.querySelector('.modal'))) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (!inside || document.activeElement === last)) { e.preventDefault(); first.focus(); }
+    return;
+  }
   if (e.key !== 'Escape') return;
   document.querySelectorAll('.modal-overlay:not(.hidden)').forEach(m => closeModal(m.id));
   if (document.getElementById('mobileMenu').classList.contains('open')) toggleMobileMenu();
 });
 
 /* ============================================================
-   MON PROJET — dates, rythme, objectif (+ accueil des nouveaux)
+   MON PROJET — l'essentiel (nom, dépôt, objectif total),
+   le reste dans « Réglages avancés ».
 ============================================================ */
 function renderDayChips(containerId, selected) {
   const el = document.getElementById(containerId);
@@ -1735,35 +1941,37 @@ function readDayChips(containerId) {
   return [...document.querySelectorAll(`#${containerId} .day-chip.on`)].map(b => Number(b.dataset.day));
 }
 
-function openProjectModal(mode) {
+function openProjectModal() {
   if (!requireReady()) return;
-  const welcome = mode === 'welcome';
-  document.getElementById('projectModal').classList.toggle('welcome', welcome);
-  setText('pmEmoji', welcome ? '👋' : '⚙️');
-  setText('pmTitle', welcome ? 'Bienvenue dans votre journal' : 'Mon projet');
-  setText('pmSub', welcome
-    ? 'Deux dates et c\'est parti. Tout reste modifiable plus tard dans ⚙️ Mon projet.'
-    : 'Ces réglages servent à calculer votre rythme, votre objectif du jour et votre rétroplanning.');
-  setText('pmCancel', welcome ? 'Plus tard' : 'Annuler');
-  setText('pmSave', welcome ? 'C\'est parti 🚀' : 'Enregistrer');
   document.getElementById('pmName').value = state.documentTitle || '';
-  document.getElementById('pmStart').value = state.startDate || todayKey();
   document.getElementById('pmDeadline').value = state.deadline || '';
+  const total = totalPages();
+  document.getElementById('pmTotalRow').classList.toggle('hidden', leafSections().length === 0);
+  document.getElementById('pmTotal').value = total || '';
+  document.getElementById('pmStart').value = state.startDate || '';
   document.getElementById('pmMargin').value = String(state.marginDays);
   if (!document.getElementById('pmMargin').value) document.getElementById('pmMargin').value = '21';
   document.getElementById('pmGoal').value = state.dailyGoal || '';
   document.getElementById('pmIntroLast').checked = state.introLast !== false;
+  document.getElementById('pmAdv').open = false;
   renderDayChips('pmDays', state.writingDays);
-  updateGoalHint();
+  const fc = _lastForecast;
+  setText('pmGoalHint', fc && fc.goalIsAuto && state.deadline
+    ? `Vide = automatique (actuellement ${fmt1(fc.dailyGoal)} p. par jour d'écriture).`
+    : 'Vide = automatique, calculé d\'après votre date de dépôt.');
   openModal('projectModal');
 }
 
-function updateGoalHint() {
-  const fc = _lastForecast;
-  const auto = fc && fc.goalIsAuto ? fc.dailyGoal : null;
-  setText('pmGoalHint', auto
-    ? `Vide = automatique (actuellement ${fmt1(auto)} p. par jour d'écriture).`
-    : 'Vide = automatique, calculé d\'après votre date de dépôt.');
+/** Change l'objectif total en gardant les proportions entre les parties. */
+function rescaleTargets(total) {
+  const leaves = leafSections();
+  if (!leaves.length || !(total > 0)) return;
+  const weights = leaves.map(l => (l.ss ? l.ss.targetPages : l.ch.targetPages) || 0);
+  const even = weights.every(w => w === 0);
+  distribute(total, even ? leaves.map(() => 1) : weights).forEach((v, i) => {
+    const obj = leaves[i].ss || leaves[i].ch;
+    obj.targetPages = Math.max(1, v);
+  });
 }
 
 function saveProject() {
@@ -1772,6 +1980,7 @@ function saveProject() {
   const deadline = document.getElementById('pmDeadline').value;
   const margin   = parseInt(document.getElementById('pmMargin').value, 10);
   const goalRaw  = document.getElementById('pmGoal').value.trim();
+  const totalRaw = document.getElementById('pmTotal').value.trim();
   const days     = readDayChips('pmDays');
   if (start && !isDayKey(start)) { toast('Date de début invalide', 'warn'); return; }
   if (deadline && !isDayKey(deadline)) { toast('Date de dépôt invalide', 'warn'); return; }
@@ -1779,7 +1988,8 @@ function saveProject() {
   if (!days.length) { toast('Choisissez au moins un jour d\'écriture', 'warn'); return; }
   const goal = goalRaw ? Number(goalRaw.replace(',', '.')) : null;
   if (goalRaw && !(goal > 0)) { toast('Objectif quotidien invalide', 'warn'); return; }
-  const welcome = document.getElementById('projectModal').classList.contains('welcome');
+  const total = totalRaw ? parseInt(totalRaw, 10) : 0;
+  if (totalRaw && !(total > 0)) { toast('Objectif total invalide', 'warn'); return; }
   state.documentTitle = name.slice(0, 200);
   state.startDate  = start || null;
   state.deadline   = deadline || null;
@@ -1787,38 +1997,37 @@ function saveProject() {
   state.dailyGoal  = goal ? Math.min(50, goal) : null;
   state.writingDays = days;
   state.introLast  = document.getElementById('pmIntroLast').checked;
+  if (total > 0 && total !== totalPages()) rescaleTargets(total);
+  const dl = document.getElementById('dbDeadline');
+  if (dl) dl.dataset.mode = ''; // la ligne « dépôt » du tableau de bord sera redessinée
   saveNow();
   closeModal('projectModal');
   syncTitleInput();
   render();
-  if (welcome) toast('🚀 C\'est parti ! Construisez votre plan ci-dessous.', 'success');
-  else toast('✅ Projet mis à jour', 'success');
-  if (deadline && deadline < todayKey()) toast('⚠️ Cette date de dépôt est déjà passée.', 'warn');
+  toast('Projet mis à jour.', 'success');
+  if (deadline && deadline < todayKey()) toast('Cette date de dépôt est déjà passée.', 'warn');
 }
 
 /* ============================================================
-   « J'AI ÉCRIT » — saisie express d'une séance
+   « J'AI ÉCRIT » — la version détaillée de « +1 page » :
+   autre partie, autre quantité, hier, ou une note pour le journal.
 ============================================================ */
-let _logDay  = 0;   // 0 = aujourd'hui, -1 = hier
-let _logMood = 0;
+let _logDay = 0; // 0 = aujourd'hui, -1 = hier
 
 function openLogModal() {
   if (!requireReady()) return;
   const leaves = leafSections();
-  const sel = document.getElementById('logSection');
-  const noPlan = document.getElementById('logNoPlan');
-  noPlan.classList.toggle('hidden', leaves.length > 0);
+  document.getElementById('logNoPlan').classList.toggle('hidden', leaves.length > 0);
   document.getElementById('logForm').classList.toggle('hidden', leaves.length === 0);
   if (leaves.length) {
-    const last = lsGet('jdb_lastSection_' + (currentUser && currentUser.uid));
-    const firstOpen = leaves.find(l => (l.ss ? ssProgress(l.ss) : chapterStats(l.ch).prog) < 100) || leaves[0];
-    const chosen = leaves.some(l => l.id === last) ? last : firstOpen.id;
-    sel.innerHTML = leaves.map(l => `<option value="${l.id}"${l.id === chosen ? ' selected' : ''}>${esc(trunc(l.label, 70))}</option>`).join('');
+    const chosen = currentLeaf().id;
+    document.getElementById('logSection').innerHTML = leaves
+      .map(l => `<option value="${l.id}"${l.id === chosen ? ' selected' : ''}>${esc(trunc(l.label, 70))}</option>`).join('');
   }
   document.getElementById('logPages').value = 1;
   document.getElementById('logNote').value = '';
+  document.getElementById('logShare').checked = false;
   setLogDay(0);
-  setLogMood(0);
   openModal('logModal');
 }
 
@@ -1827,26 +2036,23 @@ function setLogDay(offset) {
   document.querySelectorAll('#logDaySeg .seg-btn').forEach(b => b.classList.toggle('active', Number(b.dataset.day) === offset));
 }
 
-function setLogMood(m) {
-  _logMood = _logMood === m ? 0 : m;
-  document.querySelectorAll('#logMood .mood-btn').forEach(b => {
-    const on = Number(b.dataset.mood) === _logMood;
-    b.classList.toggle('on', on);
-    b.setAttribute('aria-pressed', on);
-  });
-}
-
 function stepLog(d) {
   const el = document.getElementById('logPages');
   el.value = Math.max(0, (parseInt(el.value, 10) || 0) + d);
 }
 
+function nowHHMM() {
+  const now = new Date();
+  return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+}
+
 function saveLog() {
   const pages = Math.max(0, parseInt(document.getElementById('logPages').value, 10) || 0);
-  const note  = document.getElementById('logNote').value.trim().slice(0, 500);
+  const note  = document.getElementById('logNote').value.trim().slice(0, 240);
+  const shareIt = document.getElementById('logShare').checked && promo.isMember();
   const leafId = document.getElementById('logSection').value;
   const leaf  = leafSections().find(l => l.id === leafId);
-  if (!pages && !note && !_logMood) { toast('Indiquez des pages ou une petite note', 'warn'); return; }
+  if (!pages && !note) { toast('Indiquez des pages ou une petite note', 'warn'); return; }
   if (pages && !leaf) { toast('Choisissez une partie', 'warn'); return; }
   const day = _logDay === -1 ? addDays(todayKey(), -1) : todayKey();
   if (pages) {
@@ -1854,21 +2060,17 @@ function saveLog() {
     else leaf.ch.writtenPages = (leaf.ch.writtenPages || 0) + pages;
     addActivity(pages, day);
   }
-  const now = new Date();
-  const entry = {
-    p: pages, s: leaf ? leaf.id : null, n: note, m: _logMood,
-    t: `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`,
-  };
-  state.journal[day] = [...(state.journal[day] || []), entry];
-  if (leaf) lsSet('jdb_lastSection_' + currentUser.uid, leaf.id);
+  state.journal[day] = [...(state.journal[day] || []), { p: pages, s: leaf ? leaf.id : null, n: note, m: 0, t: nowHHMM() }];
+  if (leaf) lsSet(curKey(), leaf.id);
   if (!state.trackedSince || day < state.trackedSince) state.trackedSince = day;
   saveNow();
   closeModal('logModal');
   render();
+  if (shareIt && note) promo.addNote(note, pages);
   const s = streak(state, todayKey());
   toast(pages
-    ? `✍️ +${pages} page${pages > 1 ? 's' : ''} notée${pages > 1 ? 's' : ''}${s.count > 1 ? ` · série de ${s.count} jours 🔥` : ''}`
-    : '📔 Note ajoutée au journal', 'success');
+    ? `+${pages} page${pages > 1 ? 's' : ''} notée${pages > 1 ? 's' : ''}${s.count > 1 ? ` · série de ${s.count} jours` : ''}`
+    : (shareIt ? 'Note ajoutée au journal et partagée avec la promo.' : 'Note ajoutée au journal.'), 'success');
   checkDailyGoal();
 }
 
@@ -1908,7 +2110,7 @@ function updateCalendarLinks() {
   const until = fc.writingEnd && fc.writingEnd > today ? fc.writingEnd : addDays(today, 365);
   const title = state.documentTitle || 'ma thèse';
   g.href = googleCalendarUrl({
-    title: `✍️ Écriture : ${title}`,
+    title: `Écriture : ${title}`,
     details: `Séance d'écriture. Après la séance, notez vos pages en un clic : ${APP_URL}?action=log`,
     start: nthWritingDay(today, 1, days), time, minutes,
     rrule: `FREQ=WEEKLY;BYDAY=${byDay(days)};UNTIL=${until.replace(/-/g, '')}T235959Z`,
@@ -1916,7 +2118,7 @@ function updateCalendarLinks() {
   const gd = document.getElementById('calGoogleDeadline');
   if (state.deadline) {
     gd.classList.remove('hidden');
-    gd.href = googleCalendarUrl({ title: `📕 Dépôt : ${title}`, date: state.deadline, details: `Date de dépôt suivie dans Le Journal de Bord : ${APP_URL}` });
+    gd.href = googleCalendarUrl({ title: `Dépôt : ${title}`, date: state.deadline, details: `Date de dépôt suivie dans Le Journal de Bord : ${APP_URL}` });
   } else gd.classList.add('hidden');
 }
 
@@ -1935,23 +2137,23 @@ function downloadICS() {
   const until = fc.writingEnd && fc.writingEnd > today ? fc.writingEnd : addDays(today, 365);
   const events = [{
     uid: 'jdb-sessions@lejournaldebord.org',
-    title: `✍️ Écriture : ${title}`,
+    title: `Écriture : ${title}`,
     start: nthWritingDay(today, 1, days), time, minutes,
     rrule: `FREQ=WEEKLY;BYDAY=${byDay(days)};UNTIL=${until.replace(/-/g, '')}T235959`,
     description: `Séance d'écriture. Après la séance, notez vos pages en un clic : ${link}`,
     url: link,
-    alarms: [{ trigger: '-PT10M', text: 'Séance d\'écriture dans 10 minutes ✍️' }],
+    alarms: [{ trigger: '-PT10M', text: 'Séance d\'écriture dans 10 minutes' }],
   }];
   if (document.getElementById('calIncDeadline').checked && state.deadline) {
     events.push({
-      uid: 'jdb-deadline@lejournaldebord.org', title: `📕 Dépôt : ${title}`, date: state.deadline,
+      uid: 'jdb-deadline@lejournaldebord.org', title: `Dépôt : ${title}`, date: state.deadline,
       description: `Date de dépôt suivie dans Le Journal de Bord : ${APP_URL}`,
       alarms: [{ trigger: '-P6DT15H', text: 'Dépôt dans une semaine' }, { trigger: '-PT15H', text: 'Dépôt demain !' }],
     });
   }
   if (document.getElementById('calIncEnd').checked && fc.writingEnd) {
     events.push({
-      uid: 'jdb-writing-end@lejournaldebord.org', title: '✍️ Fin de rédaction visée', date: fc.writingEnd,
+      uid: 'jdb-writing-end@lejournaldebord.org', title: 'Fin de rédaction visée', date: fc.writingEnd,
       description: 'Objectif : manuscrit complet, place à la relecture et à la mise en forme.',
       alarms: [{ trigger: '-PT15H' }],
     });
@@ -1961,7 +2163,7 @@ function downloadICS() {
     for (const c of state.chapters) {
       if (!sch[c.id]) continue;
       events.push({
-        uid: `jdb-ch-${c.id}@lejournaldebord.org`, title: `🎯 Fin visée : ${c.title}`, date: sch[c.id],
+        uid: `jdb-ch-${c.id}@lejournaldebord.org`, title: `Fin visée : ${c.title}`, date: sch[c.id],
         description: `Échéance proposée par votre rétroplanning. Suivi : ${APP_URL}`,
         alarms: [{ trigger: '-PT15H' }],
       });
@@ -1969,24 +2171,75 @@ function downloadICS() {
   }
   const ics = buildICS('Le Journal de Bord', events);
   downloadBlob(new Blob([ics], { type: 'text/calendar;charset=utf-8' }), 'journal-de-bord.ics');
-  toast('📅 Fichier agenda téléchargé : ouvrez-le pour l\'ajouter.', 'success');
+  toast('Fichier agenda téléchargé : ouvrez-le pour l\'ajouter.', 'success');
 }
 
 /* ============================================================
-   IMPORT WORD (.docx) — synchronisation automatique du plan
+   SYNCHRO WORD (.docx) — le tracker qui se remplit tout seul
+   • 1re fois : un aperçu pour valider les correspondances.
+   • Ensuite : un seul geste (fichier déposé n'importe où dans la
+     page, ou bouton), sans aperçu tant que rien de nouveau
+     n'apparaît dans le document. Toujours annulable.
+   • Chrome / Edge sur ordinateur : le fichier reste « lié » à
+     l'appareil et le suivi se met à jour au retour sur l'onglet.
+   • Un fichier peut contenir tout le manuscrit ou un seul chapitre.
+   Le fichier est lu sur l'appareil : rien n'est envoyé.
 ============================================================ */
-let _dx = null;
+let _dx = null;             // modèle affiché dans l'aperçu
+let _linked = [];           // fichiers liés sur cet appareil : [{ key, name, handle }]
+let _pendingReview = null;  // synchro automatique qui demande une vérification
+let _syncing = false;
+let _lastAutoSync = 0;
+const _autoSkip = new Map(); // synchros annulées : ne pas les rejouer automatiquement
+
 // Parties ignorées par défaut (titres normalisés : minuscules, sans accents)
 const DOCX_IGNORE = /^(bibliograph|references|sources\b|annexe|appendi|table des|sommaire|index\b|remerciement|acknowledg|resume\b|abstract|glossaire|liste des|sigles|abreviation|dedicace|avant propos|preface|notes\b)/;
+const REVISION_NOTE = 'Relecture et corrections (synchro Word)';
+
+const canLink = () => typeof window.showOpenFilePicker === 'function' && 'indexedDB' in window;
+const hasDocFiles = () => Object.keys(state.docFiles).length > 0;
+
+/* ---------- Points d'entrée ---------- */
+
+function updateWordButton() {
+  const b = document.getElementById('wordBtn');
+  if (b) b.textContent = hasDocFiles() || _linked.length ? 'Synchroniser Word' : 'Importer Word';
+}
+
+/** Bouton « Word » du plan : le chemin le plus court selon la situation. */
+function wordAction() {
+  if (!requireReady()) return;
+  if (_linked.length) syncLinked({ manual: true });
+  else if (hasDocFiles()) pickWordFile();
+  else openDocxModal();
+}
 
 function openDocxModal() {
   if (!requireReady()) return;
   _dx = null;
   showDocxStep(1);
   setDocxError('');
-  const last = state.lastDocImport;
-  setText('docxLast', last && last.at ? `Dernière synchro : ${relDay(last.at).toLowerCase()} (${last.name})` : '');
+  renderLinkedList();
   openModal('docxModal');
+}
+
+/** Choix du fichier. Avec Chrome / Edge, on garde une référence pour le relire plus tard. */
+async function pickWordFile() {
+  if (!requireReady()) return;
+  if (canLink()) {
+    try {
+      const [handle] = await window.showOpenFilePicker({
+        types: [{ description: 'Document Word', accept: { 'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'] } }],
+        multiple: false,
+      });
+      handleDocxFile(await handle.getFile(), handle);
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return; // fenêtre fermée par l'utilisateur
+      console.warn('Sélecteur de fichiers :', e);
+    }
+  }
+  document.getElementById('docxInput').click();
 }
 
 function showDocxStep(n) {
@@ -2005,35 +2258,58 @@ function setDocxError(msg) {
   el.classList.toggle('hidden', !msg);
 }
 
-async function handleDocxFile(file) {
-  if (!file) return;
+function showDocxFailure(msg) {
+  showDocxStep(1);
+  renderLinkedList();
+  setDocxError(msg);
+  openModal('docxModal');
+}
+
+async function handleDocxFile(file, handle = null) {
+  if (!file || !requireReady()) return;
   const input = document.getElementById('docxInput');
   if (input) input.value = '';
   setDocxError('');
   setDocxBusy(true);
+  const busy = toast(`Lecture de ${trunc(file.name, 40)}…`, '', { key: 'docx', duration: 30000 });
   try {
+    if (/\.pdf$/i.test(file.name)) throw Object.assign(new Error('pdf'), { code: 'pdf' });
     const res = await parseDocxFile(file);
-    if (!res.chapters.length) {
-      setDocxError(`Aucun titre détecté dans « ${file.name} » (${fmtInt(res.totalWords)} mots). `
+    const m = buildDocxModel(res, file, handle);
+    if (!m.rows.length && m.planEmpty) {
+      showDocxFailure(`Aucun titre détecté dans « ${file.name} » (${fmtInt(res.totalWords)} mots). `
         + 'Appliquez le style « Titre 1 » à vos chapitres et « Titre 2 » à vos sous-parties, puis réessayez.');
       return;
     }
-    _dx = buildDocxModel(res, file.name);
-    renderDocxPreview();
-    showDocxStep(2);
+    if (!m.clean) openDocxPreview(m);
+    else if (applyDocx(m, true) === 'same') {
+      toast('Déjà à jour : rien de nouveau dans ce fichier.', 'success', { key: 'docx' });
+    }
   } catch (e) {
     const msgs = {
+      'pdf': 'Ce fichier est un PDF. Déposez plutôt votre fichier Word (.docx).',
       'old-doc': 'Ce fichier est au format .doc (ancien Word). Ouvrez-le dans Word, enregistrez-le en .docx, puis réessayez.',
       'not-docx': 'Ce fichier n\'est pas un document Word .docx. Depuis Google Docs : Fichier > Télécharger > Microsoft Word (.docx).',
       'zip-lib': 'Impossible de charger le lecteur de fichiers : vérifiez votre connexion internet.',
       'bad-xml': 'Le document semble endommagé : ouvrez-le et réenregistrez-le dans Word.',
     };
     console.error('docx:', e);
-    setDocxError(msgs[e.code] || 'Lecture impossible de ce fichier.');
+    showDocxFailure(msgs[e && e.code] || 'Lecture impossible de ce fichier.');
   } finally {
     setDocxBusy(false);
+    busy.remove();
   }
 }
+
+function openDocxPreview(m) {
+  _dx = m;
+  setDocxError('');
+  renderDocxPreview();
+  showDocxStep(2);
+  openModal('docxModal');
+}
+
+/* ---------- Modèle : rapprocher le document et le plan ---------- */
 
 function bestMatchId(title, items, used) {
   const key = normalizeTitle(title);
@@ -2051,32 +2327,97 @@ function docxMatchChildren(r) {
   const ch = findCh(r.map);
   const used = new Set();
   for (const c of r.children) {
-    c.map = ch && ch.subsections.length ? bestMatchId(c.title, ch.subsections, used) : '';
+    c.map = ch && ch.subsections.length && c.include ? bestMatchId(c.title, ch.subsections, used) : '';
     if (c.map) used.add(c.map);
   }
 }
 
-function buildDocxModel(res, name) {
-  const rows = res.chapters.map(c => ({
-    title: c.title, ownWords: c.ownWords, words: c.words,
-    include: !DOCX_IGNORE.test(normalizeTitle(c.title)),
-    map: '', target: 0, touched: false,
-    children: c.children.map(x => ({ title: x.title, words: x.words, include: true, map: '', target: 0, touched: false })),
-  }));
-  const m = { name, res, rows, wpp: res.wpp, planEmpty: state.chapters.length === 0, totalTarget: 0 };
-  const used = new Set();
-  for (const r of rows) {
-    r.map = bestMatchId(r.title, state.chapters, used);
-    if (r.map) used.add(r.map);
-    docxMatchChildren(r);
+/** Devine si un fichier inconnu est tout le manuscrit ou un seul chapitre du plan. */
+function detectScope(res, fileName) {
+  if (!state.chapters.length) return '';
+  const tops = res.chapters.filter(c => !DOCX_IGNORE.test(normalizeTitle(c.title)));
+  if (tops.some(c => state.chapters.some(ch => titleScore(c.title, ch.title) >= 0.55))) return '';
+  const base = String(fileName).replace(/\.docx$/i, '');
+  let best = '';
+  let bestScore = 0;
+  for (const ch of state.chapters) {
+    let score = titleScore(base, ch.title) >= 0.55 ? 1.5 : 0;
+    score += tops.filter(c => ch.subsections.some(s => titleScore(c.title, s.title) >= 0.55)).length;
+    if (score > bestScore) { bestScore = score; best = ch.id; }
   }
-  if (m.planEmpty) {
-    const pages = rows.filter(r => r.include).reduce((s, r) => s + r.words, 0) / m.wpp;
+  return bestScore >= 1 ? best : '';
+}
+
+/* Choix « inclure / ignorer » mémorisés par fichier et par partie.
+   Clé simple = ignorée par l'utilisateur ; clé précédée de « + » = incluse
+   alors qu'elle serait ignorée par défaut (bibliographie, annexes…). */
+const ignoreKey = (m, r, c) => `${m.key}|${c ? (r.locked ? '#' + r.map : normalizeTitle(r.title)) : ''}|${normalizeTitle((c || r).title)}`;
+
+function defaultInclude(m, r, c) {
+  const k = ignoreKey(m, r, c);
+  if (state.docIgnore.includes('+' + k)) return true;
+  if (state.docIgnore.includes(k)) return false;
+  const firstLevel = !c || !!m.scope; // premier niveau de titres du fichier
+  return !(firstLevel && DOCX_IGNORE.test(normalizeTitle((c || r).title)));
+}
+
+function buildDocxModel(res, file, handle) {
+  const key = fileKeyOf(file.name);
+  const known = state.docFiles[key] || null;
+  const m = {
+    key, name: file.name, res, handle: handle || null, known,
+    mtime: Number.isFinite(file.lastModified) ? file.lastModified : null,
+    size: Number.isFinite(file.size) ? file.size : null,
+    wpp: (known && known.wpp) || res.wpp,
+    planEmpty: state.chapters.length === 0,
+    scope: '', rows: [], totalTarget: 0, count: false, clean: false,
+  };
+  if (known) m.scope = findCh(known.scope) ? known.scope : '';
+  else m.scope = detectScope(res, file.name);
+  buildDocxRows(m);
+  m.count = !!(known && Number.isFinite(known.inclWords));
+  return m;
+}
+
+function buildDocxRows(m) {
+  const res = m.res;
+  const scopeCh = m.scope ? findCh(m.scope) : null;
+  const node = (title, words) => ({ title, words, include: true, map: '', target: 0, touched: false });
+  if (scopeCh) {
+    // Le fichier est un chapitre : ses titres de premier niveau sont les sous-sections du chapitre
+    const r = { ...node(scopeCh.title, res.totalWords), ownWords: res.frontWords, locked: true, map: scopeCh.id, children: [] };
+    r.children = res.chapters.map(c => {
+      const n = node(c.title, c.words);
+      n.include = defaultInclude(m, r, n);
+      return n;
+    });
+    m.rows = [r];
+  } else {
+    m.scope = '';
+    m.rows = res.chapters.map(c => {
+      const r = { ...node(c.title, c.words), ownWords: c.ownWords, children: [] };
+      r.include = defaultInclude(m, r);
+      r.children = c.children.map(x => {
+        const n = node(x.title, x.words);
+        n.include = defaultInclude(m, r, n);
+        return n;
+      });
+      return r;
+    });
+    const used = new Set();
+    for (const r of m.rows) {
+      if (!r.include) continue;
+      r.map = bestMatchId(r.title, state.chapters, used);
+      if (r.map) used.add(r.map);
+    }
+  }
+  for (const r of m.rows) docxMatchChildren(r);
+  if (m.planEmpty && !m.totalTarget) {
+    const pages = m.rows.filter(r => r.include).reduce((s, r) => s + r.words, 0) / m.wpp;
     m.totalTarget = Math.max(50, Math.ceil((pages * 1.5) / 10) * 10);
   }
   computeDocxTargets(m);
-  m.count = !!state.lastDocImport;
-  return m;
+  evaluateDocx(m);
 }
 
 /** Mots attribués à une sous-partie : le texte d'ouverture du chapitre va à la première. */
@@ -2086,6 +2427,38 @@ function docxKidWords(r, c) {
 }
 function docxChapterWords(r) {
   return r.ownWords + r.children.filter(x => x.include).reduce((s, x) => s + x.words, 0);
+}
+
+/**
+ * Bilan du rapprochement. « clean » = fichier déjà connu, rien de nouveau, rien de disparu :
+ * la synchro peut alors s'appliquer sans aperçu.
+ */
+function evaluateDocx(m) {
+  let news = 0;
+  const matched = new Set();
+  for (const r of m.rows) {
+    if (!r.include) continue;
+    const ch = findCh(r.map);
+    if (!ch) { news++; continue; }
+    matched.add(ch.id);
+    if (!ch.subsections.length) continue;
+    for (const c of r.children) {
+      if (!c.include) continue;
+      if (c.map) matched.add(c.map);
+      else news++;
+    }
+  }
+  const missing = [];
+  for (const ch of state.chapters) {
+    if (ch.docFile === m.key && ch.docKey && !matched.has(ch.id)) missing.push(ch.title);
+    for (const ss of ch.subsections) {
+      if (ss.docFile === m.key && ss.docKey && !matched.has(ss.id)) missing.push(ss.title);
+    }
+  }
+  m.news = news;
+  m.missing = missing;
+  m.inclWords = m.rows.filter(r => r.include).reduce((s, r) => s + docxChapterWords(r), 0);
+  m.clean = !!m.known && news === 0 && missing.length === 0 && m.rows.some(r => r.include);
 }
 
 function computeDocxTargets(m) {
@@ -2104,9 +2477,8 @@ function computeDocxTargets(m) {
     leaves.forEach((l, i) => { if (!l.node.touched) l.node.target = Math.max(1, shares[i], pg(l.words)); });
     return;
   }
-  const avg = list => { const v = list.filter(x => x > 0); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) : 0; };
-  const chAvg = avg(state.chapters.map(c => chapterStats(c).tP)) || 20;
-  const ssAvg = avg(state.chapters.flatMap(c => c.subsections.map(s => s.targetPages))) || Math.max(5, Math.round(chAvg / 4));
+  const chAvg = avgTarget(state.chapters.map(c => chapterStats(c).tP), 20);
+  const ssAvg = avgTarget(state.chapters.flatMap(c => c.subsections.map(s => s.targetPages)), Math.max(5, Math.round(chAvg / 4)));
   for (const r of m.rows) {
     const kids = r.children.filter(c => c.include);
     if (!r.map) {
@@ -2118,19 +2490,20 @@ function computeDocxTargets(m) {
   }
 }
 
-/** Applique le modèle d'import à une liste de chapitres (copie pour l'aperçu, ou le vrai plan). */
+/** Applique le modèle à une liste de chapitres (une copie pour simuler, ou le vrai plan). */
 function applyDocxModel(m, chapters) {
   const pg = w => Math.round(w / m.wpp);
+  const ref = t => ({ docKey: normalizeTitle(t), docFile: m.key });
   for (const r of m.rows) {
     if (!r.include) continue;
     const kids = r.children.filter(c => c.include);
     let ch = r.map ? chapters.find(c => c.id === r.map) : null;
     if (!ch) {
-      ch = { id: uid(), title: r.title.slice(0, 300), expanded: false, targetPages: 0, writtenPages: 0, subsections: [], docKey: normalizeTitle(r.title) };
+      ch = { id: uid(), title: r.title.slice(0, 300), expanded: true, targetPages: 0, writtenPages: 0, subsections: [], ...ref(r.title) };
       if (kids.length) {
         ch.subsections = kids.map(c => ({
           id: uid(), title: c.title.slice(0, 300), targetPages: Math.max(1, c.target || 1),
-          writtenPages: pg(docxKidWords(r, c)), docKey: normalizeTitle(c.title),
+          writtenPages: pg(docxKidWords(r, c)), ...ref(c.title),
         }));
       } else {
         ch.targetPages = Math.max(1, r.target || 1);
@@ -2139,7 +2512,7 @@ function applyDocxModel(m, chapters) {
       chapters.push(ch);
       continue;
     }
-    ch.docKey = normalizeTitle(r.title);
+    Object.assign(ch, ref(r.title));
     if (!ch.subsections.length) {
       ch.writtenPages = pg(docxChapterWords(r));
     } else if (!kids.length) {
@@ -2148,11 +2521,11 @@ function applyDocxModel(m, chapters) {
     } else {
       for (const c of kids) {
         const ss = c.map ? ch.subsections.find(s => s.id === c.map) : null;
-        if (ss) { ss.writtenPages = pg(docxKidWords(r, c)); ss.docKey = normalizeTitle(c.title); }
+        if (ss) { ss.writtenPages = pg(docxKidWords(r, c)); Object.assign(ss, ref(c.title)); }
         else {
           ch.subsections.push({
             id: uid(), title: c.title.slice(0, 300), targetPages: Math.max(1, c.target || 1),
-            writtenPages: pg(docxKidWords(r, c)), docKey: normalizeTitle(c.title),
+            writtenPages: pg(docxKidWords(r, c)), ...ref(c.title),
           });
         }
       }
@@ -2161,14 +2534,88 @@ function applyDocxModel(m, chapters) {
   return chapters;
 }
 
-function docxDelta(m) {
+/** Variation du total de pages rédigées si l'on appliquait le modèle. */
+function docxPageDelta(m) {
   const copy = JSON.parse(JSON.stringify(state.chapters));
-  const before = writtenPages();
-  const after = applyDocxModel(m, copy).reduce((s, ch) => s + (ch.subsections.length
+  const sum = list => list.reduce((s, ch) => s + (ch.subsections.length
     ? ch.subsections.reduce((a, x) => a + (x.writtenPages || 0), 0)
     : (ch.writtenPages || 0)), 0);
-  return after - before;
+  return sum(applyDocxModel(m, copy)) - writtenPages();
 }
+
+/** Pages à porter au journal du jour : au mot près quand le fichier est déjà connu. */
+function docxActivityDelta(m) {
+  if (m.known && Number.isFinite(m.known.inclWords)) {
+    return Math.round(((m.inclWords - m.known.inclWords) / m.wpp) * 100) / 100;
+  }
+  return docxPageDelta(m);
+}
+
+/** Un jour où l'on a retravaillé son texte sans l'allonger reste un jour de travail. */
+function markRevisionDay(day = todayKey()) {
+  const arr = state.journal[day] || [];
+  if (arr.some(e => e.n === REVISION_NOTE)) return;
+  state.journal[day] = [...arr, { p: 0, s: null, n: REVISION_NOTE, m: 0, t: nowHHMM() }];
+  if (!state.trackedSince || day < state.trackedSince) state.trackedSince = day;
+}
+
+/** Applique une synchro. quick = sans aperçu (fichier connu, rien de nouveau). */
+function applyDocx(m, quick) {
+  if (!m.rows.some(r => r.include)) { toast('Sélectionnez au moins une partie', 'warn'); return false; }
+  const snap = snapshotState();
+  const pageDelta = docxPageDelta(m);
+  const act = m.count ? docxActivityDelta(m) : 0;
+  const wordsChanged = !m.known || m.known.inclWords !== m.inclWords;
+  const same = quick && pageDelta === 0 && act === 0;
+
+  applyDocxModel(m, state.chapters);
+  if (act) addActivity(act);
+  if (m.count && wordsChanged && pagesOn(state.activity, todayKey()) <= 0) markRevisionDay();
+
+  // On retient ce que l'utilisateur a décoché, pour ne plus le lui reproposer
+  const ig = new Set(state.docIgnore);
+  const remember = (r, c) => {
+    const n = c || r;
+    const k = ignoreKey(m, r, c);
+    const byDefault = (!c || !!m.scope) && DOCX_IGNORE.test(normalizeTitle(n.title));
+    ig.delete(k);
+    ig.delete('+' + k);
+    if (!n.include && !byDefault) ig.add(k);
+    if (n.include && byDefault) ig.add('+' + k);
+  };
+  for (const r of m.rows) {
+    if (!r.locked) remember(r);
+    if (r.include) r.children.forEach(c => remember(r, c));
+  }
+  state.docIgnore = [...ig].slice(-300);
+  state.docFiles[m.key] = { name: m.name.slice(0, 200), at: todayKey(), inclWords: m.inclWords, wpp: m.wpp, scope: m.scope || '', mtime: m.mtime, size: m.size };
+  if (!state.trackedSince) state.trackedSince = todayKey();
+  _dx = null;
+  if (_pendingReview && _pendingReview.key === m.key) _pendingReview = null;
+  const newlyLinked = !!m.handle && canLink() && !_linked.some(l => l.key === m.key);
+  if (m.handle) linkFile(m.key, m.name, m.handle);
+  saveNow();
+  closeModal('docxModal');
+  render();
+  if (same) return 'same'; // fichier réenregistré sans changement
+
+  const detail = act ? `${act > 0 ? '+' : ''}${fmt1(act)} p. aujourd'hui`
+    : pageDelta ? `${pageDelta > 0 ? '+' : ''}${pageDelta} p.` : 'tout est à jour';
+  toast(`${trunc(m.name, 28)} synchronisé : ${detail}`, 'success', {
+    key: 'docx', undo: true,
+    action: { label: 'Annuler', fn: () => {
+      if (m.mtime) _autoSkip.set(m.key, m.mtime);
+      restoreSnapshot(snap, 'Synchronisation annulée');
+    } },
+  });
+  if (newlyLinked) {
+    setTimeout(() => toast('Fichier lié : vos pages se mettront à jour toutes seules quand vous reviendrez ici.', '', { duration: 6000 }), 1200);
+  }
+  if (act > 0) checkDailyGoal();
+  return true;
+}
+
+/* ---------- Aperçu (première synchro d'un fichier, ou nouveautés) ---------- */
 
 function docxTargetInput(i, j, val) {
   return `<span class="dx-target">objectif <input type="number" min="1" inputmode="numeric" value="${val}"
@@ -2182,21 +2629,24 @@ function docxRowHTML(m, node, i, j, r) {
   let ctl = '';
   if (!node.include) ctl = '<span class="dx-ign">ignoré</span>';
   else if (isCh) {
-    const opts = ['<option value="">＋ Nouveau chapitre</option>']
-      .concat(state.chapters.map(c => `<option value="${c.id}"${c.id === node.map ? ' selected' : ''}>→ ${esc(trunc(c.title, 42))}</option>`));
     const ch = findCh(node.map);
     const kids = node.children.filter(c => c.include);
     let extra = '';
     if (!ch) extra = kids.length ? `<span class="dx-note">+ ${kids.length} sous-section${kids.length > 1 ? 's' : ''}</span>` : docxTargetInput(i, -1, node.target);
     else if (!ch.subsections.length) extra = `<span class="dx-delta">${ch.writtenPages || 0} → <b>${pages}</b> p.</span>`;
     else if (!kids.length) extra = `<span class="dx-note">réparti sur vos ${ch.subsections.length} sous-sections</span>`;
-    ctl = `<select onchange="docxMap(${i},-1,this.value)" aria-label="Correspondance dans votre plan">${opts.join('')}</select>${extra}`;
+    if (node.locked) ctl = `<span class="dx-note">ce fichier = ce chapitre</span>${extra}`;
+    else {
+      const opts = ['<option value="">+ Nouveau chapitre</option>']
+        .concat(state.chapters.map(c => `<option value="${c.id}"${c.id === node.map ? ' selected' : ''}>→ ${esc(trunc(c.title, 42))}</option>`));
+      ctl = `<select onchange="docxMap(${i},-1,this.value)" aria-label="Correspondance dans votre plan">${opts.join('')}</select>${extra}`;
+    }
   } else {
     const ch = findCh(r.map);
     if (ch && !ch.subsections.length) ctl = `<span class="dx-note">compté dans « ${esc(trunc(ch.title, 30))} »</span>`;
     else if (!ch) ctl = docxTargetInput(i, j, node.target);
     else {
-      const opts = ['<option value="">＋ Nouvelle sous-section</option>']
+      const opts = ['<option value="">+ Nouvelle sous-section</option>']
         .concat(ch.subsections.map(s => `<option value="${s.id}"${s.id === node.map ? ' selected' : ''}>→ ${esc(trunc(s.title, 42))}</option>`));
       const ss = ch.subsections.find(s => s.id === node.map);
       const extra = ss ? `<span class="dx-delta">${ss.writtenPages || 0} → <b>${pages}</b> p.</span>` : docxTargetInput(i, j, node.target);
@@ -2204,7 +2654,8 @@ function docxRowHTML(m, node, i, j, r) {
     }
   }
   return `<div class="dx-row ${isCh ? 'dx-ch' : 'dx-ss'}${node.include ? '' : ' off'}">
-    <label class="dx-check"><input type="checkbox" ${node.include ? 'checked' : ''} onchange="docxToggle(${i},${j},this.checked)" aria-label="Inclure cette partie"></label>
+    <label class="dx-check"><input type="checkbox" ${node.include ? 'checked' : ''} ${node.locked ? 'disabled' : ''}
+      onchange="docxToggle(${i},${j},this.checked)" aria-label="Inclure cette partie"></label>
     <div class="dx-main"><div class="dx-title">${esc(node.title)}</div><div class="dx-meta">${fmtInt(words)} mots · <b>${pages} p.</b></div></div>
     <div class="dx-map">${ctl}</div>
   </div>`;
@@ -2214,15 +2665,27 @@ function renderDocxPreview() {
   const m = _dx;
   if (!m) return;
   const res = m.res;
-  const incl = m.rows.filter(r => r.include);
-  const nSub = incl.reduce((s, r) => s + r.children.filter(c => c.include).length, 0);
+  const nCh  = m.scope ? 0 : m.rows.length;
+  const nSub = m.rows.filter(r => r.include).reduce((s, r) => s + r.children.filter(c => c.include).length, 0);
   const pagesTxt = res.pagesMeta ? `${res.pagesMeta} pages selon Word` : `≈ ${Math.round(res.totalWords / m.wpp)} pages`;
-  setHTML('docxSummary', `<b>${esc(m.name)}</b> : ${fmtInt(res.totalWords)} mots, ${pagesTxt}. `
-    + `${m.rows.length} partie${m.rows.length > 1 ? 's' : ''} détectée${m.rows.length > 1 ? 's' : ''}${nSub ? `, ${nSub} sous-section${nSub > 1 ? 's' : ''}` : ''}.`
-    + (Math.round(res.frontWords / m.wpp) >= 1 ? ` Pages liminaires non comptées : ≈ ${Math.round(res.frontWords / m.wpp)} p.` : ''));
+  const found = m.scope
+    ? (nSub ? `${nSub} sous-section${nSub > 1 ? 's' : ''} détectée${nSub > 1 ? 's' : ''}.` : 'Pas de titres : tout le texte est compté pour ce chapitre.')
+    : `${nCh} partie${nCh > 1 ? 's' : ''} détectée${nCh > 1 ? 's' : ''}${nSub ? `, ${nSub} sous-section${nSub > 1 ? 's' : ''}` : ''}.`;
+  const front = !m.scope && Math.round(res.frontWords / m.wpp) >= 1 ? ` Pages liminaires non comptées : ≈ ${Math.round(res.frontWords / m.wpp)} p.` : '';
+  setHTML('docxSummary', `<b>${esc(m.name)}</b> : ${fmtInt(res.totalWords)} mots, ${pagesTxt}. ${found}${front}`);
+
   const wppEl = document.getElementById('docxWpp');
   if (document.activeElement !== wppEl) wppEl.value = m.wpp;
-  setText('docxWppHint', res.wppSource === 'word' ? 'calibré sur la pagination de Word' : 'estimation, ajustez si besoin');
+  setText('docxWppHint', m.known && m.known.wpp ? 'comme à la dernière synchro'
+    : res.wppSource === 'word' ? 'calibré sur la pagination de Word' : 'estimation, ajustez si besoin');
+
+  // Ce fichier : tout le manuscrit, ou un seul chapitre du plan ?
+  const scopeRow = document.getElementById('docxScopeRow');
+  scopeRow.classList.toggle('hidden', m.planEmpty);
+  if (!m.planEmpty) {
+    document.getElementById('docxScope').innerHTML = `<option value="">tout mon manuscrit</option>`
+      + state.chapters.map(c => `<option value="${c.id}"${c.id === m.scope ? ' selected' : ''}>seulement : ${esc(trunc(c.title, 40))}</option>`).join('');
+  }
   document.getElementById('docxTotalRow').classList.toggle('hidden', !m.planEmpty);
   const totEl = document.getElementById('docxTotal');
   if (m.planEmpty && document.activeElement !== totEl) totEl.value = m.totalTarget;
@@ -2232,37 +2695,55 @@ function renderDocxPreview() {
     html += docxRowHTML(m, r, i, -1, null);
     if (r.include) r.children.forEach((c, j) => { html += docxRowHTML(m, c, i, j, r); });
   });
+  if (!m.rows.length) {
+    html = '<p class="dx-empty">Aucun titre détecté dans ce fichier. S\'il correspond à un chapitre de votre plan, choisissez-le ci-dessus : tout son texte sera compté.</p>';
+  }
   setHTML('docxRows', html);
 
   // Parties du plan absentes du document (laissées telles quelles)
-  const mapped = new Set(m.rows.filter(r => r.include && r.map).map(r => r.map));
-  const missing = state.chapters.filter(c => !mapped.has(c.id)).map(c => `« ${esc(trunc(c.title, 40))} »`);
-  setHTML('docxMissing', missing.length ? `Inchangés (absents du document) : ${missing.join(', ')}.` : '');
+  let note = '';
+  if (!m.scope && m.rows.length) {
+    const mapped = new Set(m.rows.filter(r => r.include && r.map).map(r => r.map));
+    const absent = state.chapters.filter(c => !mapped.has(c.id)).map(c => `« ${esc(trunc(c.title, 40))} »`);
+    if (absent.length) note = `Inchangés (absents de ce fichier) : ${absent.join(', ')}.`;
+  }
+  setHTML('docxMissing', note);
 
-  const delta = docxDelta(m);
-  const row = document.getElementById('docxCountRow');
-  row.classList.toggle('hidden', delta === 0);
+  const delta = m.rows.some(r => r.include) ? docxActivityDelta(m) : 0;
+  document.getElementById('docxCountRow').classList.toggle('hidden', delta === 0);
   document.getElementById('docxCount').checked = m.count;
-  setText('docxCountLbl', `Compter ces ${delta > 0 ? '+' : ''}${delta} p. comme écrites aujourd'hui`);
-  setText('docxCountHint', m.count
-    ? 'Décochez si cette différence ne vient pas de votre travail du jour.'
-    : 'Première synchro : laissez décoché pour recaler vos compteurs sans fausser votre journal.');
+  setText('docxCountLbl', `Ajouter ${delta > 0 ? '+' : ''}${fmt1(delta)} p. à mon journal d'aujourd'hui`);
+  setText('docxCountHint', m.known && Number.isFinite(m.known.inclWords)
+    ? 'C\'est ce qui a changé depuis la dernière synchro de ce fichier.'
+    : 'Première synchro de ce fichier : laissez décoché, ces pages étaient déjà écrites.');
+  document.getElementById('docxApply').disabled = !m.rows.some(r => r.include);
 }
 
 function docxNode(i, j) { const r = _dx.rows[i]; return j < 0 ? r : r.children[j]; }
 
-function docxToggle(i, j, on) {
-  docxNode(i, j).include = on;
+function docxRefresh() {
   computeDocxTargets(_dx);
+  evaluateDocx(_dx);
   renderDocxPreview();
+}
+
+function docxToggle(i, j, on) {
+  const node = docxNode(i, j);
+  node.include = on;
+  if (j < 0 && on && !node.map && !node.locked) {
+    // Partie réintégrée : on cherche sa correspondance parmi les chapitres encore libres
+    const used = new Set(_dx.rows.filter(r => r !== node && r.include && r.map).map(r => r.map));
+    node.map = bestMatchId(node.title, state.chapters, used);
+  }
+  docxMatchChildren(_dx.rows[i]);
+  docxRefresh();
 }
 
 function docxMap(i, j, val) {
   const node = docxNode(i, j);
   node.map = val;
   if (j < 0) docxMatchChildren(node);
-  computeDocxTargets(_dx);
-  renderDocxPreview();
+  docxRefresh();
 }
 
 function docxTarget(i, j, val) {
@@ -2271,13 +2752,19 @@ function docxTarget(i, j, val) {
   node.touched = true;
 }
 
+function docxSetScope(val) {
+  if (!_dx) return;
+  _dx.scope = findCh(val) ? val : '';
+  buildDocxRows(_dx);
+  renderDocxPreview();
+}
+
 function docxSetWpp(val) {
   if (!_dx) return;
   const v = parseInt(val, 10);
   if (!(v >= 80 && v <= 1500)) return;
   _dx.wpp = v;
-  computeDocxTargets(_dx);
-  renderDocxPreview();
+  docxRefresh();
 }
 
 function docxSetTotal(val) {
@@ -2285,41 +2772,214 @@ function docxSetTotal(val) {
   const v = parseInt(val, 10);
   if (!(v > 0)) return;
   _dx.totalTarget = v;
-  computeDocxTargets(_dx);
-  renderDocxPreview();
+  docxRefresh();
 }
 
 function docxCountChanged(on) { if (_dx) _dx.count = on; }
+function applyDocxImport() { if (_dx) applyDocx(_dx, false); }
+function docxBack() { _dx = null; showDocxStep(1); renderLinkedList(); }
 
-function applyDocxImport() {
-  const m = _dx;
-  if (!m) return;
-  if (!m.rows.some(r => r.include)) { toast('Sélectionnez au moins une partie', 'warn'); return; }
-  const before = writtenPages();
-  applyDocxModel(m, state.chapters);
-  const delta = writtenPages() - before;
-  if (m.count && delta) addActivity(delta);
-  state.lastDocImport = {
-    at: todayKey(), name: m.name.slice(0, 200),
-    words: m.res.totalWords, pages: Math.round(m.res.totalWords / m.wpp),
-  };
-  _dx = null;
-  saveNow();
-  closeModal('docxModal');
-  render();
-  toast(`📄 Plan synchronisé avec Word${delta ? ` (${delta > 0 ? '+' : ''}${delta} p.)` : ''}`, 'success');
-  if (m.count && delta > 0) checkDailyGoal();
+/* ---------- Fichiers liés (Chrome / Edge sur ordinateur) ----------
+   La référence au fichier est gardée sur cet appareil (IndexedDB).
+   Le navigateur redemande l'autorisation de lecture quand il le faut. */
+
+function filesDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open('jdb-files', 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('handles');
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
 }
 
-function docxBack() { showDocxStep(1); }
-
-function initDocxDropzone() {
-  const dz = document.getElementById('docxDrop');
-  if (!dz) return;
-  ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('drag'); }));
-  ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.remove('drag'); }));
-  dz.addEventListener('drop', e => { const f = e.dataTransfer && e.dataTransfer.files[0]; if (f) handleDocxFile(f); });
+async function filesGet(key) {
+  const fdb = await filesDb();
+  return new Promise((resolve, reject) => {
+    const req = fdb.transaction('handles').objectStore('handles').get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
 }
+
+async function filesSet(key, val) {
+  const fdb = await filesDb();
+  return new Promise((resolve, reject) => {
+    const tx = fdb.transaction('handles', 'readwrite');
+    tx.objectStore('handles').put(val, key);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+function saveLinked() {
+  if (!currentUser) return;
+  filesSet(currentUser.uid, _linked).catch(e => console.warn('Fichiers liés :', e));
+}
+
+async function initLinkedFiles() {
+  _linked = [];
+  _pendingReview = null;
+  if (!canLink() || !currentUser) return;
+  const owner = currentUser.uid;
+  try {
+    const list = await filesGet(owner);
+    if (!currentUser || currentUser.uid !== owner) return;
+    if (Array.isArray(list)) _linked = list.filter(x => x && x.key && x.handle && typeof x.handle.getFile === 'function');
+  } catch (e) { console.warn('Fichiers liés :', e); }
+  renderPrimary();
+  updateWordButton();
+  if (_linked.length) syncLinked({ manual: false });
+}
+
+function linkFile(key, name, handle) {
+  if (!canLink() || !handle || typeof handle.getFile !== 'function') return;
+  _linked = _linked.filter(l => l.key !== key).concat([{ key, name, handle }]);
+  saveLinked();
+  renderPrimary();
+  updateWordButton();
+}
+
+function unlinkFile(key, silent) {
+  _linked = _linked.filter(l => l.key !== key);
+  if (_pendingReview && _pendingReview.key === key) _pendingReview = null;
+  saveLinked();
+  renderPrimary();
+  updateWordButton();
+  renderLinkedList();
+  if (!silent) toast('Fichier délié. Vos pages restent telles quelles.', '');
+}
+
+function renderLinkedList() {
+  const box = document.getElementById('linkedBox');
+  if (!box) return;
+  const known = Object.entries(state.docFiles);
+  box.classList.toggle('hidden', known.length === 0 && _linked.length === 0);
+  const linkedKeys = new Set(_linked.map(l => l.key));
+  const rows = _linked.map(l => {
+    const f = state.docFiles[l.key];
+    return `<div class="lk-item"><span class="lk-name">${esc(trunc(l.name, 38))}</span>
+      <span class="lk-meta">${f && f.at ? 'synchro : ' + relDay(f.at).toLowerCase() : 'lié'}</span>
+      <button type="button" class="lk-btn" onclick="unlinkFile('${l.key}')">Délier</button></div>`;
+  }).concat(known.filter(([k]) => !linkedKeys.has(k)).map(([, f]) =>
+    `<div class="lk-item"><span class="lk-name">${esc(trunc(f.name, 38))}</span>
+      <span class="lk-meta">${f.at ? 'synchro : ' + relDay(f.at).toLowerCase() : ''}</span></div>`));
+  setHTML('linkedList', rows.join(''));
+  setText('linkedHint', _linked.length
+    ? 'Les fichiers liés se mettent à jour tout seuls quand vous revenez sur cet onglet.'
+    : canLink() ? 'Choisissez à nouveau un fichier pour le lier à cet appareil.' : 'Pour mettre à jour : déposez simplement le fichier dans la page.');
+}
+
+/**
+ * Relit les fichiers liés. manual = clic de l'utilisateur (peut demander l'autorisation,
+ * ouvre l'aperçu si besoin) ; sinon passage silencieux au retour sur l'onglet.
+ */
+async function syncLinked({ manual }) {
+  if (!_linked.length || _syncing || !_loaded || !currentUser) return;
+  if (!manual) {
+    if (Date.now() - _lastAutoSync < 15000 || isBusy()) return;
+    _lastAutoSync = Date.now();
+  }
+  _syncing = true;
+  let applied = 0;
+  let upToDate = 0;
+  let refused = 0;
+  let review = null;
+  try {
+    // 1. Autorisations d'abord, tant que le clic de l'utilisateur est « frais »
+    const ready = [];
+    for (const lf of _linked.slice()) {
+      let perm = 'denied';
+      try {
+        perm = await lf.handle.queryPermission({ mode: 'read' });
+        if (perm !== 'granted' && manual) perm = await lf.handle.requestPermission({ mode: 'read' });
+      } catch (e) { console.warn('Autorisation :', e); }
+      if (perm === 'granted') ready.push(lf);
+      else refused++;
+    }
+    // 2. Lecture des fichiers modifiés
+    for (const lf of ready) {
+      let file;
+      try { file = await lf.handle.getFile(); }
+      catch (e) {
+        if (e && e.name === 'NotFoundError') {
+          unlinkFile(lf.key, true);
+          toast(`${trunc(lf.name, 30)} est introuvable (déplacé ou renommé ?). Choisissez-le à nouveau.`, 'warn', { duration: 7000 });
+        }
+        continue;
+      }
+      const known = state.docFiles[lf.key];
+      if (known && known.mtime === file.lastModified && known.size === file.size) { upToDate++; continue; }
+      if (!manual) {
+        if (known && known.mtime && file.lastModified < known.mtime) continue; // copie plus ancienne que la dernière synchro
+        if (_autoSkip.get(lf.key) === file.lastModified) continue;             // synchro annulée par l'utilisateur
+      }
+      let m;
+      try { m = buildDocxModel(await parseDocxFile(file), file, lf.handle); }
+      catch (e) {
+        console.warn('Synchro', lf.name, e);
+        if (manual) toast(`Lecture impossible de ${trunc(lf.name, 30)}`, 'warn');
+        continue;
+      }
+      if (!currentUser || !_loaded) return;
+      if (!m.clean) review = m;
+      else {
+        const r = applyDocx(m, true);
+        if (r === 'same') upToDate++;
+        else if (r) applied++;
+      }
+    }
+  } finally {
+    _syncing = false;
+  }
+  if (review && manual) openDocxPreview(review);
+  else _pendingReview = review;
+  if (manual && !applied && !review) {
+    if (refused && !upToDate) toast('Autorisez la lecture du fichier pour le synchroniser.', 'warn');
+    else toast('Déjà à jour : votre fichier Word n\'a pas changé.', 'success', { key: 'docx' });
+  }
+  renderPrimary();
+}
+
+/* ---------- Déposer le fichier n'importe où dans la page ---------- */
+
+function initGlobalDrop() {
+  const overlay = document.getElementById('dropOverlay');
+  if (!overlay) return;
+  let depth = 0;
+  const hasFiles = e => !!e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+  const active = () => _loaded && !document.getElementById('appScreen').classList.contains('hidden');
+  window.addEventListener('dragenter', e => {
+    if (!hasFiles(e) || !active()) return;
+    depth++;
+    overlay.classList.add('show');
+  });
+  window.addEventListener('dragover', e => { if (hasFiles(e) && active()) e.preventDefault(); });
+  window.addEventListener('dragleave', e => {
+    if (!hasFiles(e)) return;
+    depth = Math.max(0, depth - 1);
+    if (!depth) overlay.classList.remove('show');
+  });
+  window.addEventListener('drop', e => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth = 0;
+    overlay.classList.remove('show');
+    if (!active()) return;
+    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!file) return;
+    if (/\.json$/i.test(file.name)) { toast('Pour restaurer une sauvegarde : Menu, puis « Importer une sauvegarde ».', ''); return; }
+    // À demander pendant l'évènement : la référence permettra de relire le fichier plus tard
+    const item = e.dataTransfer.items && e.dataTransfer.items[0];
+    const wait = canLink() && item && typeof item.getAsFileSystemHandle === 'function'
+      ? item.getAsFileSystemHandle().catch(() => null) : Promise.resolve(null);
+    wait.then(h => handleDocxFile(file, h && h.kind === 'file' ? h : null));
+  });
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') syncLinked({ manual: false });
+});
+window.addEventListener('focus', () => syncLinked({ manual: false }));
 
 /* ============================================================
    EXPORT / IMPORT (JSON portability — independent of Firestore)
@@ -2327,7 +2987,7 @@ function initDocxDropzone() {
 function exportData() {
   const data = { ...serializeState(), exportedAt: new Date().toISOString(), app: 'Le Journal de Bord ' + APP_VERSION };
   downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), `these-${todayKey()}.json`);
-  toast('📁 Données exportées !', 'success');
+  toast('Sauvegarde exportée.', 'success');
 }
 
 function importData(input) {
@@ -2349,8 +3009,8 @@ function importData(input) {
       syncTitleInput();
       saveNow(true);
       render();
-      toast('✅ Données importées avec succès !', 'success');
-    } catch { toast('❌ Fichier invalide ou corrompu', ''); }
+      toast('Sauvegarde importée.', 'success');
+    } catch { toast('Ce fichier n\'est pas une sauvegarde du Journal.', 'warn'); }
   };
   reader.readAsText(file);
   input.value = '';
@@ -2361,15 +3021,82 @@ function importData(input) {
 ============================================================ */
 function confirmReset() {
   if (!requireReady()) return;
-  if (!confirm('⚠️ Effacer TOUTES les données ?\n\nChapitres, progression, journal, dates : tout sera supprimé.\nCette action est irréversible.')) return;
+  if (!confirm('Effacer TOUTES les données ?\n\nChapitres, progression, journal, dates : tout sera supprimé.\nCette action est irréversible.')) return;
   if (!confirm('Dernière confirmation : vraiment tout effacer ?')) return;
   state = defaultState();
   state.trackedSince = todayKey();
+  const dl = document.getElementById('dbDeadline');
+  if (dl) dl.dataset.mode = '';
   syncTitleInput();
   saveNow(true);
   render();
-  toast('🗑 Données effacées. Nouveau départ !');
-  openProjectModal('welcome');
+  toast('Tout est effacé. Une vraie page blanche, cette fois.', '');
+}
+
+/* ============================================================
+   SUPPRESSION DU COMPTE — droit à l'effacement
+   Ordre : la fiche publique, puis le journal, puis le compte lui-même
+   (dans l'autre sens, les données resteraient en base sans plus
+   personne pour avoir le droit de les effacer).
+============================================================ */
+const RECENT_LOGIN_MS = 4 * 60 * 1000; // Firebase exige une connexion de moins de 5 minutes pour supprimer un compte
+
+function withTimeout(promise, ms) {
+  return Promise.race([promise, new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))]);
+}
+
+/** Efface ce que cet appareil garde pour ce compte : réglages, copie de secours, fichiers Word liés. */
+function forgetDevice(uidToForget) {
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('jdb_') && k.includes(uidToForget)) localStorage.removeItem(k);
+    }
+  } catch { /* ignoré */ }
+  if (canLink()) filesSet(uidToForget, []).catch(() => {});
+}
+
+async function deleteAccount() {
+  if (!currentUser) return;
+  const user = currentUser;
+  if (!navigator.onLine) { toast('Il faut être en ligne pour supprimer le compte.', 'warn'); return; }
+  const last = Date.parse((user.metadata && user.metadata.lastSignInTime) || '');
+  if (Number.isFinite(last) && Date.now() - last > RECENT_LOGIN_MS) {
+    alert('Par sécurité, supprimer un compte demande une connexion toute récente.\n\nReconnectez-vous, puis choisissez de nouveau « Supprimer mon compte ».');
+    try { await signOut(auth); } catch { /* ignoré */ }
+    return;
+  }
+  if (!confirm('Supprimer définitivement votre compte ?\n\nVotre plan, vos pages, votre journal et votre fiche dans la promo seront effacés. C\'est irréversible.\n\nPour garder une copie : menu, « Exporter une sauvegarde ».')) return;
+  const typed = prompt('Dernière vérification : tapez SUPPRIMER pour confirmer.');
+  if (String(typed || '').trim().toUpperCase() !== 'SUPPRIMER') { toast('Suppression annulée. Rien n\'a changé.', ''); return; }
+
+  setDataLoading(true);
+  clearTimeout(_saveTimer);
+  _saveTimer = null;
+  const ref = userDocRef();
+  try {
+    await withTimeout(promo.purge(), 12000);
+    stopSync();
+    await withTimeout(deleteDoc(ref), 12000);
+  } catch (e) {
+    console.error('Suppression des données :', e);
+    setDataLoading(false);
+    toast('Suppression impossible pour le moment : vérifiez votre connexion et réessayez.', 'warn');
+    if (!_unsub) startSync();
+    return;
+  }
+  forgetDevice(user.uid);
+  setDataLoading(false);
+  try {
+    await deleteUser(user);
+    toast('Compte supprimé. Bonne route, et bonne soutenance.', '', { duration: 7000 });
+  } catch (e) {
+    console.error('Suppression du compte :', e);
+    alert(e && e.code === 'auth/requires-recent-login'
+      ? 'Vos données sont effacées.\n\nPour supprimer aussi le compte lui-même, reconnectez-vous puis choisissez de nouveau « Supprimer mon compte ».'
+      : 'Vos données sont effacées, mais le compte lui-même n\'a pas pu être supprimé. Reconnectez-vous et réessayez.');
+    try { await signOut(auth); } catch { /* ignoré */ }
+  }
 }
 
 /* ============================================================
@@ -2381,51 +3108,43 @@ function updateDocumentTitle(val) {
 }
 
 /* ============================================================
-   PLAN TEMPLATES — DROPDOWN & APPLICATION
+   MODÈLES DE PLAN
 ============================================================ */
-function toggleTemplateMenu() {
-  const menu = document.getElementById('templateMenu');
-  if (menu) menu.classList.toggle('hidden');
-}
-
-function openTemplateMenuFromEmpty() {
-  const wrap = document.querySelector('.template-wrap');
-  if (wrap) wrap.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  document.getElementById('templateMenu').classList.remove('hidden');
+function openTemplateModal() {
+  if (!requireReady()) return;
+  openModal('templateModal');
 }
 
 function applyTemplate(idx) {
   const tpl = PLAN_TEMPLATES[idx];
   if (!tpl || !requireReady()) return;
-  document.getElementById('templateMenu').classList.add('hidden');
+  closeModal('templateModal');
+  const wasEmpty = state.chapters.length === 0;
   const n = tpl.chapters.length;
   const total = tpl.chapters.reduce((s, c) => s + c.targetPages, 0);
-  if (!confirm(
-    `Ajouter le plan "${tpl.name}" à votre projet ?\n\n` +
-    `${n} chapitres · ${total} pages objectif\n\n` +
-    `Les chapitres seront ajoutés à la fin de votre liste existante.`
+  if (!wasEmpty && !confirm(
+    `Ajouter le plan "${tpl.name}" à la suite de votre plan actuel ?\n\n${n} chapitres · ${total} pages objectif`
   )) return;
-  const newChapters = tpl.chapters.map(ch => ({
+  const snap = snapshotState();
+  state.chapters.push(...tpl.chapters.map(ch => ({
     id:           uid(),
     title:        ch.title,
     targetPages:  ch.targetPages,
     writtenPages: 0,
-    expanded:     false,
+    expanded:     true,
     subsections:  [],
-  }));
-  state.chapters.push(...newChapters);
+  })));
+  if (wasEmpty) startSetup();
   saveNow();
   render();
-  toast(`✅ "${tpl.name}" : ${n} chapitres ajoutés !`, 'success');
+  toast(`Plan « ${tpl.name} » : ${n} chapitres, ${total} pages. Renommez et ajustez à votre guise.`, 'success', {
+    undo: true,
+    action: { label: 'Annuler', fn: () => {
+      if (wasEmpty) lsSet(setupKey(), '');
+      restoreSnapshot(snap, 'Modèle retiré');
+    } },
+  });
 }
-
-// Ferme le dropdown si on clique en dehors
-document.addEventListener('click', e => {
-  if (!e.target.closest('.template-wrap')) {
-    const menu = document.getElementById('templateMenu');
-    if (menu && !menu.classList.contains('hidden')) menu.classList.add('hidden');
-  }
-});
 
 /* ============================================================
    DRAG & DROP — SortableJS
@@ -2483,17 +3202,26 @@ function initSortable() {
 }
 
 /* ============================================================
-   PARTAGE — image pour Instagram (post carré ou story)
-   L'image est générée d'abord, puis partagée d'un geste :
+   PARTAGE — une image à publier (post carré ou story)
+   Deux cartes possibles : mon avancée, ou ma grille de bingo.
+   L'image est préparée d'abord, puis partagée d'un geste :
    Safari exige que navigator.share() suive directement un clic.
 ============================================================ */
+const H2C_URL = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+const H2C_SRI = 'sha512-BNaRQnYJYiPSqHHDb58B0yaPfCu+Wgds8Gp/gU33kqBtgNS4tSPHuGibyoeqMV/TJlSKda6FXzoEyYGjTe+vXA==';
 let _shareFormat = 'post';
+let _shareMode   = 'progress'; // 'progress' | 'bingo'
 let _shareBlob   = null;
 let _shareUrl    = null;
 let _shareToken  = 0;
 
-function openShareModal() {
+function openShareModal(mode) {
   if (!requireReady()) return;
+  _shareMode = mode === 'bingo' ? 'bingo' : 'progress';
+  setText('shareTitle', _shareMode === 'bingo' ? 'Partager ma grille' : 'Partager mon avancée');
+  setText('shareSub', _shareMode === 'bingo'
+    ? 'Une image à publier en post ou en story. À comparer avec celles des autres : la grille est la même pour tout le monde.'
+    : 'Une image à publier en post ou en story. Seuls vos chiffres apparaissent, jamais votre sujet.');
   openModal('shareModal');
   setShareFormat(_shareFormat);
 }
@@ -2506,25 +3234,21 @@ function setShareFormat(f) {
 
 function fillShareCard() {
   const { total, written } = totals();
-  const remaining = Math.max(0, total - written);
   const pct = total === 0 ? 0 : Math.min(100, Math.round(written / total * 100));
   const today = todayKey();
-  setText('igpPct', pct + '%');
-  setText('igpWritten', written);
-  setText('igpRemaining', remaining);
-  setText('igpMessage', remaining > 0 ? `Plus que ${remaining} page${remaining > 1 ? 's' : ''} !` : 'Thèse terminée ! 🎉');
-  setText('igpFooter', '«\u00A0' + getFunnyCaption(pct) + '\u00A0»');
+  setText('igpPct', pct + '\u00A0%');
+  document.getElementById('igpFill').style.width = pct + '%';
+  setText('igpMessage', total > 0 ? `${written} pages rédigées sur ${total}` : '');
+  setText('igpGrade', gradeFor(pct));
+  setText('igpFooter', plain(getFunnyCaption(pct)));
   const s = streak(state, today);
   const wk = sumRange(state.activity, mondayOf(today), today);
   const bits = [];
-  if (s.count >= 2) bits.push(`🔥 ${s.count} jours d'affilée`);
+  if (s.count >= 2) bits.push(`${s.count} jours d'affilée`);
   if (wk > 0) bits.push(`+${fmt1(wk)} pages cette semaine`);
   const streakEl = document.getElementById('igpStreak');
-  streakEl.textContent = bits.join('  ·  ');
+  streakEl.textContent = bits.join(' · ');
   streakEl.classList.toggle('hidden', !bits.length);
-  const CIRC = 502.65;
-  document.getElementById('igpFill').style.strokeDashoffset = CIRC * (1 - pct / 100);
-  document.getElementById('igPostCard').classList.toggle('story', _shareFormat === 'story');
 }
 
 async function renderShareImage() {
@@ -2534,16 +3258,23 @@ async function renderShareImage() {
   document.getElementById('shareDownloadBtn').disabled = true;
   document.getElementById('shareNativeBtn').classList.add('hidden');
   if (!window.html2canvas) {
-    preview.innerHTML = '<p class="share-err">Le générateur d\'image n\'est pas encore chargé. Réessayez dans un instant.</p>';
-    return;
+    // Chargé seulement au moment du partage : 200 Ko de moins à chaque ouverture de l'app
+    try { await loadScript(H2C_URL, H2C_SRI); }
+    catch {
+      if (token === _shareToken) preview.innerHTML = '<p class="share-err">Impossible de préparer l\'image : vérifiez votre connexion.</p>';
+      return;
+    }
+    if (token !== _shareToken) return;
   }
-  fillShareCard();
+  const card = document.getElementById(_shareMode === 'bingo' ? 'bingoCard' : 'igPostCard');
+  if (_shareMode === 'bingo') fillBingoCard(); else fillShareCard();
+  card.classList.toggle('story', _shareFormat === 'story');
   try {
     await document.fonts.ready;
     await new Promise(r => setTimeout(r, 150));
     const h = _shareFormat === 'story' ? 1920 : 1080;
-    const canvas = await window.html2canvas(document.getElementById('igPostCard'), {
-      width: 1080, height: h, scale: 1, useCORS: true, backgroundColor: '#2C1A0E', logging: false,
+    const canvas = await window.html2canvas(card, {
+      width: 1080, height: h, scale: 1, useCORS: true, backgroundColor: '#FAF7F0', logging: false,
     });
     const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
     if (token !== _shareToken || !blob) return; // un autre format a été demandé entre-temps
@@ -2552,30 +3283,162 @@ async function renderShareImage() {
     _shareUrl = URL.createObjectURL(blob);
     preview.innerHTML = `<img src="${_shareUrl}" alt="Aperçu de l'image à partager" class="${_shareFormat}">`;
     document.getElementById('shareDownloadBtn').disabled = false;
-    const file = new File([blob], 'mon-avancement-these.png', { type: 'image/png' });
+    const file = new File([blob], shareFileName(), { type: 'image/png' });
     const canShare = !!(navigator.canShare && navigator.canShare({ files: [file] }));
     document.getElementById('shareNativeBtn').classList.toggle('hidden', !canShare);
   } catch (err) {
     console.error('html2canvas error:', err);
-    if (token === _shareToken) preview.innerHTML = '<p class="share-err">Erreur lors de la génération de l\'image.</p>';
+    if (token === _shareToken) preview.innerHTML = '<p class="share-err">L\'image n\'a pas pu être préparée.</p>';
   }
+}
+
+function shareFileName() {
+  const base = _shareMode === 'bingo' ? 'bingo-du-doctorant' : 'mon-avancement-these';
+  return `${base}${_shareFormat === 'story' ? '-story' : ''}.png`;
 }
 
 function downloadShareImage() {
   if (!_shareBlob) return;
-  downloadBlob(_shareBlob, _shareFormat === 'story' ? 'mon-avancement-story.png' : 'mon-avancement-these.png');
-  toast('📸 Image téléchargée ! Partagez-la sur Instagram.', 'success');
+  downloadBlob(_shareBlob, shareFileName());
+  toast('Image téléchargée. Il ne reste qu\'à la publier.', 'success');
 }
 
 async function shareNative() {
   if (!_shareBlob) return;
-  const file = new File([_shareBlob], 'mon-avancement-these.png', { type: 'image/png' });
+  const file = new File([_shareBlob], shareFileName(), { type: 'image/png' });
+  const text = _shareMode === 'bingo'
+    ? `Mon bingo du doctorant de la semaine. Le vôtre : ${APP_URL}`
+    : `J'avance dans ma thèse avec Le Journal de Bord : ${APP_URL}`;
   try {
-    await navigator.share({ files: [file], text: `J'avance dans ma thèse avec Le Journal de Bord 📖 ${APP_URL}` });
+    await navigator.share({ files: [file], text });
   } catch (e) {
     if (e && e.name !== 'AbortError') { console.warn(e); downloadShareImage(); }
   }
 }
+
+/* ============================================================
+   LE BINGO DE LA SEMAINE — neuf cases, les mêmes pour tout le monde
+   (les cases cochées restent sur l'appareil)
+============================================================ */
+const bingoKey = () => `jdb_bingo_${(currentUser && currentUser.uid) || 'x'}_${isoWeek().id}`;
+
+function bingoTicks() {
+  try { return JSON.parse(lsGet(bingoKey()) || '[]').filter(i => Number.isInteger(i) && i >= 0 && i < 9); }
+  catch { return []; }
+}
+
+function openBingo() {
+  setText('bgKicker', `Semaine ${isoWeek().week}`);
+  renderBingo();
+  openModal('bingoModal');
+}
+
+function renderBingo() {
+  const grid  = bingoGrid(isoWeek().id);
+  const ticks = new Set(bingoTicks());
+  setHTML('bingoGrid', grid.map((t, i) =>
+    `<button type="button" class="bingo-cell${ticks.has(i) ? ' on' : ''}" aria-pressed="${ticks.has(i)}" onclick="toggleBingo(${i})">${esc(t)}</button>`).join(''));
+  setText('bingoScore', bingoScore([...ticks]).text);
+}
+
+function toggleBingo(i) {
+  const ticks = new Set(bingoTicks());
+  if (ticks.has(i)) ticks.delete(i); else ticks.add(i);
+  lsSet(bingoKey(), JSON.stringify([...ticks]));
+  renderBingo();
+}
+
+function shareBingo() {
+  closeModal('bingoModal');
+  openShareModal('bingo');
+}
+
+function fillBingoCard() {
+  const w = isoWeek();
+  const ticks = new Set(bingoTicks());
+  setText('bcKicker', `Semaine ${w.week}`);
+  setHTML('bcGrid', bingoGrid(w.id).map((t, i) => `<div class="bc-cell${ticks.has(i) ? ' on' : ''}">${esc(t)}</div>`).join(''));
+  const sc = bingoScore([...ticks]);
+  setText('bcScore', `${sc.n} case${sc.n > 1 ? 's' : ''} sur 9${sc.lines ? ' · bingo !' : ''}`);
+}
+
+/* ============================================================
+   NOTE DE BAS DE PAGE DU JOUR
+============================================================ */
+function showFootnote(text) {
+  setText('crystalQuote', text);
+}
+
+function nextQuote() {
+  showFootnote(randomFootnote(document.getElementById('crystalQuote').textContent));
+}
+
+/* ============================================================
+   LES DEUX ESPACES — « Ma thèse » et « La promo »
+============================================================ */
+let _view = 'these';
+
+function setView(v) {
+  _view = v === 'promo' && promo.isAvailable() ? 'promo' : 'these';
+  document.getElementById('viewThese').classList.toggle('hidden', _view !== 'these');
+  document.getElementById('viewPromo').classList.toggle('hidden', _view !== 'promo');
+  document.querySelectorAll('.view-tab').forEach(b => b.classList.toggle('active', b.dataset.view === _view));
+  document.body.classList.toggle('view-promo', _view === 'promo');
+  window.scrollTo(0, 0);
+  if (_view === 'promo') promo.open();
+}
+
+/** Ce que je montre à la promo : des chiffres, jamais le contenu. */
+function publicStats() {
+  const t = totals();
+  const today = todayKey();
+  const pct = t.total ? Math.min(100, Math.round((t.written / t.total) * 100)) : 0;
+  const weekPages = clamp(Math.round(sumRange(state.activity, mondayOf(today), today) * 10) / 10, 0, 300);
+  const heat = {};
+  const from = addDays(mondayOf(today), -7 * 11);
+  for (const [k, v] of Object.entries(state.activity)) {
+    if (k >= from && k <= today && v > 0) heat[k] = Math.min(99, Math.round(v * 10) / 10);
+  }
+  return { pct, weekPages, streak: streak(state, today).count, heat };
+}
+
+const promo = createPromo({
+  db,
+  user: () => currentUser,
+  stats: publicStats,
+  heatmap: (heat, weeks) => heatmapHTML(heat, {}, { weeks, today: todayKey(), goal: 1, since: null }),
+  ui: { esc, fmt1, relDay, setText, setHTML, toast, openModal, closeModal },
+  // La promo n'apparaît que si elle est ouverte (règles de sécurité en place)
+  onChange(available, member) {
+    document.getElementById('viewTabs').classList.toggle('hidden', !available);
+    document.querySelector('.topbar').classList.toggle('views-on', available);
+    document.getElementById('menuPromo').classList.toggle('hidden', !available);
+    document.getElementById('wnPromo').classList.toggle('hidden', !available);
+    document.getElementById('logShareRow').classList.toggle('hidden', !(available && member));
+    if (!available && _view === 'promo') setView('these');
+    if (available && !member) introducePromo();
+  },
+});
+
+/**
+ * La promo vient d'ouvrir pour quelqu'un qui a déjà lu l'annonce de mise à jour : on le lui signale, une fois.
+ * (Pas le premier jour : on laisse d'abord créer son plan.)
+ */
+function introducePromo() {
+  if (!currentUser || state.chapters.length === 0) return;
+  const key = 'jdb_promo_intro_' + currentUser.uid;
+  if (lsGet(key)) return;
+  lsSet(key, '1');
+  if (lsGet(WHATSNEW_KEY) !== WHATSNEW_VER) return; // l'annonce de mise à jour va la présenter
+  toast('La promo est ouverte : voyez où en sont les autres doctorant·es.', '', {
+    key: 'promo-intro', duration: 10000, action: { label: 'Découvrir', fn: () => setView('promo') },
+  });
+}
+
+function onStatsChanged() { promo.publishSoon(); }
+
+// Démarrage hors ligne : on redemande si la promo est ouverte dès que la connexion revient
+window.addEventListener('online', () => { if (currentUser && _loaded && promo.isUnknown()) promo.init(); });
 
 /* ============================================================
    BILAN IMPRIMABLE — comité de suivi (CSI), rendez-vous direction
@@ -2613,14 +3476,15 @@ function buildReportHTML() {
     weeks.push({ mon, pages: sumRange(state.activity, mon, sun < today ? sun : today) });
   }
   const maxW = Math.max(1, ...weeks.map(w => w.pages));
-  const bars = weeks.map(w => `<div class="pr-bar"><div class="pr-bar-fill" style="height:${Math.max(0, (w.pages / maxW) * 100)}%"></div><span class="pr-bar-val">${w.pages ? fmt1(w.pages) : ''}</span><span class="pr-bar-lbl">${parseDay(w.mon).getDate()}/${parseDay(w.mon).getMonth() + 1}</span></div>`).join('');
+  // La valeur est posée juste au-dessus de sa barre (85 % de la hauteur au plus, pour lui laisser la place)
+  const bars = weeks.map(w => `<div class="pr-bar"><span class="pr-bar-val">${w.pages ? fmt1(w.pages) : ''}</span><div class="pr-bar-fill" style="height:${Math.max(0, (w.pages / maxW) * 85)}%"></div><span class="pr-bar-lbl">${parseDay(w.mon).getDate()}/${parseDay(w.mon).getMonth() + 1}</span></div>`).join('');
 
   const since = addDays(today, -30);
   const notes = Object.keys(state.journal).filter(k => k >= since && k <= today).sort().reverse()
     .flatMap(k => state.journal[k].filter(e => e.n).map(e => `<li><b>${fmtDateShort(k)}</b> : ${esc(e.n)}</li>`));
 
   return `
-  <div class="pr-head"><span>📖 Le Journal de Bord</span><span>Bilan au ${formatDateFr(today)}</span></div>
+  <div class="pr-head"><span>Le Journal de Bord</span><span>Bilan au ${formatDateFr(today)}</span></div>
   <h1>${esc(state.documentTitle || 'Mon projet de thèse')}</h1>
   <p class="pr-who">${esc(currentUser ? (currentUser.displayName || currentUser.email) : '')}</p>
   <div class="pr-kpis">
@@ -2662,6 +3526,9 @@ function toggleMobileMenu() {
 /** Exécute une action du menu puis le referme. */
 function menuDo(fn) {
   if (document.getElementById('mobileMenu').classList.contains('open')) toggleMobileMenu();
+  // Le focus revient sur le bouton « Menu » : c'est là qu'on le retrouvera en fermant la fenêtre ouverte
+  const btn = document.querySelector('.hamburger-btn');
+  if (btn) btn.focus({ preventScroll: true });
   const f = window[fn];
   if (typeof f === 'function') f();
 }
@@ -2671,21 +3538,30 @@ function menuDo(fn) {
 ============================================================ */
 function openWhatsNew() { openModal('whatsNewModal'); }
 
+/** Confidentialité : lisible avant même d'avoir un compte ; les actions sur le compte n'apparaissent que connecté·e. */
+function openPrivacy() {
+  document.getElementById('pvRights').classList.toggle('hidden', !currentUser);
+  openModal('privacyModal');
+}
+
 function closeWhatsNew(next) {
-  lsSet(WHATSNEW_KEY, WHATSNEW_VER);
   closeModal('whatsNewModal');
   if (next === 'project') openProjectModal();
 }
 
-/** ?action=log (raccourci d'app, rappel d'agenda) ouvre directement « J'ai écrit ». */
+/** ?action=log (raccourci d'app, rappel d'agenda) ouvre directement « J'ai écrit » ; ?p=… ouvre une fiche. */
 function handleUrlAction() {
   const params = new URLSearchParams(location.search);
   const action = params.get('action');
-  if (!action) return;
+  const fellow = cleanId(params.get('p'));
+  if (!action && !fellow) return;
   params.delete('action');
+  params.delete('p');
   const qs = params.toString();
   history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
-  if (action === 'log') setTimeout(() => { closeModal('whatsNewModal'); openLogModal(); }, 300);
+  if (action === 'log') { _urlIntent = true; setTimeout(openLogModal, 300); }
+  // Lien de fiche ouvert en étant connecté·e : la fiche s'affiche dès que la promo répond
+  if (fellow) { _urlIntent = true; promo.whenReady().then(ok => { if (ok) promo.openFellow(fellow); }); }
 }
 
 /* ============================================================
@@ -2760,51 +3636,66 @@ Object.assign(window, {
   // Auth
   switchAuthTab, handleAuthSubmit, handleForgotPassword, googleSignIn, signOutUser,
   checkEmailTypo, applyEmailSuggestion,
-  // Menu
-  toggleMobileMenu, menuDo,
-  // Modals
+  // Menu, espaces
+  toggleMobileMenu, menuDo, setView,
+  // Fenêtres
   openModal, closeModal,
+  // Page de titre
+  primaryAction, captionAction, setDeadlineInline, nextQuote,
   // Projet
   openProjectModal, saveProject,
-  // Chapters
-  openAddChapterModal, saveChapter, deleteChapter, toggleChapter, updateChTitle,
-  setChapterReview, remindSupervisor,
-  // Subsections
-  openAddSsModal, saveSubsection, deleteSs, updateSsTitle,
-  // Live updates
-  updateWritten, updateTarget, updateChWritten, updateChTarget,
+  // Table des matières
+  toggleChapter, updateChTitle, addChapterInline, handlePlanPaste,
+  togglePlanTyping, createPlanFromText, endSetup,
+  openChapterMenu, chapterMenuDo, remindSupervisor,
+  addSsInline, deleteSs, updateSsTitle,
+  // Pages
+  stepPages, updateWritten, updateTarget, updateChWritten, updateChTarget,
   // Journal
-  openLogModal, setLogDay, setLogMood, stepLog, saveLog,
+  openLogModal, setLogDay, stepLog, saveLog,
   toggleJournalCard, toggleJournalAll, deleteNote,
   // Agenda
   openCalendarModal, updateCalendarLinks, downloadICS,
-  // Import Word
-  openDocxModal, handleDocxFile, docxToggle, docxMap, docxTarget, docxSetWpp, docxSetTotal,
+  // Synchro Word
+  wordAction, openDocxModal, pickWordFile, handleDocxFile, unlinkFile,
+  docxToggle, docxMap, docxTarget, docxSetScope, docxSetWpp, docxSetTotal,
   docxCountChanged, applyDocxImport, docxBack,
-  // Document title
+  // Titre
   updateDocumentTitle,
-  // Plan templates
-  toggleTemplateMenu, openTemplateMenuFromEmpty, applyTemplate,
-  // Data
-  exportData, importData, confirmReset,
-  // Partage & bilan
+  // Modèles de plan
+  openTemplateModal, applyTemplate,
+  // Données
+  exportData, importData, confirmReset, deleteAccount,
+  // Partage, bingo, bilan
   openShareModal, setShareFormat, downloadShareImage, shareNative, printReport,
-  // Nouveautés
-  openWhatsNew, closeWhatsNew,
-  // PWA install
+  openBingo, toggleBingo, shareBingo,
+  // La promo
+  openPromoProfile: () => promo.openProfile(),
+  rollPseudonym: () => promo.rollPseudonym(),
+  savePromoProfile: () => promo.saveProfile(),
+  leavePromo: () => promo.leave(),
+  copyProfileLink: () => promo.copyLink(),
+  postToPromo: () => promo.post(),
+  removePromoNote: i => promo.removeNote(i),
+  reportNote: (id, i) => promo.report(id, i),
+  cheerFellow: id => promo.cheer(id),
+  openFellow: id => promo.openFellow(id),
+  // Mises à jour
+  openWhatsNew, closeWhatsNew, openPrivacy,
+  // Installation
   installApp, dismissIOSBanner,
 });
 
-initDocxDropzone();
+initGlobalDrop();
 window.addEventListener('resize', () => { if (_loaded) scheduleJournalRender(); });
 
-// Bouton flottant (mobile) : visible seulement quand celui du tableau de bord ne l'est plus
+// Bouton flottant (mobile) : visible seulement quand celui de la page ne l'est plus
 if ('IntersectionObserver' in window) {
-  const logBtn = document.querySelector('.today-strip .btn-log');
-  if (logBtn) {
+  const mainBtn = document.getElementById('tdPrimary');
+  if (mainBtn) {
     new IntersectionObserver(entries => {
       document.body.classList.toggle('fab-hidden', entries[0].isIntersecting);
-    }).observe(logBtn);
+    }).observe(mainBtn);
   }
 }
 
@@ -2829,5 +3720,7 @@ onAuthStateChanged(auth, (user) => {
     // Nouveaux visiteurs (venus d'Instagram…) : onglet « Créer un compte » par défaut
     switchAuthTab(lsGet('jdb_known') ? 'signin' : 'signup');
     showScreen('authScreen');
+    const shared = cleanId(new URLSearchParams(location.search).get('p'));
+    if (shared) promo.showGuest(shared);
   }
 });
