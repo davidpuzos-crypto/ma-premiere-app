@@ -1,0 +1,81 @@
+rules_version = '2';
+
+// Règles de sécurité de Firestore pour Le Journal de Bord.
+// À coller dans la console Firebase : Firestore Database, onglet « Règles », puis « Publier ».
+// Elles sont testées (voir README, « Tester les règles »).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+
+    // ── Le journal de chaque personne : strictement privé ──────────────────
+    match /users/{uid}/{document=**} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // ── La promo : fiches publiques, sous pseudonyme, créées par choix ─────
+    // Pour exclure quelqu'un : créer, dans la console, un document de la collection
+    // « banned » dont l'identifiant est celui de sa fiche, puis supprimer sa fiche.
+    function notBanned() {
+      return !exists(/databases/$(database)/documents/banned/$(request.auth.uid));
+    }
+    function okNote(n) {
+      return n is map && n.keys().hasOnly(['d', 't', 'p'])
+        && n.d is string && n.d.size() == 10
+        && n.t is string && n.t.size() >= 1 && n.t.size() <= 240
+        && n.p is number && n.p >= 0 && n.p <= 99;
+    }
+    function okNotes(l) {
+      return l is list && l.size() <= 8
+        && (l.size() < 1 || okNote(l[0])) && (l.size() < 2 || okNote(l[1]))
+        && (l.size() < 3 || okNote(l[2])) && (l.size() < 4 || okNote(l[3]))
+        && (l.size() < 5 || okNote(l[4])) && (l.size() < 6 || okNote(l[5]))
+        && (l.size() < 7 || okNote(l[6])) && (l.size() < 8 || okNote(l[7]));
+    }
+    function okProfile(d) {
+      return d.keys().hasOnly(['v', 'name', 'field', 'year', 'pct', 'week', 'weekPages', 'streak', 'heat', 'notes', 'joinedAt', 'updatedAt'])
+        && d.keys().hasAll(['name', 'pct', 'week', 'weekPages', 'streak', 'heat', 'notes', 'updatedAt'])
+        && d.name is string && d.name.size() >= 2 && d.name.size() <= 30
+        && (!('field' in d) || (d.field is string && d.field.size() <= 30))
+        && (!('year' in d) || (d.year is number && d.year >= 0 && d.year <= 6))
+        && d.pct is number && d.pct >= 0 && d.pct <= 100
+        && d.week is string && d.week.size() <= 10
+        && d.weekPages is number && d.weekPages >= 0 && d.weekPages <= 300
+        && d.streak is number && d.streak >= 0 && d.streak <= 9999
+        && d.heat is map && d.heat.size() <= 100
+        && okNotes(d.notes)
+        && d.updatedAt is string && d.updatedAt.size() <= 30
+        && (!('joinedAt' in d) || (d.joinedAt is string && d.joinedAt.size() <= 30));
+    }
+
+    match /profiles/{uid} {
+      allow get: if true;            // une fiche se consulte par son lien, sans compte
+      allow list: if signedIn();     // la liste est réservée aux personnes connectées
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && notBanned() && okProfile(request.resource.data);
+      allow delete: if signedIn() && request.auth.uid == uid;
+
+      // Encouragements : un par personne et par fiche, jamais pour soi-même
+      match /cheers/{from} {
+        allow read: if signedIn();
+        allow create, update: if signedIn() && request.auth.uid == from && from != uid
+          && request.resource.data.keys().hasOnly(['w', 'at', 'name'])
+          && request.resource.data.w is string && request.resource.data.w.size() <= 10
+          && request.resource.data.at is string && request.resource.data.at.size() <= 30
+          && request.resource.data.name is string && request.resource.data.name.size() <= 30;
+        allow delete: if signedIn() && (request.auth.uid == from || request.auth.uid == uid);
+      }
+    }
+
+    // ── Signalements : on peut en déposer ; ils se lisent dans la console ──
+    match /reports/{id} {
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['by', 'target', 'name', 'text', 'at'])
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.target is string && request.resource.data.target.size() <= 128
+        && request.resource.data.text is string && request.resource.data.text.size() <= 300;
+    }
+
+    // Tout le reste (dont « banned ») est fermé : ni lecture ni écriture depuis l'application.
+  }
+}

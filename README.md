@@ -2,61 +2,117 @@
 
 Application web (PWA) de suivi de rédaction de thèse et de mémoire : https://lejournaldebord.org
 
+Parti pris : peu de fonctions, mais soignées. Une page de thèse (du papier, de l'encre, une table des matières), une saisie en un geste, et un peu d'humour de doctorant·e pour tenir.
+
 ## Ce que fait l'application
 
-- **Plan** : chapitres, sous-sections, objectifs de pages, modèles de plan, glisser-déposer.
-- **Journal du quotidien** : bouton « J'ai écrit », objectif du jour, série, pages de la semaine, calendrier de régularité, notes et humeur.
-- **Échéance** : date de dépôt, marge de relecture, jours d'écriture, rythme à tenir, statut (dans les temps ou en retard), rétroplanning par chapitre.
-- **Statuts de relecture** : chez la direction (avec compteur de jours et mail de relance), à corriger, validé.
-- **Synchro avec Word** : lecture locale du `.docx` (rien n'est envoyé), détection des Titre 1 / Titre 2, notes de bas de page comprises, calibrage sur la pagination de Word.
-- **Agenda** : fichier `.ics` (séances d'écriture avec rappel, dépôt, échéances des chapitres) et liens Google Agenda.
-- **Partage** : image Instagram en post carré ou en story, partage natif sur mobile.
-- **Bilan imprimable** pour le comité de suivi (CSI) ou un rendez-vous avec la direction.
-- **Hors ligne et multi-appareils** : cache Firestore persistant et synchronisation en temps réel.
+**Ma thèse**
+
+- **Page de titre** : avancement en pourcentage, pages rédigées, date de dépôt (dans les temps ou en retard), fin estimée au rythme actuel.
+- **Aujourd'hui** : objectif du jour calculé d'après le dépôt, série de jours d'écriture, bouton « +1 page ».
+- **Table des matières** : chapitres et sous-sections, boutons − et + sur chaque partie, échéance proposée par chapitre, statut de relecture (chez la direction, à corriger, validé) avec mail de relance.
+- **Synchro avec Word** : le `.docx` est lu sur l'appareil (rien n'est envoyé). Titres détectés, notes de bas de page comptées, un fichier pour tout le manuscrit ou un fichier par chapitre. Sur Chrome et Edge, le fichier reste lié et se relit tout seul.
+- **Journal** : calendrier de régularité, notes du jour.
+- **Agenda** : fichier `.ics` et liens Google Agenda (séances d'écriture, dépôt, échéances).
+- **Bilan imprimable** pour le comité de suivi (CSI) ou la direction.
+- **Hors ligne et multi-appareils** : cache local, synchronisation en temps réel.
+
+**Entre doctorant·es**
+
+- **Note de bas de page du jour** et **bingo de la semaine** : les mêmes pour tout le monde.
+- **Images à partager** (post carré ou story) : avancement ou grille de bingo.
+- **La promo** (facultative, sous pseudonyme) : classement de la semaine, fil de notes partagées, encouragements, fiche consultable par un lien. Elle reste invisible tant que les règles de sécurité ci-dessous ne sont pas publiées.
+
+**Confidentialité et compte** : page d'explication, export, remise à zéro, suppression du compte.
 
 ## Fichiers
 
 | Fichier | Rôle |
 | --- | --- |
-| `index.html` | Structure de la page, modales, modèle de l'image de partage |
-| `style.css` | Styles (variables de couleurs en tête de fichier) |
-| `app.js` | Application : Firebase, synchronisation, interface |
-| `core.js` | Logique pure et testée : dates, série, rythme, échéance, rétroplanning |
+| `index.html` | Structure de la page, fenêtres, modèles des images à partager |
+| `style.css` | Styles (couleurs et polices en tête de fichier) |
+| `app.js` | Application : connexion, synchronisation, interface |
+| `core.js` | Logique pure et testée : dates, série, rythme, échéance, plan collé |
+| `humour.js` | Textes : notes du jour, dictionnaire du doctorant, grades, bingo, pseudonymes |
+| `promo.js` | La promo : fiches, classement, fil, encouragements |
 | `docx.js` | Lecture des fichiers Word dans le navigateur |
 | `ics.js` | Génération des fichiers agenda |
 | `sw.js` | Service worker (réseau d'abord, cache en secours) |
-| `tests/core.test.mjs` | Tests de `core.js` : `node tests/core.test.mjs` |
+| `fonts/` | Polices EB Garamond et Source Sans 3, hébergées ici (licence OFL, voir `fonts/OFL.txt`) |
+| `firestore.rules` | Règles de sécurité de la base, à publier dans la console Firebase |
+| `tests/` | Tests (voir plus bas). Rien dans ce dossier n'est chargé par le site |
+
+## Activer « La promo » (une fois, deux minutes)
+
+1. Ouvrir la [console Firebase](https://console.firebase.google.com/), projet du Journal, **Firestore Database**, onglet **Règles**.
+2. Remplacer tout le contenu par celui du fichier [`firestore.rules`](firestore.rules).
+3. Cliquer sur **Publier**.
+
+À leur prochaine ouverture, les utilisateurs voient apparaître l'onglet « La promo ». Rien d'autre à faire, et rien à redéployer.
+
+Ces règles font aussi le ménage côté sécurité : le journal de chaque personne n'est lisible que depuis son compte, et tout ce qui n'est pas prévu est fermé.
+
+### Ce que la promo montre, et ne montre pas
+
+Une fiche contient : pseudonyme, discipline et année (facultatives), pourcentage d'avancement, pages de la semaine, série, calendrier de régularité des douze dernières semaines, et les notes que la personne choisit de partager (8 au plus, 240 caractères chacune).
+
+Jamais : le nom, l'adresse email, le titre de la thèse, le plan, les notes privées. Les règles refusent tout autre champ.
+
+### Modérer
+
+- **Signalements** : le bouton « Signaler » d'un message crée un document dans la collection `reports` (auteur du signalement, fiche visée, texte). Ils se lisent dans la console Firebase, pas dans l'application.
+- **Retirer une fiche** : supprimer le document `profiles/{identifiant}` dans la console.
+- **Exclure quelqu'un** : créer un document dans la collection `banned`, avec pour identifiant celui de la fiche, puis supprimer la fiche. La personne garde son journal privé mais ne peut plus recréer de fiche.
 
 ## Données (Firestore)
 
-Un document par utilisateur : `users/{uid}/thesis/main`.
+| Emplacement | Contenu | Qui lit | Qui écrit |
+| --- | --- | --- | --- |
+| `users/{uid}/thesis/main` | Le journal : plan, pages, dates, notes | la personne | la personne |
+| `profiles/{uid}` | La fiche publique de la promo | tout le monde par le lien, la liste pour les personnes connectées | la personne |
+| `profiles/{uid}/cheers/{from}` | Un encouragement reçu | personnes connectées | celle qui encourage |
+| `reports/{id}` | Un signalement | personne (console seulement) | personnes connectées |
+| `banned/{uid}` | Exclusion de la promo | personne (console seulement) | personne (console seulement) |
 
-Champs historiques : `chapters`, `startDate`, `milestones`, `documentTitle`, `updatedAt`.
-Champs ajoutés en v2 : `version`, `deadline`, `marginDays`, `writingDays`, `dailyGoal`, `introLast`,
-`sessionTime`, `sessionMinutes`, `activity` (pages écrites par jour), `journal` (notes par jour),
-`trackedSince`, `lastDocImport`, `lastSeenAt`, `appVersion`, `clientId`.
+Champs du journal : `chapters`, `startDate`, `milestones`, `documentTitle`, `updatedAt` (historiques), puis `version`, `deadline`, `marginDays`, `writingDays`, `dailyGoal`, `introLast`, `sessionTime`, `sessionMinutes`, `activity` (pages par jour), `journal` (notes par jour), `trackedSince`, `docFiles`, `docIgnore`, `lastSeenAt`, `appVersion`, `clientId`.
 
-Les écritures se font en mode `merge` : l'historique d'un appareil n'efface jamais celui d'un autre.
+Les écritures du journal se font en mode `merge` : l'historique d'un appareil n'efface jamais celui d'un autre.
 
-### Règles de sécurité recommandées
+Sur l'appareil (stockage local du navigateur) : quelques réglages (dernière partie travaillée, grille de bingo cochée, annonces déjà vues), une copie de secours du journal et, sur Chrome et Edge, le lien vers les fichiers Word. « Supprimer mon compte » efface le tout.
 
-Dans la console Firebase, Firestore, onglet Règles :
+## Tester
 
+```bash
+node tests/core.test.mjs
 ```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{uid}/{document=**} {
-      allow read, write: if request.auth != null && request.auth.uid == uid;
-    }
-  }
-}
+
+Logique pure (dates, série, rythme, plan collé). Aucune dépendance.
+
+```bash
+node tests/e2e.cjs
 ```
+
+Vingt et un scénarios dans un vrai navigateur (Playwright) : inscription, plan, « +1 page », synchro Word, mobile, sécurité des données, annonce de mise à jour, promo fermée puis ouverte, lien de fiche, bingo, suppression de compte, accessibilité de base. Firebase y est remplacé par des bouchons (`tests/stubs`) : aucun compte créé, aucune donnée réelle touchée. Pour un seul scénario : `ONLY="Promo ouverte" node tests/e2e.cjs`.
+
+```bash
+cd tests && npm install && npm run rules
+```
+
+Les règles de `firestore.rules` face au vrai moteur de règles, sur l'émulateur local de Firestore (Java requis). Si les tests de navigateur ont tourné juste avant, les écritures réellement faites par l'application y sont rejouées.
 
 ## Publier une nouvelle version
 
 1. Augmenter `VERSION` dans `sw.js` **et** `APP_VERSION` dans `app.js` (même valeur).
-2. Si un nouveau fichier est ajouté, l'ajouter à `ASSETS_TO_CACHE` dans `sw.js`.
-3. Pousser sur `main`.
+2. Pour annoncer la mise à jour à la connexion : augmenter `WHATSNEW_VER` dans `app.js` et adapter le texte de la fenêtre `whatsNewModal` dans `index.html`. Les nouveaux comptes ne la voient pas.
+3. Si un fichier est ajouté, l'ajouter à `ASSETS_TO_CACHE` dans `sw.js`.
+4. Fusionner dans `main`, puis fusionner `main` dans la branche que GitHub Pages publie (`claude/thesis-tracker-spa-Dx6nk`, celle qui contient le fichier `CNAME`). Le site est à jour une minute plus tard.
 
 Le service worker sert toujours la dernière version en ligne ; la copie en cache ne sert que hors ligne ou si le réseau est très lent.
+
+## Dépendances externes
+
+- Firebase 10.8.1 (connexion et base de données), chargé depuis `gstatic.com`.
+- SortableJS 1.15.6 (glisser-déposer), version figée et contenu vérifié par le navigateur.
+- JSZip et html2canvas, chargés seulement au moment de lire un fichier Word ou de préparer une image, eux aussi vérifiés.
+
+Aucune publicité, aucun outil d'analyse tiers, aucune police demandée à un serveur tiers.

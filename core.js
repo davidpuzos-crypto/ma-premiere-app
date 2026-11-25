@@ -345,7 +345,7 @@ export function parsePlanText(text) {
   const lines = [];
   for (const raw of String(text || '').split(/\r?\n/)) {
     if (!raw.trim()) continue;
-    const expanded = raw.replace(/\t/g, '    ').replace(/ /g, ' ');
+    const expanded = raw.replace(/\t/g, '    ').replace(/\u00A0/g, ' ');
     const indent = expanded.length - expanded.trimStart().length;
     let line = expanded.trim();
     let bullet = false;
