@@ -346,7 +346,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(d.docFiles.these.inclWords, 4645);
     assert.equal(d.docFiles.these.wpp, 380);
     assert.equal(d.chapters[1].docFile, 'these');
-    assert.equal(await page.textContent('#wordBtn'), 'Synchroniser Word');
+    assert.equal(await page.textContent('#wordBtn'), 'Synchroniser mon document');
 
     // Le lendemain : le même fichier, enrichi. Un geste, pas d'aperçu.
     await page.waitForTimeout(400);
@@ -537,7 +537,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(d.chapters[2].subsections.length, 3);
     // Délier
     await page.evaluate(() => window.openDocxModal());
-    await page.click('#linkedList .lk-btn');
+    await page.click('#linkedList >> text=Délier');
     assert.equal(await page.textContent('#tdPrimary'), '+1 page');
     await page.waitForTimeout(400);
     await page.reload();
@@ -569,10 +569,10 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.click('#docxModal >> text=Retour');
     await page.click('#docxModal >> text=Fermer');
     // Un PDF : message clair, pas d'erreur
-    await drop('these.docx', 'these.pdf', 'application/pdf');
+    await drop('faux.pdf', 'these.pdf', 'application/pdf');
     await page.waitForSelector('#docxError:not(.hidden)');
     assert.match(await page.textContent('#docxError'), /PDF/);
-    assert.deepEqual(page._errors.filter(e => !/docx:/.test(e)), []);
+    assert.deepEqual(page._errors.filter(e => !/document :/.test(e)), []);
     await ctx.close();
   });
 
@@ -708,7 +708,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.goto(BASE + '?action=log');
     await page.waitForSelector('#logModal:not(.hidden)');
     assert.equal(new URL(page.url()).search, '');
-    assert.equal(await page.textContent('#wordBtn'), 'Synchroniser Word', 'ancien import reconnu');
+    assert.equal(await page.textContent('#wordBtn'), 'Synchroniser mon document', 'ancien import reconnu');
     await page.click('#logModal >> text=Enregistrer');
     await page.waitForTimeout(200);
     const d = await docOf(page, uid);
@@ -1298,6 +1298,413 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await c.page.waitForTimeout(2500);
     assert.equal(navC.length, 3, 'deux rechargements au plus : ' + navC.length);
     assert.equal(await c.page.textContent('#sWritten'), '38', 'l\'application finit par démarrer quand même');
+    await c.ctx.close();
+  });
+
+
+  /* ============================================================
+     V3.1 : niveaux de titre, plan refait, autres formats, copier-coller
+  ============================================================ */
+  const rowTitles = page => page.$$eval('#docxRows .dx-ch .dx-title', els => els.map(e => e.textContent));
+  const planOf = d => d.chapters.map(c => c.title + (c.subsections.length ? ` [${c.subsections.map(x => x.title).join(' | ')}]` : ''));
+  const pasteInto = (page, selector, html, text) => page.evaluate(({ selector, html, text }) => {
+    const dt = new DataTransfer();
+    if (html) dt.setData('text/html', html);
+    dt.setData('text/plain', text || '');
+    (selector ? document.querySelector(selector) : document.body).dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
+  }, { selector, html, text });
+  const words = n => Array.from({ length: n }, (_, i) => ['la', 'recherche', 'doctorale', 'exige', 'une', 'patience', 'infinie', 'et', 'du', 'café'][i % 10]).join(' ');
+
+  /* ------------------------------------------------------------ */
+  await test('Import : un seul « Titre 1 » (titre de la thèse), chapitres en « Titre 2 » : bon plan, niveau modifiable et retenu', async () => {
+    const uid = 'u_niv';
+    const { ctx, page } = await newPage(browser, { user: { uid, email: 'niv@example.com' } });
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+    await sendDocx(page, 'these-titre-unique.docx');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.match(await page.textContent('#docxSummary'), /6 parties détectées, 4 sous-sections/);
+    assert.deepEqual(await rowTitles(page), ['Introduction générale', 'Chapitre 1 : État de l’art', 'Chapitre 2 : Méthodologie', 'Chapitre 3 : Résultats', 'Conclusion générale', 'Bibliographie'],
+      'les chapitres sont les « Titre 2 », pas le titre de la thèse');
+    assert.ok(await page.isVisible('#docxLevelRow'));
+    assert.equal(await page.inputValue('#docxLevel'), 'auto');
+    assert.match(await page.textContent('#docxLevel option[value="auto"]'), /repérés automatiquement \(niveau 2\)/);
+    assert.deepEqual(await page.$$eval('#docxLevel option', os => os.map(o => o.value)), ['auto', '1', '2', '3', '4']);
+    assert.equal(await page.isVisible('#docxReplaceRow'), false, 'plan vide : rien à remplacer');
+    await page.screenshot({ path: path.join(SHOTS, '31-01-plan-propose.png') });
+    // On peut choisir un autre niveau : l'aperçu se refait aussitôt
+    await page.selectOption('#docxLevel', '1');
+    assert.deepEqual(await rowTitles(page), ['Les ponts suspendus en France au XIXe siècle']);
+    assert.match(await page.textContent('#docxSummary'), /1 partie détectée, 6 sous-sections/);
+    await page.selectOption('#docxLevel', '3');
+    assert.deepEqual(await rowTitles(page), ['Introduction générale', '1.1 Histoire des techniques', '1.2 Débats historiographiques', '2.1 Archives', '2.2 Corpus', 'Chapitre 3 : Résultats', 'Conclusion générale', 'Bibliographie']);
+    await page.selectOption('#docxLevel', 'auto');
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    await flush(page);
+    let d = await docOf(page, uid);
+    assert.deepEqual(planOf(d), ['Introduction générale', 'Chapitre 1 : État de l’art [1.1 Histoire des techniques | 1.2 Débats historiographiques]',
+      'Chapitre 2 : Méthodologie [2.1 Archives | 2.2 Corpus]', 'Chapitre 3 : Résultats', 'Conclusion générale']);
+    assert.equal(d.docFiles['these-titre-unique'] === undefined, true);
+    assert.equal(d.docFiles.these_titre_unique.level, 'auto', 'niveau retenu pour ce document');
+    const w0 = written(d);
+    assert.equal(d.chapters[3].writtenPages, 4);
+    assert.equal(d.chapters[2].subsections[0].writtenPages, 2, 'notes de bas de page comprises');
+    // Synchro suivante : un geste, sans aperçu, même découpage
+    await page.waitForTimeout(1100);
+    await sendDocx(page, 'these-titre-unique_v2.docx', 'these-titre-unique.docx');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /synchronisé\s:\s\+2\sp\./.test(t.textContent)), null, { timeout: 15000 });
+    assert.equal(await page.isVisible('#docxModal'), false, 'pas d\'aperçu la deuxième fois');
+    await flush(page);
+    d = await docOf(page, uid);
+    assert.equal(written(d), w0 + 2);
+    assert.equal(d.chapters[2].subsections[1].writtenPages, 3);
+    assert.equal(d.activity[TODAY], 2);
+    // « Revoir le plan » : l'aperçu se rouvre, on peut changer de niveau, le choix est retenu
+    await page.evaluate(() => window.openDocxModal());
+    await page.waitForSelector('#linkedBox:not(.hidden)');
+    await page.evaluate(() => { document.getElementById('docxInput').click = () => {}; });
+    await page.click('#linkedList >> text=Revoir le plan');
+    await sendDocx(page, 'these-titre-unique_v2.docx', 'these-titre-unique.docx');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.equal(await page.inputValue('#docxLevel'), 'auto');
+    assert.ok(await page.isVisible('#docxReplaceRow'));
+    await page.selectOption('#docxLevel', '1');
+    await page.check('#docxReplace');
+    assert.equal(await page.textContent('#docxApply'), 'Refaire mon plan');
+    assert.equal(await page.isVisible('#docxCountRow'), false, 'changer de découpage n\'est pas écrire');
+    await page.click('#docxApply');
+    await page.waitForFunction(() => document.querySelectorAll('.chapter-card').length === 1);
+    await flush(page);
+    d = await docOf(page, uid);
+    assert.equal(d.docFiles.these_titre_unique.level, 1);
+    assert.equal(d.activity[TODAY], 2, 'journal inchangé');
+    assert.equal(d.chapters[0].subsections.length, 6);
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('Import : ancien découpage raté (tout en un chapitre) : le nouveau plan est proposé, objectifs repris, annulable', async () => {
+    const uid = 'u_rate';
+    // Ce que l'ancienne version avait produit : le titre de la thèse comme seul chapitre
+    const doc = { version: 2, documentTitle: 'Ma thèse', trackedSince: addDays(TODAY, -10), activity: { [addDays(TODAY, -1)]: 3 }, journal: {}, milestones: {},
+      chapters: [{ id: 'c1', title: 'Les ponts suspendus en France au XIXe siècle', expanded: true, review: 'sent', reviewDate: addDays(TODAY, -5), docKey: 'les ponts suspendus en france au xixe siecle', docFile: 'these_titre_unique',
+        subsections: [
+          { id: 's1', title: 'Introduction générale', targetPages: 12, writtenPages: 2, docKey: 'introduction generale', docFile: 'these_titre_unique' },
+          { id: 's2', title: 'Chapitre 1 : État de l’art', targetPages: 30, writtenPages: 7, docKey: 'etat de l art', docFile: 'these_titre_unique' },
+          { id: 's3', title: 'Chapitre 2 : Méthodologie', targetPages: 25, writtenPages: 3, docKey: 'methodologie', docFile: 'these_titre_unique' },
+          { id: 's4', title: 'Chapitre 3 : Résultats', targetPages: 40, writtenPages: 4, docKey: 'resultats', docFile: 'these_titre_unique' },
+          { id: 's5', title: 'Conclusion générale', targetPages: 8, writtenPages: 1, docKey: 'conclusion generale', docFile: 'these_titre_unique' },
+          { id: 's6', title: 'Bibliographie', targetPages: 10, writtenPages: 2, docKey: 'bibliographie', docFile: 'these_titre_unique' },
+        ] }],
+      docFiles: { these_titre_unique: { name: 'these-titre-unique.docx', at: addDays(TODAY, -1), inclWords: 7549, wpp: 380, scope: '' } } };
+    const { ctx, page } = await newPage(browser, { user: { uid, email: 'rate@example.com' }, store: { [`users/${uid}/thesis/main`]: doc } });
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    assert.equal(await page.locator('.chapter-card').count(), 1);
+    await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+    await sendDocx(page, 'these-titre-unique.docx');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.ok(await page.isVisible('#docxSuggest'), 'le nouveau découpage est expliqué');
+    assert.equal(await page.isChecked('#docxReplace'), true);
+    assert.equal(await page.inputValue('#docxLevel'), 'auto');
+    assert.match(await page.textContent('#docxLevel option[value="legacy"]'), /comme à la dernière synchro/);
+    assert.deepEqual((await rowTitles(page)).slice(0, 3), ['Introduction générale', 'Chapitre 1 : État de l’art', 'Chapitre 2 : Méthodologie']);
+    assert.match(await page.textContent('#docxMissing'), /Retirés du plan/);
+    assert.equal(await page.isVisible('#docxCountRow'), false);
+    await page.screenshot({ path: path.join(SHOTS, '31-02-plan-refait.png') });
+    await page.click('#docxApply');
+    await page.waitForFunction(() => document.querySelectorAll('.chapter-card').length === 5);
+    await flush(page);
+    let d = await docOf(page, uid);
+    assert.deepEqual(d.chapters.map(c => c.title), ['Introduction générale', 'Chapitre 1 : État de l’art', 'Chapitre 2 : Méthodologie', 'Chapitre 3 : Résultats', 'Conclusion générale']);
+    assert.equal(d.chapters[0].targetPages, 12, 'objectif repris de l\'ancienne sous-section');
+    assert.equal(d.chapters[3].targetPages, 40);
+    assert.equal(d.chapters[4].targetPages, 8);
+    assert.equal(d.chapters[1].subsections.reduce((a, x) => a + x.targetPages, 0), 30, 'objectif du chapitre partagé entre ses sous-sections');
+    assert.equal(d.docFiles.these_titre_unique.level, 'auto');
+    assert.deepEqual(d.activity, { [addDays(TODAY, -1)]: 3 }, 'le journal n\'a pas bougé');
+    assert.equal((d.journal[TODAY] || []).length, 0, 'pas de « jour de relecture » inventé');
+    // Annuler : l'ancien plan revient tel quel
+    await page.click('.toast[data-key="docx"] .toast-act');
+    await page.waitForFunction(() => document.querySelectorAll('.chapter-card').length === 1);
+    await flush(page);
+    d = await docOf(page, uid);
+    assert.equal(d.chapters[0].subsections.length, 6);
+    assert.equal(d.chapters[0].review, 'sent');
+    // Si l'on préfère garder l'ancien découpage : « comme à la dernière synchro », et plus de question ensuite
+    await page.waitForTimeout(1100);
+    await sendDocx(page, 'these-titre-unique.docx');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    await page.selectOption('#docxLevel', 'legacy');
+    await page.uncheck('#docxReplace');
+    assert.deepEqual(await rowTitles(page), ['Les ponts suspendus en France au XIXe siècle']);
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('Import : thèse en parties, LibreOffice (.odt), LaTeX (.tex), formats refusés avec une explication', async () => {
+    const uid = 'u_fmt';
+    const open = async () => {
+      const r = await newPage(browser, { user: { uid, email: 'fmt@example.com' } });
+      await r.page.goto(BASE);
+      await r.page.waitForSelector('.onboarding');
+      await r.page.evaluate(() => { window.showOpenFilePicker = undefined; });
+      return r;
+    };
+    // Parties en Titre 1, chapitres en Titre 2
+    let { ctx, page } = await open();
+    await sendDocx(page, 'these-parties.docx');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.deepEqual(await rowTitles(page), ['Introduction générale', 'Chapitre 1 : Le sol', 'Chapitre 2 : Les piles', 'Deuxième partie : Le tablier',
+      'Chapitre 3 : Les câbles', 'Chapitre 4 : Les haubans', 'Conclusion générale', 'Bibliographie'], 'chapitres sortis de leurs parties ; longue ouverture de partie gardée à part');
+    assert.match(await page.textContent('#docxLevel option[value="auto"]'), /niveau 2/);
+    await page.selectOption('#docxLevel', '1');
+    assert.deepEqual(await rowTitles(page), ['Introduction générale', 'Première partie : Les fondations', 'Deuxième partie : Le tablier', 'Conclusion générale', 'Bibliographie']);
+    await ctx.close();
+
+    // LibreOffice : même plan que le .docx dont il est tiré
+    ({ ctx, page } = await open());
+    await sendDocx(page, 'these-titre-unique.odt');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.match(await page.textContent('#docxSummary'), /these-titre-unique\.odt/);
+    assert.match(await page.textContent('#docxSummary'), /6 parties détectées, 4 sous-sections/);
+    assert.deepEqual((await rowTitles(page)).slice(0, 2), ['Introduction générale', 'Chapitre 1 : État de l’art']);
+    const odtWords = parseInt((await page.textContent('#docxSummary')).replace(/\s/g, '').match(/:(\d+)mots/)[1], 10);
+    assert.ok(Math.abs(odtWords - 7549) <= 15, 'même décompte que le .docx, à quelques mots près : ' + odtWords);
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    await flush(page);
+    assert.equal((await docOf(page, uid)).chapters.length, 5);
+    await ctx.close();
+
+    // Document né dans LibreOffice : titres marqués, titre dans une liste, note, tableau, suivi des modifications
+    ({ ctx, page } = await open());
+    await sendDocx(page, 'natif.odt');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.match(await page.textContent('#docxSummary'), /2\s103 mots, 6 pages selon LibreOffice\. 3 parties détectées, 2 sous-sections/, 'ni la table des matières, ni le texte supprimé, ni les commentaires ne comptent');
+    assert.deepEqual(await rowTitles(page), ['Introduction', 'Chapitre 1 : Le sol', 'Conclusion']);
+    assert.deepEqual(await page.$$eval('#docxRows .dx-ss .dx-title', els => els.map(e => e.textContent)), ['Géologie', 'Sondages']);
+    assert.equal(await page.inputValue('#docxWpp'), '351', 'mots par page calibrés sur la pagination du fichier');
+    await ctx.close();
+
+    // LaTeX
+    ({ ctx, page } = await open());
+    await sendDocx(page, 'these.tex');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.deepEqual(await rowTitles(page), ['Introduction générale', 'État de l\'art', 'Conclusion générale']);
+    assert.deepEqual(await page.$$eval('#docxRows .dx-ss .dx-title', els => els.map(e => e.textContent)), ['Histoire des techniques', 'Débats historiographiques']);
+    assert.equal(await page.inputValue('#docxWpp'), '420');
+    // Formats non lus : un message qui dit quoi faire
+    await page.click('#docxModal >> text=Retour');
+    await page.setInputFiles('#docxInput', { name: 'these.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7\n%âãÏÓ\n1 0 obj\n') });
+    await page.waitForSelector('#docxError:not(.hidden)');
+    assert.match(await page.textContent('#docxError'), /PDF.*collez votre texte/);
+    await page.setInputFiles('#docxInput', { name: 'these.doc', mimeType: 'application/msword', buffer: Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]) });
+    await page.waitForFunction(() => /ancien Word/.test(document.getElementById('docxError').textContent));
+    await page.setInputFiles('#docxInput', { name: 'photo.png', mimeType: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4E, 0x47, 1, 2, 3]) });
+    await page.waitForFunction(() => /Format non reconnu/.test(document.getElementById('docxError').textContent));
+    assert.equal(await page.evaluate(() => window.__fbStore.writes.filter(w => w.data && w.data.chapters).length), 0, 'rien n\'a été écrit');
+    assert.deepEqual(page._errors.filter(e => !/document :/.test(e)), []);
+    await ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('Copier-coller : texte collé depuis Google Docs (titres conservés), puis mise à jour en un geste', async () => {
+    const uid = 'u_colle';
+    const gdoc = extra => `<meta charset="utf-8"><b style="font-weight:normal" id="docs-internal-guid-1"><p dir="ltr"><span style="font-size:26pt">Ma thèse</span></p>
+      <h1 dir="ltr"><span>Les ponts suspendus</span></h1><p><span>${words(40)}</span></p>
+      <h2 dir="ltr"><span>Introduction</span></h2><p><span>${words(380)}</span></p><p><span>${words(380)}</span></p>
+      <h2><span>Chapitre 1 : </span><span>Les câbles</span></h2><p>${words(100)}</p>
+      <h3>1.1 Acier</h3><p>${words(760)}</p><ul><li>${words(10)}</li><li>${words(10)}</li></ul>
+      <h3>1.2 Fonte</h3><table><tr><td>${words(190)}</td><td>${words(190)}</td></tr></table>
+      <h2>Conclusion</h2><p>${words(380 + extra)}</p><style>p { color: red }</style><script>window.__xss = 1</script></b>`;
+    const { ctx, page } = await newPage(browser, { user: { uid, email: 'colle@example.com' } });
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    // Un petit texte collé ailleurs que dans un champ : ignoré
+    await pasteInto(page, null, '<h1>Titre</h1><p>trois petits mots</p>', 'Titre trois petits mots');
+    await page.waitForTimeout(200);
+    assert.equal(await modalsOpen(page), 0);
+    // Coller dans la fenêtre de synchro
+    await page.evaluate(() => window.openDocxModal());
+    await page.waitForSelector('#docxPaste');
+    await pasteInto(page, '#docxPaste', gdoc(0), 'texte brut');
+    await page.waitForSelector('#docxStep2:not(.hidden)');
+    assert.match(await page.textContent('#docxSummary'), /Texte collé/);
+    assert.deepEqual(await rowTitles(page), ['Introduction', 'Chapitre 1 : Les câbles', 'Conclusion']);
+    assert.deepEqual(await page.$$eval('#docxRows .dx-ss .dx-title', els => els.map(e => e.textContent)), ['1.1 Acier', '1.2 Fonte']);
+    assert.equal(await page.evaluate(() => window.__xss), undefined, 'le contenu collé n\'est jamais exécuté');
+    assert.equal(await page.inputValue('#docxPaste'), '', 'rien ne reste dans la zone de collage');
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    await flush(page);
+    let d = await docOf(page, uid);
+    assert.deepEqual(planOf(d), ['Introduction', 'Chapitre 1 : Les câbles [1.1 Acier | 1.2 Fonte]', 'Conclusion']);
+    assert.equal(d.chapters[0].writtenPages, 2);
+    assert.equal(d.chapters[1].subsections[0].writtenPages, 2, 'listes comprises, ouverture du chapitre avec sa première section');
+    assert.equal(d.chapters[1].subsections[1].writtenPages, 1, 'tableaux compris');
+    assert.equal(d.docFiles.texte_colle.name, 'Texte collé');
+    const w0 = written(d);
+    // La fois suivante : coller n'importe où dans la page suffit
+    await page.waitForTimeout(1100);
+    await pasteInto(page, null, gdoc(760), words(3000));
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Texte collé synchronisé\s:\s\+2\sp\./.test(t.textContent)));
+    await flush(page);
+    d = await docOf(page, uid);
+    assert.equal(written(d), w0 + 2);
+    assert.equal(d.activity[TODAY], 2);
+    // Coller dans un champ de saisie reste un collage ordinaire
+    await page.evaluate(() => window.openLogModal());
+    await page.waitForSelector('#logModal:not(.hidden)');
+    await pasteInto(page, '#logNote', gdoc(0), words(3000));
+    await page.waitForTimeout(300);
+    assert.equal(await page.isVisible('#docxModal'), false);
+    await page.keyboard.press('Escape');
+    // Texte brut collé (LaTeX) : les \chapter sont reconnus ; nouveau contenu, donc aperçu
+    await pasteInto(page, null, '', `\\chapter{Introduction}\n${words(400)}\n\\chapter{Annexe technique}\n${words(400)}\n`);
+    await page.waitForSelector('#docxStep2:not(.hidden)');
+    assert.deepEqual(await rowTitles(page), ['Introduction', 'Annexe technique']);
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+
+    // Nouveau compte : le document collé là où l'on attendait un plan est lu comme un document
+    const n = await newPage(browser, { user: { uid: 'u_colle2', email: 'colle2@example.com' } });
+    await n.page.goto(BASE);
+    await n.page.waitForSelector('.onboarding');
+    assert.match(await n.page.textContent('.ob-drop'), /Déposer mon document/);
+    await n.page.click('.ob-link');
+    await pasteInto(n.page, '#planText', gdoc(0), words(1500));
+    await n.page.waitForSelector('#docxStep2:not(.hidden)');
+    assert.deepEqual(await rowTitles(n.page), ['Introduction', 'Chapitre 1 : Les câbles', 'Conclusion']);
+    await n.page.click('#docxModal >> text=Retour');
+    await n.page.click('#docxModal >> text=Fermer');
+    // … et un plan collé au même endroit reste un plan
+    await pasteInto(n.page, '#planText', '', 'Introduction\nMéthode\nConclusion');
+    await n.page.waitForTimeout(200);
+    assert.equal(await modalsOpen(n.page), 0);
+    assert.deepEqual(n.page._errors, []);
+    await n.ctx.close();
+  });
+
+
+  /* ------------------------------------------------------------ */
+  await test('Dépôt en « période visée » (un mois), agenda : séances récurrentes, point d\'étape, période dans l\'agenda', async () => {
+    const uid = 'u_periode';
+    const doc = clone(V1_DOC);
+    Object.assign(doc, { version: 2, trackedSince: addDays(TODAY, -30), activity: {}, docFiles: { these: { name: 'these.docx', at: addDays(TODAY, -2), inclWords: 4000, wpp: 380, scope: '' } } });
+    for (let i = 1; i < 28; i++) doc.activity[addDays(TODAY, -i)] = 1;
+    const { ctx, page } = await newPage(browser, { user: { uid, email: 'periode@example.com' }, store: { [`users/${uid}/thesis/main`]: doc } });
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    assert.equal(await page.textContent('#dlLabel'), 'Dépôt');
+    // Pas de date officielle : on indique un mois
+    await page.click('#dbDeadline >> text=Indiquez un mois');
+    await page.waitForSelector('#projectModal:not(.hidden)');
+    assert.ok(await page.isVisible('#pmDlMonthRow'));
+    assert.equal(await page.isVisible('#pmDeadline'), false);
+    const now = new Date();
+    const year = now.getFullYear() + 1;
+    await page.selectOption('#pmDlMonth', '8'); // septembre
+    await page.selectOption('#pmDlYear', String(year));
+    await page.screenshot({ path: path.join(SHOTS, '31-03-periode-visee.png') });
+    await page.click('#projectModal >> text=Enregistrer');
+    await page.waitForSelector('#projectModal.hidden', { state: 'attached' });
+    await flush(page);
+    let d = await docOf(page, uid);
+    assert.equal(d.deadline, `${year}-09-30`, 'le calcul va jusqu\'à la fin du mois visé');
+    assert.equal(d.deadlineMonth, true);
+    assert.equal(await page.textContent('#dlLabel'), 'Dépôt visé');
+    assert.match(await page.textContent('#dbDeadline'), new RegExp(`^septembre ${year}\\s·\\s(dans les temps|en retard|à tenir)`));
+    assert.ok(await page.locator('.due-chip:not(:empty)').count() >= 3, 'les échéances des chapitres suivent');
+    // La fenêtre se rouvre sur le mois ; l'agenda parle de période
+    await page.click('#dbDeadline .dl-show');
+    await page.waitForSelector('#projectModal:not(.hidden)');
+    assert.equal(await page.inputValue('#pmDlMonth'), '8');
+    assert.equal(await page.inputValue('#pmDlYear'), String(year));
+    await page.keyboard.press('Escape');
+    await page.evaluate(() => window.openCalendarModal());
+    await page.waitForSelector('#calendarModal:not(.hidden)');
+    assert.match(await page.textContent('#calSummary'), /Un événement récurrent\s: chaque lundi, mardi, mercredi, jeudi et vendredi à 9\sh, pendant 1\sh 30, jusqu'au \d+ \S+ \d{4}\. Rappel dix minutes avant\./);
+    assert.match(await page.textContent('#calDlLbl'), new RegExp(`Période visée pour le dépôt\\s: septembre ${year}`));
+    assert.equal(await page.isChecked('#calIncSync'), true, 'proposé à qui synchronise son document');
+    const g = new URL(await page.getAttribute('#calGoogle', 'href'));
+    assert.match(g.searchParams.get('recur'), /^RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=\d{8}T235959Z$/, 'lien Google : événement récurrent');
+    assert.match(g.searchParams.get('dates'), /^\d{8}T090000\/\d{8}T103000$/);
+    const gs = new URL(await page.getAttribute('#calGoogleSync', 'href'));
+    assert.match(gs.searchParams.get('recur'), /^RRULE:FREQ=WEEKLY;BYDAY=FR;UNTIL=\d{8}T235959Z$/);
+    assert.match(gs.searchParams.get('details'), /\?action=sync/);
+    const gd = new URL(await page.getAttribute('#calGoogleDeadline', 'href'));
+    assert.equal(gd.searchParams.get('dates'), `${year}0901/${year}1001`, 'la période couvre tout le mois');
+    await page.screenshot({ path: path.join(SHOTS, '31-04-agenda.png') });
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#calendarModal >> text=fichier agenda (.ics)')]);
+    const ics = fs.readFileSync(await dl.path(), 'utf8').replace(/\r\n /g, '');
+    assert.match(ics, /RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;UNTIL=\d{8}T235959\r\n/);
+    assert.match(ics, /SUMMARY:Point d'étape : mettre mon Journal de Bord à jour/);
+    assert.match(ics, /RRULE:FREQ=WEEKLY;BYDAY=FR;UNTIL=/);
+    assert.match(ics, new RegExp(`DTSTART;VALUE=DATE:${year}0901\\r\\nDTEND;VALUE=DATE:${year}1001`), 'période visée : un événement sur tout le mois');
+    assert.match(ics, new RegExp(`SUMMARY:Dépôt visé \\(septembre ${year}\\)`));
+    assert.equal((ics.match(/BEGIN:VEVENT/g) || []).length, 1 + 1 + 1 + 1 + 4, 'séances, point d\'étape, dépôt, fin de rédaction, 4 chapitres');
+    await page.click('#calendarModal >> text=Fermer');
+    // Sans point d'étape : un événement de moins, plus de lien
+    await page.evaluate(() => window.openCalendarModal());
+    await page.uncheck('#calIncSync');
+    assert.equal(await page.isVisible('#calGoogleSync'), false);
+    await page.click('#calendarModal >> text=Fermer');
+    // Le lien du point d'étape ouvre la synchro du document
+    await page.goto(BASE + '?action=sync');
+    await page.waitForSelector('#docxModal:not(.hidden)');
+    assert.equal(new URL(page.url()).search, '');
+    await page.keyboard.press('Escape');
+    // Bilan imprimable
+    await page.evaluate(() => { window.print = () => {}; window.printReport(); });
+    assert.match(await page.textContent('#printReport'), new RegExp(`Dépôt visé\\s*septembre ${year}`));
+    // Une date précise remplace la période
+    await page.evaluate(() => window.openProjectModal());
+    await page.click('#pmDlSeg >> text=Date précise');
+    await page.fill('#pmDeadline', `${year}-10-15`);
+    await page.click('#projectModal >> text=Enregistrer');
+    await flush(page);
+    d = await docOf(page, uid);
+    assert.equal(d.deadline, `${year}-10-15`);
+    assert.equal(d.deadlineMonth, false);
+    assert.equal(await page.textContent('#dlLabel'), 'Dépôt');
+    assert.match(await page.textContent('#dbDeadline'), /^15 oct\. /);
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('Rappel de synchro : discret, au bout d\'une semaine, seulement pour qui dépose son document', async () => {
+    const mk = async (uid, days, extra = {}) => {
+      const doc = clone(V1_DOC);
+      Object.assign(doc, { version: 2, trackedSince: addDays(TODAY, -40), activity: { [addDays(TODAY, -days)]: 2 },
+        docFiles: days === null ? {} : { these: { name: 'these.docx', at: addDays(TODAY, -days), inclWords: 4000, wpp: 380, scope: '' } } }, extra);
+      const r = await newPage(browser, { user: { uid, email: `${uid}@example.com` }, store: { [`users/${uid}/thesis/main`]: doc } });
+      await r.page.goto(BASE);
+      await r.page.waitForSelector('.chapter-card');
+      return r;
+    };
+    const a = await mk('u_s9', 9);
+    assert.match(await a.page.textContent('#tdSub'), /Dernière synchro de votre document il y a 9 jours\. Déposez-le dans la page \(ou collez votre texte\)/);
+    assert.equal(await a.page.textContent('#wordBtn'), 'Synchroniser mon document');
+    // Une synchro, et le rappel disparaît
+    await a.page.evaluate(() => { window.showOpenFilePicker = undefined; });
+    await sendDocx(a.page, 'these.docx');
+    await a.page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    await a.page.click('#docxApply');
+    await a.page.waitForSelector('#docxModal.hidden', { state: 'attached' });
+    assert.ok(!/Dernière synchro/.test(await a.page.textContent('#tdSub')));
+    assert.deepEqual(a.page._errors, []);
+    await a.ctx.close();
+    const b = await mk('u_s3', 3);
+    assert.ok(!/Dernière synchro/.test(await b.page.textContent('#tdSub')), 'pas avant une semaine');
+    await b.ctx.close();
+    const c = await mk('u_s0', null);
+    assert.ok(!/synchro/.test(await c.page.textContent('#tdSub')), 'jamais pour qui note ses pages à la main');
     await c.ctx.close();
   });
 

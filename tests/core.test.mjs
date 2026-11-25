@@ -116,3 +116,156 @@ assert.deepEqual(C.parsePlanText('Partie 1\n• A\n• B\nPartie 2').map(c => c.
 assert.deepEqual(C.parsePlanText('Article 1\nArticle 2').map(c => [c.title, c.target]), [['Article 1', 0], ['Article 2', 0]]);
 assert.deepEqual(C.parsePlanText('   \n'), []);
 console.log('core.js : plan saisi OK');
+
+/* ============================================================
+   PLAN D'UN DOCUMENT (outline.js) : où sont les chapitres ?
+============================================================ */
+const O = await import('../outline.js');
+const seg = (level, title, words = 100) => ({ level, title, words });
+const titles = o => o.chapters.map(c => c.title);
+const sumWords = o => o.front + o.chapters.reduce((s, c) => s + c.words, 0);
+
+// A. Plan « à plat » : Titre 1 = chapitres, Titre 2 = sections
+{
+  const s = [seg(1, 'Introduction', 500), seg(1, 'Chapitre 1 : Cadre', 50), seg(2, '1.1 Notions', 900), seg(2, '1.2 Débats', 800), seg(1, 'Conclusion', 300)];
+  const o = O.buildOutline(s, 120);
+  assert.deepEqual(titles(o), ['Introduction', 'Chapitre 1 : Cadre', 'Conclusion']);
+  assert.equal(o.chapterLevel, 1);
+  assert.equal(o.subLevel, 2);
+  assert.deepEqual(o.chapters[1].children.map(c => c.title), ['1.1 Notions', '1.2 Débats']);
+  assert.equal(o.chapters[1].words, 1750);
+  assert.equal(o.chapters[1].ownWords, 50);
+  assert.equal(o.front, 120);
+  assert.equal(sumWords(o), 120 + 2550);
+}
+
+// B. Le cas signalé : un seul Titre 1 (le titre de la thèse), les chapitres en Titre 2
+{
+  const s = [seg(1, 'Les ponts suspendus au XIXe siècle', 40), seg(2, 'Introduction', 600), seg(2, 'État de l\'art', 80), seg(3, 'Histoire des techniques', 1500), seg(3, 'Débats', 1200),
+    seg(2, 'Méthodologie', 70), seg(3, 'Archives', 900), seg(4, 'Fonds privés', 300), seg(2, 'Conclusion', 400)];
+  const o = O.buildOutline(s, 0);
+  assert.deepEqual(titles(o), ['Introduction', 'État de l\'art', 'Méthodologie', 'Conclusion'], 'les Titre 2 deviennent les chapitres');
+  assert.equal(o.chapterLevel, 2);
+  assert.equal(o.subLevel, 3);
+  assert.deepEqual(o.chapters[1].children.map(c => c.title), ['Histoire des techniques', 'Débats']);
+  assert.equal(o.chapters[2].children[0].words, 1200, 'les sous-sous-titres comptent dans leur section');
+  assert.equal(o.front, 40, 'le texte sous le titre de la thèse rejoint les pages liminaires');
+  assert.equal(sumWords(o), s.reduce((a, x) => a + x.words, 0));
+  // Ancien découpage (fichiers déjà synchronisés avant la 3.1) : un seul chapitre, tout en sous-sections
+  const old = O.buildOutline(s, 0, 'legacy');
+  assert.deepEqual(titles(old), ['Les ponts suspendus au XIXe siècle']);
+  assert.equal(old.chapters[0].children.length, 4);
+  assert.equal(sumWords(old), sumWords(o));
+  // Remerciements et bibliographie au même niveau que le titre : il reste le titre du document
+  const o2 = O.buildOutline([seg(1, 'Remerciements', 200), ...s, seg(1, 'Bibliographie', 900)], 0);
+  assert.deepEqual(titles(o2), ['Remerciements', 'Introduction', 'État de l\'art', 'Méthodologie', 'Conclusion', 'Bibliographie']);
+}
+
+// C. Thèse en parties : Titre 1 = parties, Titre 2 = chapitres, Titre 3 = sections
+{
+  const s = [seg(1, 'Introduction générale', 800), seg(1, 'Première partie : Les fondations', 60), seg(2, 'Chapitre 1 : Le sol', 100), seg(3, 'Géologie', 700), seg(3, 'Sondages', 600),
+    seg(2, 'Chapitre 2 : Les piles', 900), seg(1, 'PARTIE II. Le tablier', 450), seg(2, 'Chapitre 3 : Les câbles', 1000), seg(1, 'Conclusion générale', 500), seg(1, 'Bibliographie', 700)];
+  const o = O.buildOutline(s, 0);
+  assert.deepEqual(titles(o), ['Introduction générale', 'Chapitre 1 : Le sol', 'Chapitre 2 : Les piles', 'PARTIE II. Le tablier', 'Chapitre 3 : Les câbles', 'Conclusion générale', 'Bibliographie']);
+  assert.equal(o.chapters[1].ownWords, 160, 'courte ouverture de partie comptée avec son premier chapitre');
+  assert.equal(o.chapters[3].words, 450, 'longue ouverture de partie : une ligne à elle');
+  assert.equal(o.chapters[3].children.length, 0);
+  assert.deepEqual(o.chapters[1].children.map(c => c.title), ['Géologie', 'Sondages']);
+  assert.equal(sumWords(o), s.reduce((a, x) => a + x.words, 0));
+  // On peut préférer les parties comme premier étage : niveau 1 demandé explicitement
+  const byParts = O.buildOutline(s, 0, 1);
+  assert.deepEqual(titles(byParts), ['Introduction générale', 'Première partie : Les fondations', 'PARTIE II. Le tablier', 'Conclusion générale', 'Bibliographie']);
+  assert.deepEqual(byParts.chapters[1].children.map(c => c.title), ['Chapitre 1 : Le sol', 'Chapitre 2 : Les piles']);
+  assert.equal(sumWords(byParts), sumWords(o));
+}
+
+// D. Un seul chapitre rédigé pour l'instant : ce n'est pas le titre du document
+{
+  const s = [seg(1, 'Chapitre 2 : Méthodes', 50), seg(2, 'Terrain', 800), seg(2, 'Entretiens', 700)];
+  assert.deepEqual(titles(O.buildOutline(s, 0)), ['Chapitre 2 : Méthodes']);
+  // … mais si l'on sait que le fichier est un chapitre, ce sont ses sections qui nous intéressent
+  const single = O.buildOutline(s, 30, 'auto', { single: true });
+  assert.deepEqual(titles(single), ['Terrain', 'Entretiens']);
+  assert.equal(single.front, 80);
+  // Fichier de chapitre sans titre de tête : ses titres de premier niveau sont déjà les sections
+  assert.deepEqual(titles(O.buildOutline([seg(1, 'Terrain'), seg(1, 'Entretiens')], 0, 'auto', { single: true })), ['Terrain', 'Entretiens']);
+}
+
+// E. Un gros chapitre et des chapitres encore vides : pas de confusion avec un titre de document
+{
+  const s = [seg(1, 'Problématique', 300), seg(1, 'Corpus', 50), seg(2, 'Sources', 9000), seg(2, 'Sélection', 8000), seg(1, 'Analyse', 3), seg(1, 'Discussion', 2)];
+  assert.deepEqual(titles(O.buildOutline(s, 0)), ['Problématique', 'Corpus', 'Analyse', 'Discussion']);
+}
+
+// F. Niveau choisi à la main sur un plan à plat : les sections deviennent le premier étage
+{
+  const s = [seg(1, 'Introduction', 500), seg(1, 'Cadre', 50), seg(2, 'Notions', 900), seg(2, 'Débats', 800), seg(1, 'Conclusion', 300)];
+  const o = O.buildOutline(s, 0, 2);
+  assert.deepEqual(titles(o), ['Introduction', 'Notions', 'Débats', 'Conclusion']);
+  assert.equal(o.chapters[1].ownWords, 950, 'le court texte d\'ouverture suit le premier titre');
+  assert.equal(sumWords(o), 2550);
+  assert.deepEqual(o.levels, [{ level: 1, count: 3 }, { level: 2, count: 2 }]);
+}
+
+// G. Aucun mot ne se perd, quel que soit le découpage (documents tirés au hasard)
+{
+  let seed = 42;
+  const rnd = n => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed % n; };
+  const names = ['Introduction', 'Chapitre 1', 'Partie I', 'Titre', 'Méthode', 'Résultats', 'Bibliographie', 'Annexes', 'Deuxième partie', 'Chapitre 2', 'Discussion'];
+  for (let i = 0; i < 300; i++) {
+    const s = Array.from({ length: 1 + rnd(14) }, () => seg(1 + rnd(4), names[rnd(names.length)], rnd(1500)));
+    const front = rnd(400);
+    const all = front + s.reduce((a, x) => a + x.words, 0);
+    for (const mode of ['auto', 1, 2, 3, 4, 'legacy']) {
+      assert.equal(sumWords(O.buildOutline(s, front, mode)), all, `mots conservés (${mode})`);
+      const o = O.buildOutline(s, front, mode);
+      for (const c of o.chapters) assert.equal(c.words, c.ownWords + c.children.reduce((a, k) => a + k.words, 0));
+    }
+    assert.equal(sumWords(O.buildOutline(s, front, 'auto', { single: true })), all);
+  }
+  assert.deepEqual(O.buildOutline([], 50).chapters, []);
+  assert.equal(O.buildOutline([], 50).front, 50);
+}
+
+// H. Texte collé ou fichier texte : LaTeX
+{
+  const tex = `\\documentclass{book}
+\\usepackage{hyperref}
+\\begin{document}
+Un résumé de dix mots environ pour ouvrir le document ici.
+\\chapter{Introduction}
+Le pont \\emph{suspendu} est étudié depuis \\cite{navier1823}. % ce commentaire ne compte pas
+\\section{Contexte historique}
+On note $E = mc^2$ et la formule
+\\begin{equation} a^2 + b^2 = c^2 \\end{equation}
+puis deux mots.\\footnote{Une note de quatre mots.}
+\\chapter*{Méthode \\textit{mixte}}
+Trois mots seulement.
+\\end{document}
+Ceci est ignoré.`;
+  const r = O.parseTextDocument(tex);
+  assert.equal(r.kind, 'latex');
+  assert.deepEqual(r.segments.map(s => [s.level, s.title]), [[2, 'Introduction'], [3, 'Contexte historique'], [2, 'Méthode mixte']]);
+  assert.equal(r.frontWords, 11);
+  assert.equal(r.segments[0].words, 1 + 6, 'titre + texte, sans la citation ni le commentaire');
+  assert.equal(r.segments[1].words, 2 + 6 + 2 + 5, 'les formules ne comptent pas, la note oui');
+  assert.equal(r.segments[2].words, 2 + 3);
+  assert.deepEqual(titles(O.buildOutline(r.segments, r.frontWords)), ['Introduction', 'Méthode mixte']);
+}
+
+// I. Markdown et texte simple
+{
+  const md = '# Ma thèse\n\nRésumé en quatre mots.\n\n## Introduction\n\nUn **premier** paragraphe de six mots.\n\n```\ncode # pas un titre\n```\n\n### Contexte\n\nEncore [un lien](http://exemple.fr) ici.\n\n## Méthode\n\nDeux mots.\n';
+  const r = O.parseTextDocument(md);
+  assert.equal(r.kind, 'markdown');
+  assert.deepEqual(r.segments.map(s => [s.level, s.title]), [[1, 'Ma thèse'], [2, 'Introduction'], [3, 'Contexte'], [2, 'Méthode']]);
+  assert.deepEqual(titles(O.buildOutline(r.segments, r.frontWords)), ['Introduction', 'Méthode'], 'le titre unique du document est reconnu');
+  const txt = 'Quelques mots avant.\n\nChapitre 1 : Le sol\n\nDu texte, avec une phrase. Chapitre 2 est cité ici, en pleine phrase.\n\nCHAPITRE 2 - Les piles\nEncore du texte.\n\nConclusion générale\nFin.';
+  const t = O.parseTextDocument(txt);
+  assert.equal(t.kind, 'text');
+  assert.deepEqual(t.segments.map(s => s.title), ['Chapitre 1 : Le sol', 'CHAPITRE 2 - Les piles', 'Conclusion générale']);
+  assert.equal(t.frontWords, 3);
+  assert.equal(t.totalWords, O.countWords(txt));
+  assert.deepEqual(O.parseTextDocument('Un simple paragraphe sans titre.').segments, []);
+}
+console.log('outline.js : plan de document OK');
