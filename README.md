@@ -92,7 +92,7 @@ Logique pure (dates, série, rythme, plan collé). Aucune dépendance.
 node tests/e2e.cjs
 ```
 
-Vingt et un scénarios dans un vrai navigateur (Playwright) : inscription, plan, « +1 page », synchro Word, mobile, sécurité des données, annonce de mise à jour, promo fermée puis ouverte, lien de fiche, bingo, suppression de compte, accessibilité de base. Firebase y est remplacé par des bouchons (`tests/stubs`) : aucun compte créé, aucune donnée réelle touchée. Pour un seul scénario : `ONLY="Promo ouverte" node tests/e2e.cjs`.
+Vingt-deux scénarios dans un vrai navigateur (Playwright) : inscription, plan, « +1 page », synchro Word, mobile, sécurité des données, annonce de mise à jour, promo fermée puis ouverte, lien de fiche, bingo, suppression de compte, accessibilité de base, mise à jour à cheval sur deux versions. Firebase y est remplacé par des bouchons (`tests/stubs`) : aucun compte créé, aucune donnée réelle touchée. Pour un seul scénario : `ONLY="Promo ouverte" node tests/e2e.cjs`.
 
 ```bash
 cd tests && npm install && npm run rules
@@ -102,12 +102,12 @@ Les règles de `firestore.rules` face au vrai moteur de règles, sur l'émulateu
 
 ## Publier une nouvelle version
 
-1. Augmenter `VERSION` dans `sw.js` **et** `APP_VERSION` dans `app.js` (même valeur).
+1. Augmenter la version aux trois endroits, avec la même valeur : `VERSION` dans `sw.js`, `APP_VERSION` dans `app.js`, `data-app-version` en tête de `index.html`. Un test vérifie qu'elles concordent.
 2. Pour annoncer la mise à jour à la connexion : augmenter `WHATSNEW_VER` dans `app.js` et adapter le texte de la fenêtre `whatsNewModal` dans `index.html`. Les nouveaux comptes ne la voient pas.
 3. Si un fichier est ajouté, l'ajouter à `ASSETS_TO_CACHE` dans `sw.js`.
 4. Fusionner dans `main`, puis fusionner `main` dans la branche que GitHub Pages publie (`claude/thesis-tracker-spa-Dx6nk`, celle qui contient le fichier `CNAME`). Le site est à jour une minute plus tard.
 
-Le service worker sert toujours la dernière version en ligne ; la copie en cache ne sert que hors ligne ou si le réseau est très lent.
+Le service worker sert toujours la dernière version en ligne ; la copie en cache ne sert que hors ligne ou si le réseau est très lent. Si, pendant une mise à jour, la page et son script se retrouvent de deux versions différentes, l'application s'en aperçoit, redemande ses fichiers et se recharge toute seule.
 
 ## Dépendances externes
 
