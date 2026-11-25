@@ -51,7 +51,7 @@ import {
 import { createPromo } from './promo.js';
 
 /* Version de l'application : la même que VERSION dans sw.js et que data-app-version dans index.html */
-const APP_VERSION = '4.0.0';
+const APP_VERSION = '4.0.1';
 const APP_URL = 'https://lejournaldebord.org/';
 
 /* Garde-fou de mise à jour (son jumeau est dans index.html) : ce script et la page doivent être de la même
