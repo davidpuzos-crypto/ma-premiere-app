@@ -611,7 +611,7 @@ button.book:focus-visible { outline-offset: 1px; }
 .ring { position: relative; width: 104px; height: 104px; flex: none; }
 .ring svg { display: block; width: 100%; height: 100%; transform: rotate(-90deg); }
 .ring-track { fill: none; stroke: var(--meter-track); stroke-width: 11; }
-.ring-fill { fill: none; stroke: var(--saf-400); stroke-width: 11; stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: calc(100 - var(--p, 0)); transition: stroke-dashoffset .8s var(--ease); }
+.ring-fill { fill: none; stroke: var(--saf-400); stroke-width: 11; stroke-linecap: round; stroke-dasharray: 100px; stroke-dashoffset: calc((100 - var(--p, 0)) * 1px); transition: stroke-dashoffset .8s var(--ease); }
 .ring.zero .ring-fill { opacity: 0; }
 .ring-val { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: .78rem; font-weight: 700; line-height: 1.2; color: var(--ink-3); white-space: nowrap; }
 .ring-val b { display: block; font-size: 1.75rem; font-weight: 800; line-height: 1; letter-spacing: -.04em; color: var(--ink); }
@@ -1033,7 +1033,7 @@ body.signed-out #toastBox { left: 50%; max-width: calc(100vw - 28px); }
 
   .tabbar {
     display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; position: fixed; left: 0; right: 0; bottom: 0; z-index: 150;
-    padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); background: rgba(255,253,248,.97); border-top: 1px solid var(--line);
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); background: var(--card); border-top: 1px solid var(--line);
   }
   .tab { display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 3px 4px 2px; border: none; border-radius: 12px; background: none; font-size: .7rem; font-weight: 700; color: var(--ink-3); }
   .tab .ic { box-sizing: content-box; width: 22px; height: 22px; padding: 3px 16px; border-radius: 999px; transition: background .15s; }
@@ -1094,11 +1094,14 @@ body.signed-out #toastBox { left: 50%; max-width: calc(100vw - 28px); }
 
   /* les fenêtres montent du bas de l'écran */
   .modal-overlay { padding: 0; align-items: flex-end; }
-  .modal { max-width: none; max-height: 92vh; padding: 24px 18px calc(18px + env(safe-area-inset-bottom)); border-radius: 26px 26px 0 0; animation: sheet .26s var(--ease); }
+  .modal { max-width: none; max-height: 92vh; max-height: 92dvh; padding: 24px 18px calc(18px + env(safe-area-inset-bottom)); border-radius: 26px 26px 0 0; animation: sheet .26s var(--ease); }
   .modal-actions { bottom: calc(-18px - env(safe-area-inset-bottom)); margin: 8px -18px calc(-18px - env(safe-area-inset-bottom)); padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); }
   @keyframes sheet { from { transform: translateY(40px); opacity: .4; } }
   .dx-row { grid-template-columns: 24px minmax(0, 1fr); }
   .dx-map { grid-column: 2; }
+  /* Champs de saisie : 16 px au moins, sinon l'iPhone agrandit toute la page au moment d'écrire */
+  .form-control, .add-row .add-input, .add-row.sub .add-input, .pages-ctl .pages-input, .pages-ctl .target-input, .dl-set input,
+  .docx-settings input, .docx-settings select, .dx-target input, .dx-map select, .ob-type-row input { font-size: 16px; }
   .bingo-cell { min-height: 92px; padding: 8px 6px; font-size: .82rem; border-radius: 14px; }
 
   /* Accueil : une seule colonne, sur fond sombre */
