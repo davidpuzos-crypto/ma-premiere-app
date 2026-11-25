@@ -2,15 +2,16 @@
 
 Application web (PWA) de suivi de rédaction de thèse et de mémoire : https://lejournaldebord.org
 
-Parti pris : peu de fonctions, mais soignées. Une page de thèse (du papier, de l'encre, une table des matières), une saisie en un geste, et un peu d'humour de doctorant·e pour tenir.
+Parti pris : peu de fonctions, mais soignées, et toutes sous les yeux. Le bureau d'un·e doctorant·e : la thèse en rayon (un livre par chapitre, qui se surligne à mesure qu'on écrit), une saisie en un geste, et un peu d'humour pour tenir.
 
 ## Ce que fait l'application
 
 **Ma thèse**
 
-- **Page de titre** : avancement en pourcentage, pages rédigées, dépôt (une date précise ou seulement un mois visé), verdict (dans les temps ou en retard), fin estimée au rythme actuel.
-- **Aujourd'hui** : objectif du jour calculé d'après le dépôt, série de jours d'écriture, bouton « +1 page ».
-- **Table des matières** : chapitres et sous-sections, boutons − et + sur chaque partie, échéance proposée par chapitre, statut de relecture (chez la direction, à corriger, validé) avec mail de relance.
+- **Le bandeau** : avancement en pourcentage, pages rédigées, grade du moment et pages restantes avant le suivant ; le dépôt en éphéméride (une date précise ou seulement un mois visé) avec son compte à rebours, le verdict (dans les temps ou en retard), le rythme actuel, le rythme à tenir, la fin estimée.
+- **Aujourd'hui** : objectif du jour calculé d'après le dépôt, bouton « +1 page », pages de la semaine jour par jour, série de jours d'écriture.
+- **La thèse en rayon** : un livre par chapitre, d'autant plus épais que le chapitre est long, surligné à hauteur de ce qui est écrit. La plante pousse avec la série ; après dix jours sans une page, une araignée s'installe.
+- **Le plan** : chapitres et sous-sections, boutons − et + sur chaque partie, échéance proposée par chapitre, statut de relecture (chez la direction, à corriger, validé) avec mail de relance.
 - **Synchro avec le document** : Word (`.docx`), LibreOffice (`.odt`), LaTeX (`.tex`), Markdown, texte simple, ou texte collé (le presse-papiers garde les titres de Google Docs et de Word). Tout est lu sur l'appareil, rien n'est envoyé. Le Journal repère à quel niveau de titre sont les chapitres (titre de thèse en « Titre 1 », thèse en parties…), propose le plan, et retient les choix faits pour ce document : les fois suivantes, un geste suffit. Un fichier pour tout le manuscrit ou un fichier par chapitre. Sur Chrome et Edge, le fichier reste lié et se relit tout seul ; ailleurs, un rappel discret apparaît quand la dernière synchro a plus d'une semaine.
 - **Journal** : calendrier de régularité, notes du jour.
 - **Agenda** : fichier `.ics` et liens Google Agenda. Séances d'écriture récurrentes, point d'étape hebdomadaire, dépôt (ou période visée, sur tout le mois), échéances des chapitres.
@@ -29,19 +30,30 @@ Parti pris : peu de fonctions, mais soignées. Une page de thèse (du papier, de
 
 | Fichier | Rôle |
 | --- | --- |
-| `index.html` | Structure de la page, fenêtres, modèles des images à partager |
-| `style.css` | Styles (couleurs et polices en tête de fichier) |
+| `index.html` | Structure de la page, jeu d'icônes (en tête du `<body>`), fenêtres, modèles des images à partager |
+| `style.css` | Styles : couleurs et polices en tête de fichier, puis un sommaire des sections |
 | `app.js` | Application : connexion, synchronisation, interface |
 | `core.js` | Logique pure et testée : dates, série, rythme, échéance, plan collé |
 | `outline.js` | Du document au plan : niveau de titre des chapitres, parties, lecture du LaTeX et du Markdown (pur et testé) |
 | `humour.js` | Textes : notes du jour, dictionnaire du doctorant, grades, bingo, pseudonymes |
+| `visuals.js` | Dessins générés à partir des données : étagère, plante, barres de la semaine (pur et testé) |
 | `promo.js` | La promo : fiches, classement, fil, encouragements |
 | `docx.js` | Lecture des documents dans le navigateur : Word, LibreOffice, HTML du presse-papiers, texte |
 | `ics.js` | Génération des fichiers agenda |
 | `sw.js` | Service worker (réseau d'abord, cache en secours) |
-| `fonts/` | Polices EB Garamond et Source Sans 3, hébergées ici (licence OFL, voir `fonts/OFL.txt`) |
+| `fonts/` | Polices Fraunces (titres, citations) et DM Sans (interface, chiffres), hébergées ici (licence OFL, voir `fonts/OFL.txt`) |
 | `firestore.rules` | Règles de sécurité de la base, à publier dans la console Firebase |
 | `tests/` | Tests (voir plus bas). Rien dans ce dossier n'est chargé par le site |
+
+## Apparence
+
+Tout se règle en tête de `style.css` : le papier et l'encre, le pétrole (structure, surfaces sombres), le safran (surligneur). Chaque couleur a un rôle et un seul :
+
+- **safran** : l'avancement (jauges, livres de l'étagère) et le bouton principal ;
+- **pétrole** : la structure, et les pages dans le temps (barres de la semaine, calendrier de régularité) ;
+- **vert, terre cuite, bordeaux** : les états (dans les temps, en attente, en retard), toujours accompagnés d'une icône et de mots.
+
+Les icônes sont dessinées dans `index.html` (`<symbol id="i-…">`) et s'emploient ainsi : `<svg class="ic"><use href="#i-home"/></svg>`. Sur ordinateur, les outils sont dans la barre latérale ; sur téléphone, dans le panneau ouvert par l'onglet « Menu ».
 
 ## Formats de document
 
@@ -99,13 +111,13 @@ Sur l'appareil (stockage local du navigateur) : quelques réglages (dernière pa
 node tests/core.test.mjs
 ```
 
-Logique pure (dates, série, rythme, plan collé, découpage d'un document en chapitres). Aucune dépendance.
+Logique pure (dates, série, rythme, plan collé, découpage d'un document en chapitres, dessins de l'étagère et de la semaine). Aucune dépendance.
 
 ```bash
 node tests/e2e.cjs
 ```
 
-Vingt-huit scénarios dans un vrai navigateur (Playwright) : inscription, plan, « +1 page », synchro du document (niveaux de titre, plan refait, LibreOffice, LaTeX, copier-coller), période visée et agenda, mobile, sécurité des données, annonce de mise à jour, promo fermée puis ouverte, lien de fiche, bingo, suppression de compte, accessibilité de base, mise à jour à cheval sur deux versions. Firebase y est remplacé par des bouchons (`tests/stubs`) : aucun compte créé, aucune donnée réelle touchée. Pour un seul scénario : `ONLY="Promo ouverte" node tests/e2e.cjs`.
+Vingt-huit scénarios dans un vrai navigateur (Playwright) : inscription, plan, « +1 page », étagère, synchro du document (niveaux de titre, plan refait, LibreOffice, LaTeX, copier-coller), période visée et agenda, téléphone (onglets, menu), sécurité des données, annonce de mise à jour, promo fermée puis ouverte, lien de fiche, bingo, suppression de compte, accessibilité de base (dont le contraste de tous les textes visibles), mise à jour à cheval sur deux versions. Firebase y est remplacé par des bouchons (`tests/stubs`) : aucun compte créé, aucune donnée réelle touchée. Pour un seul scénario : `ONLY="Promo ouverte" node tests/e2e.cjs`.
 
 ```bash
 cd tests && npm install && npm run rules
@@ -117,7 +129,7 @@ Les règles de `firestore.rules` face au vrai moteur de règles, sur l'émulateu
 
 1. Augmenter la version aux trois endroits, avec la même valeur : `VERSION` dans `sw.js`, `APP_VERSION` dans `app.js`, `data-app-version` en tête de `index.html`. Un test vérifie qu'elles concordent.
 2. Pour annoncer la mise à jour à la connexion : augmenter `WHATSNEW_VER` dans `app.js` et adapter le texte de la fenêtre `whatsNewModal` dans `index.html`. Les nouveaux comptes ne la voient pas.
-3. Si un fichier est ajouté, l'ajouter à `ASSETS_TO_CACHE` dans `sw.js`.
+3. Si un fichier est ajouté, l'ajouter à `ASSETS_TO_CACHE` dans `sw.js` ; si c'est un module, l'ajouter aussi aux deux listes de fichiers à redemander (en bas de `index.html` et en haut de `app.js`) et aux `modulepreload` de `index.html`.
 4. Fusionner dans `main`, puis fusionner `main` dans la branche que GitHub Pages publie (`claude/thesis-tracker-spa-Dx6nk`, celle qui contient le fichier `CNAME`). Le site est à jour une minute plus tard.
 
 Le service worker sert toujours la dernière version en ligne ; la copie en cache ne sert que hors ligne ou si le réseau est très lent. Si, pendant une mise à jour, la page et son script se retrouvent de deux versions différentes, l'application s'en aperçoit, redemande ses fichiers et se recharge toute seule.
