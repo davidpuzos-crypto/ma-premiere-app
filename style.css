@@ -1406,10 +1406,11 @@ footer {
 .je-pages.pos { color: var(--success); }
 .je-pages.neg { color: var(--danger); }
 .je-notes { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.je-line { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; font-size: .82rem; }
+.je-line { display: flex; align-items: baseline; gap: 4px 6px; flex-wrap: wrap; font-size: .82rem; }
 .je-mood { font-size: .95rem; }
-.je-text { color: var(--text); }
-.je-meta { font-size: .72rem; color: var(--text-muted); }
+.je-text { color: var(--text); flex: 1 1 0; min-width: 0; }
+.je-meta { font-size: .72rem; color: var(--text-muted); order: 3; flex-basis: 100%; }
+.je-del { order: 2; }
 .je-del {
   margin-left: auto; background: none; border: none; cursor: pointer;
   color: var(--text-muted); font-size: .72rem; padding: 2px 4px; opacity: .5;
