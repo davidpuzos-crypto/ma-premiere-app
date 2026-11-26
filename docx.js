@@ -1146,7 +1146,6 @@ export function analyzeOdt({ contentXml, stylesXml, metaXml, planTitles, doc: gi
     const parts = [];
     let chars = 0;
     let bold = 0;
-    let extra = 0;
     let pieceW = 0;
     const sizes = new Map();
     const rec = { level: 0, text: '', words: 0, chars: 0, look: null, counted };
@@ -1164,7 +1163,7 @@ export function analyzeOdt({ contentXml, stylesXml, metaXml, planTitles, doc: gi
         sizes.set(k, (sizes.get(k) || 0) + n);
       },
       brk: () => { flush(); atoms.push({ brk: 'soft' }); },
-      extra: w => { extra += w; pieceW += w; },
+      extra: w => { pieceW += w; },
     });
     flush();
     const text = parts.join('').replace(/\s+/g, ' ').trim();
