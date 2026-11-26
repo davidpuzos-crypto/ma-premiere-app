@@ -512,6 +512,44 @@ const clone = o => JSON.parse(JSON.stringify(o));
   });
 
   /* ------------------------------------------------------------ */
+  await test('Word sans styles de titre : titres repérés à leur mise en forme (gras, taille, numérotation), plan à vérifier', async () => {
+    const uid = 'u_manuel';
+    const { ctx, page } = await newPage(browser, { user: { uid, email: 'manuel@example.com' } });
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+    await sendDocx(page, 'manuel.docx');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.match(await page.textContent('#docxSummary'), /manuel\.docx : 2\s554 mots, ≈ 12 pages\. 4 parties détectées, 4 sous-sections/);
+    assert.ok(await page.isVisible('#docxHeadNote'), 'on dit d\'où vient le plan');
+    assert.match(await page.textContent('#docxHeadNote'), /repéré vos titres à leur mise en forme/);
+    assert.deepEqual(await page.$$eval('#docxRows .dx-row .dx-title', els => els.map(e => e.textContent)),
+      ['INTRODUCTION', 'CHAPITRE 1 : Le fer', '1.1 Les forges', '1.2 Les ingénieurs', 'CHAPITRE 2 : La pierre', '2.1 Les carrières', '2.2 Les maçons', 'CONCLUSION'],
+      'ni la page de garde, ni le sommaire, ni la légende de figure, ni la phrase en gras ne sont pris pour des titres');
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    await flush(page);
+    let d = await docOf(page, uid);
+    assert.deepEqual(d.chapters.map(c => [c.title, c.subsections.map(s => s.title)]),
+      [['INTRODUCTION', []], ['CHAPITRE 1 : Le fer', ['1.1 Les forges', '1.2 Les ingénieurs']], ['CHAPITRE 2 : La pierre', ['2.1 Les carrières', '2.2 Les maçons']], ['CONCLUSION', []]]);
+    const before = written(d);
+    // La suite : quatre paragraphes de plus dans « 2.1 ». Le plan est reconnu, un seul geste.
+    await sendDocx(page, 'manuel_v2.docx', 'manuel.docx');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /manuel\.docx synchronisé/.test(t.textContent)), null, { timeout: 15000 });
+    assert.equal(await page.isVisible('#docxModal'), false, 'pas d\'aperçu : rien de nouveau dans le plan');
+    await flush(page);
+    d = await docOf(page, uid);
+    assert.equal(written(d), before + 1, 'une page de plus');
+    assert.ok(d.activity[TODAY] > 0.5 && d.activity[TODAY] < 1.5, 'journal du jour : ' + d.activity[TODAY]);
+    // Un document qui a ses styles de titre n'affiche pas cet avertissement
+    await sendDocx(page, 'these.docx');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.equal(await page.isVisible('#docxHeadNote'), false);
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
   await test('Fichier lié (Chrome / Edge) : relu tout seul au retour sur l\'onglet, conservé après rechargement', async () => {
     const uid = 'u_link';
     const { ctx, page } = await newPage(browser, { user: { uid, email: 'link@example.com' } });

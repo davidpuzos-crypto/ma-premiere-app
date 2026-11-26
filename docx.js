@@ -16,7 +16,7 @@
    Les pages viennent de la meilleure source disponible (pages.js) :
    pagination réelle du fichier, sinon simulation de sa mise en page.
 ============================================================ */
-import { countWords, parseTextDocument, signs } from './outline.js';
+import { countWords, parseTextDocument, signs, guessHeadings } from './outline.js';
 import { paginate, spans, readPdf } from './pages.js';
 import { openZip, canInflate } from './zip.js';
 import { readPdfDocument } from './pdfread.js';
@@ -133,7 +133,7 @@ export async function parseDocumentFile(file, opts = {}) {
         const target = /\bTarget="([^"]+)"/.exec(m[0]);
         if (id && target) parts[id[1]] = await read(target[1].startsWith('/') ? target[1].slice(1) : `word/${target[1]}`);
       }
-      return analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeXml, parts, pdf: opts.pdf || null, tune: opts.tune });
+      return analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeXml, parts, pdf: opts.pdf || null, tune: opts.tune, planTitles: opts.planTitles });
     }
     if (zip.has('content.xml')) {
       const [contentXml, stylesXml, metaXml, mime] = await Promise.all([read('content.xml'), read('styles.xml'), read('meta.xml'), read('mimetype')]);
@@ -273,6 +273,7 @@ function readPPr(pPr, o) {
       case 'widowControl': o.wc = isOn(c); break;
       case 'contextualSpacing': o.cs = isOn(c); break;
       case 'numPr': { const id = wchild(c, 'numId'); o.num = !id || wattr(id, 'val') !== '0'; break; }
+      case 'jc': o.jc = wattr(c, 'val'); break;
       default: break;
     }
   }
@@ -501,6 +502,7 @@ function layoutParagraph(p, L, tableKey) {
     il: pp.il || 0, ir: pp.ir || 0, fi: pp.fi || 0, st: styleId, mf: mark.f || '', mz: mark.z || 10,
   };
   if (pp.num) { b.num = 1; if (direct && direct.il === undefined && base.p.il === undefined) b.il = 36; }
+  if (pp.jc === 'center') b.jc = 'center';
   if (pp.kn) b.kn = 1;
   if (pp.kl) b.kl = 1;
   if (pp.pb) b.pb = 1;
@@ -686,7 +688,7 @@ const A4_SECTION = { w: 595.3, h: 841.9, mt: 70.9, mb: 70.9, ml: 70.9, mr: 70.9 
 /* ------------------------------------------------------------
    Analyse principale
 ------------------------------------------------------------ */
-export function analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeXml, parts, pdf, tune }) {
+export function analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeXml, parts, pdf, tune, planTitles }) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(docXml, 'application/xml');
   if (doc.getElementsByTagName('parsererror').length) throw new DocxError('bad-xml');
@@ -765,6 +767,9 @@ export function analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeX
       s.bodyWords += n;
     } else front += n;
   };
+  // Le document dans l'ordre : paragraphes (niveau de titre donné par leur style) et tableaux.
+  // Les titres sont fixés après coup : sans styles de titre, on les repère à leur mise en forme.
+  const recs = [];
 
   const handleParagraph = p => {
     const pPr = wchild(p, 'pPr');
@@ -787,15 +792,7 @@ export function analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeX
     const acc = { text: [], notes: 0 };
     collect(p, acc, notes);
     const text = acc.text.join('').replace(/\s+/g, ' ').trim();
-    const words = countWords(text);
-    if (level > 0 && text) {
-      const before = segments.length;
-      pushHeading(segments, level, text, words + acc.notes);
-      if (segments.length > before) block.hd = before;
-    } else {
-      add(words + acc.notes);
-      if (words > 12) { const k = `${block.lr}|${block.lv}`; L.spacing.set(k, (L.spacing.get(k) || 0) + words); }
-    }
+    recs.push({ level: level > 0 && text ? level : 0, text, words: countWords(text), notes: acc.notes, block });
   };
 
   const handleBlock = el => {
@@ -811,7 +808,7 @@ export function analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeX
       case 'tbl': {
         const acc = { text: [], notes: 0 };
         collect(el, acc, notes);
-        add(countWords(acc.text.join('')) + acc.notes);
+        recs.push({ table: true, words: countWords(acc.text.join('')) + acc.notes });
         blocks.push(layoutTable(el, L));
         break;
       }
@@ -829,6 +826,29 @@ export function analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeX
   };
 
   for (const c of body.children) handleBlock(c);
+
+  // Pas de styles de titre (ou un seul, le titre du document) : les titres se reconnaissent à leur mise en forme
+  let headingSource = 'styles';
+  const styled = recs.filter(r => r.level > 0).length;
+  if (styled < 2) {
+    const lv = guessHeadings(recs.map(r => (r.table ? { text: 'tableau', words: r.words, table: true } : paraLook(r, styles))), { planTitles: (planTitles || []).map(t => t.title) });
+    const n = lv.filter(Boolean).length;
+    if (n >= 2 && n > styled) {
+      recs.forEach((r, i) => { r.level = lv[i]; });
+      headingSource = 'layout';
+    }
+  }
+  for (const r of recs) {
+    if (r.table) { add(r.words); continue; }
+    if (r.level > 0 && r.text) {
+      const before = segments.length;
+      pushHeading(segments, r.level, r.text, r.words + r.notes);
+      if (segments.length > before) r.block.hd = before;
+    } else {
+      add(r.words + r.notes);
+      if (r.words > 12) { const k = `${r.block.lr}|${r.block.lv}`; L.spacing.set(k, (L.spacing.get(k) || 0) + r.words); }
+    }
+  }
 
   const pagesMatch = appXml ? /<Pages>(\d+)<\/Pages>/.exec(appXml) : null;
   const pagesMeta = pagesMatch ? parseInt(pagesMatch[1], 10) : null;
@@ -855,7 +875,33 @@ export function analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeX
     };
   } catch (e) { console.warn('Pagination :', e); }
 
-  return finish('docx', segments, front, pagesMeta, DEFAULT_WPP, paged);
+  const res = finish('docx', segments, front, pagesMeta, DEFAULT_WPP, paged);
+  res.headingSource = segments.length ? headingSource : '';
+  return res;
+}
+
+/** L'allure d'un paragraphe, pour reconnaître un titre sans style : corps, gras, capitales, centrage, liste, légende. */
+function paraLook(r, styles) {
+  const b = r.block;
+  let chars = 0;
+  let bold = 0;
+  const sizes = new Map();
+  for (const it of b.r) {
+    if (typeof it.x !== 'string') continue;
+    const n = it.x.replace(/\s/g, '').length;
+    if (!n) continue;
+    chars += n;
+    if (it.b) bold += n;
+    sizes.set(it.z, (sizes.get(it.z) || 0) + n);
+  }
+  let size = 0;
+  let best = -1;
+  for (const [z, n] of sizes) if (n > best) { best = n; size = z; }
+  const st = styles.get(b.st);
+  return {
+    text: r.text, words: r.words, size, bold: chars > 0 && bold >= chars * 0.9, center: b.jc === 'center', list: !!b.num,
+    caption: !!st && /caption|l[ée]gende|beschriftung/i.test(st.name || ''),
+  };
 }
 
 /* ------------------------------------------------------------

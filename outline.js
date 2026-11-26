@@ -208,7 +208,7 @@ export function buildOutline(segments, frontWords = 0, mode = 'auto', opts = {})
    le même cas. On repère donc les paragraphes courts, sans
    ponctuation finale, mis en valeur, et suivis de texte.
 
-   items : [{ text, words, size, bold, caps, center, table, caption }]
+   items : [{ text, words, size, bold, caps, center, table, caption, list }]
            dans l'ordre du document (un paragraphe, ou un bloc de lignes)
    opts  : { bodySize, planTitles: [titres du plan déjà saisi] }
    Renvoie le niveau de chaque item (0 = ce n'est pas un titre).
@@ -350,7 +350,8 @@ export function guessHeadings(items, opts = {}) {
     const center = !!it.center;
     const known = planKeys.has(key) || planKeys.has(key.replace(/^(?:[\divxlc]{1,4}\s)+/, ''));   // « 2.1 Terrain » pour « Terrain »
     let ok;
-    if (pat || known) ok = big || bold || caps || center || w <= 8;
+    if (it.list && !big && !pat && !known) ok = false;                     // une puce, un élément de liste
+    else if (pat || known) ok = big || bold || caps || center || w <= 8;
     else if (big) ok = true;
     else ok = (bold && (numbered || caps || center || w <= 12)) || (caps && w <= 12 && (center || numbered));
     if (!ok) continue;

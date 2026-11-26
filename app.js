@@ -3673,6 +3673,8 @@ function renderDocxPreview() {
   setHTML('docxSummary', `<b>${esc(m.name)}</b> : ${fmtInt(res.totalWords)} mots, <b>${firm ? '' : '≈ '}${fmtInt(total)} page${total > 1 ? 's' : ''}</b>. ${found}${front}`);
   document.getElementById('docxSuggest').classList.toggle('hidden', !m.suggest);
   document.getElementById('docxRecount').classList.toggle('hidden', !m.recount);
+  // Titres repérés à leur mise en forme (document sans styles de titre) : on le dit, le plan est à vérifier
+  document.getElementById('docxHeadNote').classList.toggle('hidden', !(res.headingSource === 'layout' && res.kind !== 'pdf' && m.rows.length > 0));
 
   // D'où vient le nombre de pages, et comment le corriger
   const pagesEl = document.getElementById('docxPages');
