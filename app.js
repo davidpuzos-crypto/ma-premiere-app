@@ -40,7 +40,7 @@ import {
 import {
   dayKey, todayKey, isDayKey, parseDay, addDays, diffDays, weekday, mondayOf,
   nthWritingDay, pagesOn, sumRange, hasNotes, streak, bestStreak,
-  forecast, schedule, normalizeTitle, normalizeFull, titleScore, clamp, distribute,
+  forecast, weeklyPages, bestWeek, spanWords, schedule, normalizeTitle, normalizeFull, titleScore, clamp, distribute,
   parsePlanText, PAUSE_KINDS, ENTRY_KINDS, JOKERS_PER_WEEK, pauseOn, pausedDays, hasJoker, jokersInWeek, entryKind, kindTag, isPauseKind,
   isActiveDay, weeklyChallenge,
 } from './core.js';
@@ -50,11 +50,11 @@ import { parseLink, gdocKey, dispositionName, shortHash } from './links.js';
 import { buildOutline } from './outline.js';
 import {
   getFunnyCaption, plain, typo, footnoteOfDay, randomFootnote, gradeFor, GRADES, todayLine,
-  MILESTONE_LINES, streakLine, GHOST_LINES, isoWeek, bingoGrid, bingoScore,
+  MILESTONE_LINES, streakLine, GHOST_LINES, isoWeek, bingoGrid, bingoScore, prognosisLine,
 } from './humour.js';
 import {
   plantSVG, plantImgHTML, plantCaption, spiderSVG, shelfBooksHTML, updateBook, shareShelfHTML,
-  weekBarsHTML, levelTicksHTML, initials,
+  weekBarsHTML, paceBarsHTML, levelTicksHTML, initials,
 } from './visuals.js';
 import { createPromo } from './promo.js';
 
@@ -881,6 +881,8 @@ function esc(str) {
 }
 
 const NF1 = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 1 });
+const NF2 = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const NF1F = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
 const NF0 = new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 0 });
 function fmt1(n) { return NF1.format(Math.round((Number(n) || 0) * 10) / 10); }
 function fmtInt(n) { return NF0.format(Math.round(Number(n) || 0)); }
@@ -1019,8 +1021,9 @@ function renderSetupBanner() {
 
 /* ============================================================
    PAGE DE TITRE — mises à jour ciblées, sans tout redessiner
-   Trois réponses, d'un coup d'œil : où j'en suis (le chiffre),
-   suis-je dans les temps (dépôt, fin estimée),
+   Quatre réponses, d'un coup d'œil : où j'en suis (le chiffre),
+   quand j'aurai fini à ce rythme (la date, en grand) et si c'est
+   dans les temps (le dépôt), à quelle vitesse j'écris (la vélocité),
    que faire aujourd'hui (objectif et bouton).
 ============================================================ */
 function updateDashboard() {
@@ -1045,23 +1048,8 @@ function updateDashboard() {
   if (rest) rest.classList.toggle('hidden', total === 0 || remaining <= 0);
   renderLevel(progress, total, written);
 
-  // Rythme actuel, rythme à tenir, fin estimée
-  const p = fc.pace;
-  const perWeek = p.forecast * 7;
-  setText('paceNow', perWeek > 0 ? `${perWeek < 0.95 ? '<\u00A01' : fmt1(perWeek)}\u00A0p./sem.` : '—');
-  setText('paceNeed', fc.perWeek ? `${fmt1(fc.perWeek)}\u00A0p./sem.` : '—');
-  if (total > 0 && remaining <= 0) {
-    setText('sEndDate', 'Terminé');
-    setText('sEndLbl',  'La dernière page est écrite.');
-  } else if (fc.projectedEnd) {
-    const basis = { recent: 'à votre rythme des 4 dernières semaines', average: 'à votre rythme moyen', early: 'première estimation, elle va s\'affiner' }[p.basis];
-    setText('sEndDate', fmtDateShort(fc.projectedEnd));
-    setText('sEndLbl',  basis ? typo(`Fin estimée : ${basis}.`) : '');
-  } else {
-    setText('sEndDate', '—');
-    setText('sEndLbl',  total === 0 ? '' : 'La fin estimée apparaîtra dès vos premières pages notées.');
-  }
-
+  renderPrognosis(fc);
+  renderVelocity(fc);
   renderDeadline(fc);
   renderToday(fc);
   renderReviewStrip();
@@ -1119,6 +1107,238 @@ function animNum(id, newVal) {
   if (el && el.textContent !== String(newVal)) el.textContent = newVal;
 }
 
+/* ---------- Le pronostic : à ce rythme, quand la dernière page sera écrite ---------- */
+const _prog = { end: null, gain: 0 };   // ce qui était affiché, pour saluer la date qui avance
+
+/** « demain », « dans 3 semaines », « dans 14 mois ». */
+function inWords(days) {
+  return days <= 0 ? 'aujourd\'hui' : days === 1 ? 'demain' : `dans ${spanWords(days)}`;
+}
+/** « 9 jours gagnés », « 6 semaines gagnées », « 3 mois gagnés ». */
+function gainedWords(days) {
+  const w = spanWords(days);
+  return `${w} ${/semaines$/.test(w) ? 'gagnées' : /^1 jour$/.test(w) ? 'gagné' : 'gagnés'}`;
+}
+/** « de 9 jours », « d'un jour », « de 6 semaines ». */
+function byWords(days) {
+  return days === 1 ? 'd\'un jour' : `de ${spanWords(days)}`;
+}
+/** Un rythme en pages par semaine, lisible même quand il est faible (« 0,9 », jamais « < 1 »). */
+function fmtPace(v) {
+  if (!(v > 0)) return '0';
+  return v < 0.05 ? '<\u00A00,1' : NF1F.format(v);
+}
+/** « page » ou « pages », d'après le nombre tel qu'il est affiché (1,5 page, 2 pages). */
+const pageWord = n => plural(Math.round(n * 10) / 10, 'page', 'pages');
+
+/* Tant que le rythme repose sur peu de pages (suivi de moins de quatre semaines, ou moins d'une douzaine de pages
+   en mémoire), une seule page déplace la date de plusieurs mois : on l'affiche, mais on ne chiffre pas encore ce
+   que « rapporte » une page. */
+const steadyPace = p => p.tracked >= 28 && p.pages >= 12;
+
+function renderPrognosis(fc) {
+  const today = todayKey();
+  const p = fc.pace;
+  const dateEl = document.getElementById('sEndDate');
+  if (!dateEl) return;
+  const done = fc.status === 'done';
+  const daysToEnd = fc.projectedEnd ? diffDays(today, fc.projectedEnd) : null;
+  let kicker = 'À ce rythme, dernière page le';
+  let date = '—';
+  let sub = '';
+  let tag = '';
+  let hypo = false;
+  if (done) {
+    kicker = 'Rédaction';
+    date = 'Terminée';
+    sub = 'La dernière page est écrite.';
+  } else if (fc.projectedEnd) {
+    date = fmtDateShort(fc.projectedEnd);
+    sub = inWords(daysToEnd);
+    tag = { early: 'première estimation', average: 'd\'après votre rythme moyen' }[p.basis] || '';
+  } else if (fc.total > 0) {
+    // Pas encore de rythme : une hypothèse plutôt qu'un vide, à raison d'une page par jour d'écriture
+    hypo = true;
+    kicker = 'À une page par jour d\'écriture, fin le';
+    date = fmtDateShort(nthWritingDay(today, Math.max(1, Math.ceil(fc.remaining)), state.writingDays, state.pauses));
+    sub = 'Votre date à vous arrive dès vos premières pages notées.';
+  }
+  setText('sEndKicker', kicker);
+  dateEl.textContent = date;
+  dateEl.classList.toggle('is-empty', date === '—');
+  dateEl.classList.toggle('is-hypo', hypo);
+  setText('sEndIn', sub);
+  setText('sEndLbl', tag);
+  // Ce que les pages du jour ont fait gagner (chiffré seulement quand le rythme est établi)
+  const gained = !done && fc.gainToday > 0;
+  setHTML('sEndGain', gained
+    ? `<span class="prog-gain" title="Ce que vos pages d'aujourd'hui ont fait gagner sur la date de fin">${icon('sparkles')}${steadyPace(p) ? `${esc(gainedWords(fc.gainToday))} aujourd'hui` : 'la date a avancé'}</span>` : '');
+  setText('sEndQuip', fc.total > 0 ? prognosisLine({
+    status: fc.status, basis: p.basis, hasEnd: !!fc.projectedEnd, paused: !!fc.pause, margin: fc.margin,
+    daysToEnd, gainToday: fc.gainToday, velocity: fc.velocity, trend: fc.trend,
+  }, today) : '');
+
+  // La date vient d'avancer grâce aux pages du jour : on le montre
+  const moved = _prog.end && fc.projectedEnd && fc.projectedEnd < _prog.end && fc.gainToday > _prog.gain;
+  _prog.end = fc.projectedEnd;
+  _prog.gain = fc.gainToday;
+  if (moved && !calmMotion()) {
+    dateEl.classList.remove('bump');
+    void dateEl.offsetWidth;
+    dateEl.classList.add('bump');
+  }
+}
+
+/* ---------- La vélocité : pages par semaine, tendance, record, et ce que change une page ---------- */
+function renderVelocity(fc) {
+  const box = document.getElementById('heroPace');
+  if (!box) return;
+  const today = todayKey();
+  const p = fc.pace;
+  const v = fc.velocity;
+  const need = fc.perWeek || 0;
+  const done = fc.status === 'done';
+  // Rien à montrer : pas de rythme, pas de rythme à tenir (le bloc du dépôt invite déjà à fixer une date)
+  const empty = done || fc.total === 0 || (!(v > 0) && !(need > 0));
+  box.classList.toggle('hidden', empty);
+  if (empty) { setText('paceNow', '—'); setText('paceNeed', '—'); togglePaceHow(false); return; }
+
+  // Deux rythmes proches mais différents ne doivent pas s'afficher pareil
+  const close = v > 0 && need > 0 && fmtPace(v) === fmtPace(need) && Math.abs(v - need) >= 0.005;
+  const show = n => (close ? NF2.format(n) : fmtPace(n));
+  setText('paceNow', v > 0 ? `${show(v)}\u00A0p./sem.` : '—');
+  const tr = document.getElementById('paceTrend');
+  if (tr) {
+    const t = fc.trend;
+    const flat = Math.max(0.15, v * 0.05);   // en dessous, ce n'est pas une tendance
+    const dir = t == null ? '' : t >= flat ? 'up' : t <= -flat ? 'down' : 'flat';
+    tr.className = 'pace-trend' + (dir ? ' ' + dir : '');
+    tr.innerHTML = !dir ? '' : dir === 'flat' ? 'stable' : `${icon('arrow-right')}${t > 0 ? '+' : '−'}${fmt1(Math.abs(t))}`;
+    tr.title = dir ? 'Par rapport à il y a quatre semaines' : '';
+    if (dir) tr.setAttribute('aria-label', dir === 'flat' ? 'stable depuis quatre semaines' : `${t > 0 ? 'en hausse' : 'en baisse'} de ${fmt1(Math.abs(t))} page par semaine en quatre semaines`);
+    else tr.removeAttribute('aria-label');
+  }
+  setText('paceNeed', need > 0 ? `${show(need)}\u00A0p./sem.` : '—');
+  const needEl = document.getElementById('paceNeed');
+  if (needEl) needEl.parentElement.classList.toggle('hidden', !(need > 0));
+  // Le record : la meilleure semaine, une fois qu'il y en a quelques-unes à comparer
+  const best = p.tracked >= 21 ? bestWeek(state) : null;
+  const bestEl = document.getElementById('paceBest');
+  if (bestEl) {
+    bestEl.parentElement.classList.toggle('hidden', !best);
+    bestEl.textContent = best ? `${fmt1(best.pages)}\u00A0p./sem.` : '—';
+    bestEl.title = best ? `Votre meilleure semaine : celle du ${fmtDue(best.monday)}` : '';
+  }
+
+  // Les semaines : douze au plus, depuis le début du suivi (à partir de trois semaines, sinon il n'y a rien à lire)
+  const since = state.trackedSince && state.trackedSince <= today ? state.trackedSince : today;
+  const weeks = weeklyPages(state, today, 12).filter(w => addDays(w.monday, 6) >= since).map((w, i, all) => ({
+    pages: w.pages,
+    now: i === all.length - 1,
+    label: i === all.length - 1 ? 'cette semaine' : `semaine du ${fmtDue(w.monday)}`,
+  }));
+  setHTML('pacePlot', weeks.length >= 3 ? paceBarsHTML(weeks, need) : '');
+
+  // Le levier : ce que change une page, et ce qui manque pour arriver à l'heure
+  const bits = [];
+  const day = Number(state.activity[today]) || 0;
+  const steady = steadyPace(p);
+  if (fc.pause) {
+    bits.push(`Période sans rédaction jusqu'au ${fmtDue(fc.pause.to)} : ni votre rythme ni la date ne bougent.`);
+  } else {
+    if (fc.gainToday > 0 && day > 0 && steady) {
+      bits.push(day > 1.05
+        ? `Vos <b>${fmt1(day)}\u00A0pages</b> d'aujourd'hui ont avancé la fin <b>${byWords(fc.gainToday)}</b>.`
+        : `Votre <b>${day < 0.95 ? 'bout de page' : 'page'}</b> d'aujourd'hui a avancé la fin <b>${byWords(fc.gainToday)}</b>.`);
+    }
+    if (fc.status === 'behind' && fc.missing > 0) {
+      const m = Math.max(0.1, Math.round(fc.missing * 10) / 10);
+      bits.push(`Il manque <b>${fmt1(m)}\u00A0${pageWord(m)} par semaine</b> pour arriver à l'heure.`);
+    } else if (fc.status === 'nopace') {
+      bits.push(`Pour déposer à temps : <b>${fmt1(need)}\u00A0${pageWord(need)} par semaine</b>, soit ${fmt1(fc.dailyGoal)}\u00A0${pageWord(fc.dailyGoal)} par jour d'écriture.`);
+    }
+    if (!(fc.gainToday > 0) && fc.projectedEnd) {
+      if (!steady) bits.push('Une page aujourd\'hui, et l\'estimation se précise.');
+      else if (fc.gainPerPage > 0) bits.push(`Une page aujourd'hui, et la fin avance <b>${byWords(fc.gainPerPage)}</b>.`);
+    }
+  }
+  setHTML('paceLever', typo(bits.join(' ')));
+  setHTML('paceHow', paceHowHTML(fc));
+}
+
+/* Sur téléphone, la vélocité quitte le bandeau pour une carte à elle, sous « Aujourd'hui » : d'abord où j'en suis et
+   quand j'aurai fini, puis quoi faire aujourd'hui, puis à quelle vitesse. Sur grand écran, elle reste dans le bandeau. */
+const _phone = window.matchMedia ? window.matchMedia('(max-width: 899px)') : null;
+function placePaceBlock() {
+  const pace = document.getElementById('heroPace');
+  const how = document.getElementById('paceHow');
+  const hero = document.querySelector('.dashboard-banner');
+  const today = document.querySelector('.board .today-strip');
+  if (!pace || !how || !hero || !today) return;
+  if (_phone && _phone.matches) {
+    if (pace.parentElement !== today.parentElement) today.after(pace);
+    if (how.parentElement !== pace) pace.append(how);
+  } else if (pace.parentElement !== hero) {
+    hero.append(pace, how);
+  }
+}
+placePaceBlock();
+if (_phone) _phone.addEventListener('change', placePaceBlock);
+
+/** Ouvre ou referme « Comment c'est calculé », sous le bandeau. */
+function togglePaceHow(force) {
+  const hero = document.querySelector('.dashboard-banner');
+  const body = document.getElementById('paceHow');
+  const btn = document.getElementById('paceHowBtn');
+  if (!hero || !body || !btn) return;
+  const open = typeof force === 'boolean' ? force : body.classList.contains('hidden');
+  body.classList.toggle('hidden', !open);
+  hero.classList.toggle('how-open', open);
+  btn.setAttribute('aria-expanded', String(open));
+}
+
+/** « Comment c'est calculé » : la règle, avec les chiffres du moment. */
+function paceHowHTML(fc) {
+  const p = fc.pace;
+  const v = fc.velocity;
+  const today = todayKey();
+  const out = [];
+  const months = ['deux', 'deux', 'deux', 'trois', 'quatre', 'cinq', 'six', 'sept', 'huit'][clamp(Math.round(p.half / 30.44), 0, 8)];
+  out.push(`Votre <b>vélocité</b> est la moyenne de vos pages par semaine. Les semaines récentes y pèsent le plus : une semaine vieille de ${months}\u00A0mois compte moitié moins que celle-ci.`
+    + (p.half >= 100 ? ' Vous écrivez par petites touches : le calcul prend donc plus de recul, pour qu\'une seule page ne fasse pas tout basculer.' : ''));
+  if (p.basis === 'average' && state.startDate) {
+    out.push(`Le suivi est encore jeune : en attendant, le calcul s'appuie surtout sur votre rythme moyen depuis le ${formatDateFr(state.startDate)}.`);
+  } else if (p.basis === 'early') {
+    out.push('Les premiers jours, l\'estimation est fragile : elle se stabilise en deux à trois semaines de suivi.');
+  }
+  if (fc.projectedEnd && v > 0) {
+    const weeks = fc.remaining / v;
+    out.push(`La <b>date</b> : il reste ${fmtInt(fc.remaining)}\u00A0${pageWord(fc.remaining)} ; à ${fmtPace(v)}\u00A0${pageWord(v)} par semaine, cela fait ${weeks < 2 ? spanWords(Math.ceil(weeks * 7)) : `${fmtInt(weeks)}\u00A0semaines`}.`
+      + (pausedDays(today, fc.projectedEnd, state.pauses) > 0 ? ' Vos périodes sans rédaction à venir la repoussent d\'autant.' : ''));
+    out.push('Elle bouge tous les jours : elle avance d\'un coup quand vous écrivez, et recule doucement sinon. Les périodes sans rédaction que vous déclarez ne comptent ni pour ni contre vous.');
+    // Un pronostic, pas une promesse : sur des rédactions simulées, la moitié des fins réelles tombent à moins d'un tiers de l'horizon
+    const h = diffDays(today, fc.projectedEnd);
+    const span = h < 21 ? 'à quelques jours près' : monthSpan(addDays(today, Math.round(h * 0.7)), addDays(today, Math.round(h * 1.3)));
+    out.push(`C'est un pronostic, pas une promesse : comptez un tiers de marge, en plus ou en moins. Ici, ${span}.`);
+  }
+  if (fc.writingEnd && fc.status !== 'done') {
+    const m = Number.isFinite(state.marginDays) ? state.marginDays : 21;
+    out.push(`<b>À tenir</b> : le rythme pour écrire la dernière page le ${fmtDateShort(fc.writingEnd)}${m > 0 ? `, soit ${m}\u00A0jours avant le dépôt, le temps de relire` : ''}.`);
+  }
+  return out.map(t => `<p>${typo(t)}</p>`).join('');
+}
+
+/** « entre mai et novembre 2027 », « entre novembre 2027 et février 2028 », « courant mai 2027 ». */
+function monthSpan(a, b) {
+  const da = parseDay(a);
+  const db = parseDay(b);
+  if (da.getFullYear() === db.getFullYear()) {
+    if (da.getMonth() === db.getMonth()) return `courant ${fmtMonthYear(b)}`;
+    return `entre ${MONTHS_LONG[da.getMonth()]} et ${fmtMonthYear(b)}`;
+  }
+  return `entre ${fmtMonthYear(a)} et ${fmtMonthYear(b)}`;
+}
+
 /** Ligne « Dépôt » : un champ date tant qu'elle n'est pas fixée, puis le verdict. */
 function renderDeadline(fc) {
   const el = document.getElementById('dbDeadline');
@@ -1131,7 +1351,7 @@ function renderDeadline(fc) {
     el.innerHTML = `<label class="dl-set">Quand déposez-vous\u00A0?
         <input type="date" id="dlInline" min="${addDays(todayKey(), 1)}" aria-label="Ma date de dépôt"
                onchange="setDeadlineInline(this.value)" onblur="setDeadlineInline(this.value, true)"></label>
-      <span class="db-dl-sub">Le Journal vous dira si vous êtes dans les temps, et quel rythme tenir.
+      <span class="db-dl-sub">Pour savoir si vous êtes dans les temps, et quel rythme tenir.
         <button type="button" class="link-btn" onclick="openProjectModal('month')">Pas de date précise\u00A0? Indiquez un mois.</button></span>`;
     return;
   }
@@ -1140,11 +1360,11 @@ function renderDeadline(fc) {
   let ico = 'target';
   let verdict = '';
   switch (fc.status) {
-    case 'done':    cls = 'ok';   ico = 'check'; verdict = 'rédaction terminée, place à la relecture'; break;
+    case 'done':    cls = 'ok';   ico = 'check'; verdict = 'place à la relecture'; break;
     case 'overdue': cls = 'late'; ico = 'alert'; verdict = state.deadlineMonth ? 'fin de rédaction dépassée : ajustez la période' : 'fin de rédaction dépassée : ajustez la date'; break;
-    case 'ontrack': cls = 'ok';   ico = 'check'; verdict = fc.margin > 0 ? `dans les temps, ${fc.margin} jour${fc.margin > 1 ? 's' : ''} d'avance` : 'pile dans les temps'; break;
-    case 'behind':  cls = 'warn'; ico = 'alert'; verdict = `en retard : il faudrait ${fmt1(fc.perWeek)} pages par semaine`; break;
-    case 'nopace':  verdict = `à tenir : ${fmt1(fc.perWeek)} pages par semaine`; break;
+    case 'ontrack': cls = 'ok';   ico = 'check'; verdict = fc.margin > 0 ? `dans les temps, ${spanWords(fc.margin)} d'avance` : 'pile dans les temps'; break;
+    case 'behind':  cls = 'warn'; ico = 'alert'; verdict = `en retard ${byWords(-fc.margin)} à ce rythme`; break;
+    case 'nopace':  verdict = `à tenir : ${fmt1(fc.perWeek)} ${pageWord(fc.perWeek)} par semaine`; break;
     default: break;
   }
   // L'éphéméride : le jour du dépôt (ou seulement le mois visé), et le compte à rebours
@@ -5264,7 +5484,7 @@ Object.assign(window, {
   // Données
   exportData, importData, confirmReset, deleteAccount,
   // Partage, bingo, bilan
-  openShareModal, setShareFormat, downloadShareImage, shareNative, printReport,
+  openShareModal, setShareFormat, downloadShareImage, shareNative, printReport, togglePaceHow,
   openBingo, toggleBingo, shareBingo,
   // La promo
   openPromoProfile: () => promo.openProfile(),

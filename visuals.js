@@ -6,6 +6,7 @@
        chapitre est long, surligné à hauteur de ce qui est écrit ;
      • la plante : elle pousse avec la série de jours d'écriture ;
      • la semaine : sept barres fines sur une même base ;
+     • la vélocité : une barre par semaine, et le rythme à tenir en repère ;
      • le niveau : les grades franchis, et le prochain.
 ============================================================ */
 
@@ -217,6 +218,28 @@ export function weekBarsHTML(days, goal = 0) {
   }).join('');
   const line = goal > 0 ? `<i class="wk-goal" style="--g:${(goal / max).toFixed(3)}" aria-hidden="true"></i>` : '';
   return `<div class="wk-plot" tabindex="0" role="img" aria-label="Pages par jour cette semaine : ${escHtml(summary.join(', '))}">${bars}${line}</div>`;
+}
+
+/* ---------- La vélocité ---------- */
+
+/**
+ * weeks : [{ label: 'semaine du 12 oct.', pages, now, off }], de la plus ancienne à la semaine en cours
+ *         off : avant le début du suivi (rien à montrer)
+ * need  : pages par semaine à tenir pour l'échéance (0 : pas d'échéance)
+ * Une barre fine par semaine ; la semaine en cours en avant ; le rythme à tenir en repère, nommé au bout du trait.
+ */
+export function paceBarsHTML(weeks, need = 0) {
+  const top = Math.max(1, need, ...weeks.map(w => w.pages || 0));
+  const said = [];
+  const cols = weeks.map(w => {
+    if (w.off) return '<span class="pc-col is-off"></span>';
+    const p = Math.max(0, w.pages || 0);
+    said.push(`${w.label} ${fmtPages(p)}`);
+    return `<span class="pc-col${w.now ? ' is-now' : ''}${p > 0 ? '' : ' is-zero'}" data-tip="${escHtml(`${w.label} : ${fmtPages(p)} p.`)}"><i class="pc-bar" style="--h:${(p / top).toFixed(3)}"></i></span>`;
+  }).join('');
+  const line = need > 0 ? `<i class="pc-need" style="--g:${(need / top).toFixed(3)}" aria-hidden="true"><span>à tenir</span></i>` : '';
+  const label = `Pages par semaine : ${said.join(', ')}${need > 0 ? ` ; à tenir : ${fmtPages(need)} par semaine` : ''}`;
+  return `<div class="pc-plot${need > 0 ? ' has-need' : ''}" style="--n:${weeks.length}" tabindex="0" role="img" aria-label="${escHtml(label)}">${cols}${line}</div>`;
 }
 
 /* ---------- Le niveau ---------- */

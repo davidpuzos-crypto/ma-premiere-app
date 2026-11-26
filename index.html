@@ -324,7 +324,7 @@
           <div class="hero-progress">
             <div class="hero-figure" id="gaugePct">0&nbsp;%</div>
             <div class="hero-pages">
-              <p><b id="sWritten">0</b> pages rédigées sur <span id="sTotal">0</span></p>
+              <p><b id="sWritten">0</b> pages rédigées sur&nbsp;<span id="sTotal">0</span></p>
               <p class="hidden" id="dbPagesRest">reste <span id="sRemaining">0</span> pages</p>
             </div>
           </div>
@@ -340,17 +340,35 @@
           </div>
         </div>
 
-        <!-- Le dépôt, comme une éphéméride -->
+        <!-- Quand j'aurai fini : le pronostic à ce rythme, puis le dépôt (une éphéméride) -->
         <div class="hero-side">
-          <p class="eyebrow" id="dlLabel">Dépôt</p>
-          <div class="db-deadline" id="dbDeadline"></div>
-          <dl class="pace">
-            <div><dt>Votre rythme</dt><dd id="paceNow">—</dd></div>
-            <div><dt>À tenir</dt><dd id="paceNeed">—</dd></div>
-            <div><dt>Fin estimée</dt><dd id="sEndDate">—</dd></div>
-          </dl>
-          <p class="pace-note" id="sEndLbl"></p>
+          <div class="prog" id="prog">
+            <p class="eyebrow" id="sEndKicker">À ce rythme, dernière page le</p>
+            <p class="prog-date" id="sEndDate">—</p>
+            <p class="prog-in"><span id="sEndIn"></span><span class="prog-tag" id="sEndLbl"></span><span id="sEndGain"></span></p>
+            <p class="prog-quip" id="sEndQuip"></p>
+          </div>
+          <div class="hero-dl">
+            <p class="eyebrow" id="dlLabel">Dépôt</p>
+            <div class="db-deadline" id="dbDeadline"></div>
+          </div>
         </div>
+
+        <!-- À quelle vitesse : la vélocité, semaine après semaine -->
+        <div class="hero-pace" id="heroPace">
+          <dl class="pace">
+            <div><dt>Vélocité</dt><dd><span id="paceNow">—</span><span class="pace-trend" id="paceTrend"></span></dd></div>
+            <div><dt>À tenir</dt><dd id="paceNeed">—</dd></div>
+            <div><dt>Record</dt><dd id="paceBest">—</dd></div>
+          </dl>
+          <div class="pace-plot" id="pacePlot"></div>
+          <div class="pace-say">
+            <p class="pace-lever" id="paceLever"></p>
+            <button type="button" class="pace-how" id="paceHowBtn" aria-expanded="false" aria-controls="paceHow"
+                    onclick="togglePaceHow()">Comment c'est calculé</button>
+          </div>
+        </div>
+        <div class="pace-how-body hidden" id="paceHow"></div>
       </section>
 
       <div class="board">

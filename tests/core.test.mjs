@@ -42,21 +42,109 @@ assert.equal(p0b.forecast, 0);
 // Premiers jours : estimation provisoire sur les pages notées
 const pe = C.pace({ trackedSince: '2026-11-23', startDate: null, activity: { '2026-11-23': 2, '2026-11-25': 1 } }, '2026-11-25', 103);
 assert.equal(pe.basis, 'early');
-assert.equal(pe.forecast, 1); // 3 pages en 3 jours
+assert.ok(Math.abs(pe.forecast - 1) < 0.01, '3 pages en 3 jours : ' + pe.forecast);
+// Deux mois de suivi : le rythme est une moyenne où les dernières semaines pèsent le plus. 28 pages en quatre semaines
+// après un mois sans rien : 7 pages par semaine sur le mois, 3,5 sur les deux mois ; on retient 3,5 (et non 7).
 const p2 = C.pace({ trackedSince: '2026-10-01', startDate: '2026-01-01', activity: { '2026-11-21': 14, '2026-11-01': 14 } }, '2026-11-25', 100);
 assert.equal(p2.basis, 'recent');
 assert.equal(p2.recentWindow, 28);
-assert.equal(p2.forecast, 1); // 28 pages / 28 jours
+assert.equal(p2.recent, 1, 'moyenne brute des 28 derniers jours : 28 pages');
+assert.ok(p2.forecast * 7 > 3.3 && p2.forecast * 7 < 3.7, 'rythme retenu : ' + p2.forecast * 7);
+{
+  // Pas d'à-coup : la page écrite il y a quatre semaines s'efface en douceur, elle ne « sort » pas d'une fenêtre
+  const st = { trackedSince: '2026-06-01', activity: { '2026-10-27': 7, '2026-11-10': 7 } };
+  const v = d => C.pace(st, d, 0).forecast * 7;
+  const drop = v('2026-11-24') - v('2026-11-25');
+  assert.ok(drop > 0 && drop < 0.05, 'un jour sans écrire : le rythme baisse à peine (' + drop + ')');
+  assert.ok(Math.abs((v('2026-11-23') - v('2026-11-24')) - drop) < 0.01, 'et pas plus le jour où la page a vingt-huit jours');
+  // Une page aujourd'hui : le rythme monte, sans bondir
+  const up = C.pace({ ...st, activity: { ...st.activity, '2026-11-25': 1 } }, '2026-11-25', 0).forecast * 7 - v('2026-11-25');
+  assert.ok(up > 0.05 && up < 0.15, 'une page de plus : +' + up + ' page par semaine');
+  // Six semaines de terrain déclarées : ni pages ni jours, le rythme d'avant reste le rythme
+  const before = v('2026-11-25');
+  const paused = C.pace({ ...st, pauses: [{ from: '2026-11-26', to: '2027-01-06', kind: 'terrain' }] }, '2027-01-06', 0).forecast * 7;
+  const idle = C.pace(st, '2027-01-06', 0).forecast * 7;
+  assert.ok(Math.abs(paused - before) < 0.02, 'pendant une période sans rédaction, le rythme ne s\'effondre pas : ' + paused + ' contre ' + before);
+  assert.ok(idle < before * 0.85, 'sans période déclarée, six semaines sans écrire le font baisser : ' + idle);
+  // Peu de pages (14 en six mois) : la mémoire est longue, pour qu'une page ne fasse pas tout basculer
+  const sparse = C.pace(st, '2026-11-25', 0);
+  assert.equal(sparse.half, 224);
+  assert.ok(sparse.pages > 10 && sparse.pages < 14, 'pages en mémoire : ' + sparse.pages);
+  // Rédaction dense (six pages par semaine depuis juin) : mémoire courte et réactive
+  const act = {};
+  for (let k = '2026-06-01'; k <= '2026-11-25'; k = C.addDays(k, 1)) if ([1, 3, 5].includes(C.weekday(k))) act[k] = 2;
+  const dense = { trackedSince: '2026-06-01', activity: act };
+  const d0 = C.pace(dense, '2026-11-25', 0);
+  assert.equal(d0.half, 56);
+  assert.ok(d0.pages > 55, 'une soixantaine de pages en mémoire : ' + d0.pages);
+  assert.ok(Math.abs(d0.forecast * 7 - 6) < 0.2, 'six pages par semaine : ' + d0.forecast * 7);
+  const d6 = C.pace(dense, '2027-01-06', 0);
+  assert.ok(d6.forecast < d0.forecast * 0.65, 'six semaines sans écrire : le rythme d\'une rédaction dense baisse franchement');
+  // Entre les deux, la mémoire s'ajuste sans à-coup : une demi-page de plus ne déplace pas le rythme de plus de 3 %
+  const mid = {};
+  for (let k = '2026-06-01'; k <= '2026-11-25'; k = C.addDays(k, 1)) if (C.weekday(k) === 3) mid[k] = 2.5;
+  const m0 = C.pace({ trackedSince: '2026-06-01', activity: mid }, '2026-11-25', 0);
+  assert.ok(m0.half > 56 && m0.half < 224, 'demi-vie intermédiaire : ' + m0.half);
+  assert.ok(Math.abs(m0.pages - 30) < 0.5, 'trente pages en mémoire : ' + m0.pages);
+  for (let extra = 0.5; extra <= 6; extra += 0.5) {
+    const a0 = C.pace({ trackedSince: '2026-06-01', activity: { ...mid, '2026-11-24': extra - 0.5 } }, '2026-11-25', 0).forecast;
+    const a1 = C.pace({ trackedSince: '2026-06-01', activity: { ...mid, '2026-11-24': extra } }, '2026-11-25', 0).forecast;
+    assert.ok(a1 > a0 && a1 / a0 < 1.03, `de ${extra - 0.5} à ${extra} page : ${a0 * 7} puis ${a1 * 7}`);
+  }
+  // Rythme d'avant le suivi (100 pages en un an) : point de départ, qui s'efface à mesure que le suivi dit autre chose
+  const prior = d => C.pace({ trackedSince: '2026-11-01', startDate: '2025-11-01', activity: {} }, d, 100);
+  assert.equal(prior('2026-11-03').basis, 'average');
+  assert.ok(Math.abs(prior('2026-11-03').forecast * 7 - 1.77) < 0.2, 'au début : le rythme moyen, ' + prior('2026-11-03').forecast * 7);
+  assert.ok(prior('2027-02-01').forecast * 7 < 0.4, 'trois mois sans une page notée : il ne reste presque rien du rythme d\'avant');
+  assert.equal(prior('2027-02-01').basis, 'recent');
+}
 
 // Prévision avec échéance
 const fc = C.forecast({ trackedSince: '2026-10-01', startDate: '2026-01-01', activity: { '2026-11-21': 14, '2026-11-01': 14 }, deadline: '2027-01-15', marginDays: 14, writingDays: [1,2,3,4,5] }, { total: 150, written: 100 }, '2026-11-25');
 assert.equal(fc.writingEnd, '2027-01-01');
 assert.equal(fc.daysLeft, 38);
-assert.equal(fc.projectedEnd, '2027-01-14');
+assert.equal(fc.projectedEnd, '2027-03-05', '50 pages à 3,5 pages par semaine : cent jours');
 assert.equal(fc.status, 'behind');
-assert.equal(fc.margin, -13);
+assert.equal(fc.margin, -63);
+assert.ok(Math.abs(fc.velocity - 3.5) < 0.1);
+assert.ok(Math.abs(fc.perWeek - 9.21) < 0.01, 'à tenir : 50 pages en 38 jours');
+assert.ok(Math.abs(fc.missing - (fc.perWeek - fc.velocity)) < 1e-9 && fc.missing > 5, 'ce qu\'il manque par semaine pour arriver à l\'heure');
+assert.ok(fc.trend > 2, 'on accélère : il y a quatre semaines le rythme était bien plus bas (' + fc.trend + ')');
+assert.equal(fc.gainToday, 0, 'rien écrit aujourd\'hui');
+assert.ok(fc.gainPerPage >= 3 && fc.gainPerPage <= 8, 'une page de plus aujourd\'hui avance la fin de quelques jours : ' + fc.gainPerPage);
 assert.equal(fc.writingDaysLeft, C.countWritingDays('2026-11-25', '2027-01-01', [1,2,3,4,5]));
 assert.equal(fc.dailyGoal, Math.max(0.5, Math.ceil(50 / fc.writingDaysLeft * 2) / 2));
+{
+  // Trois pages aujourd'hui : la fin avance d'autant de jours que le dit « gainToday »
+  const base = { trackedSince: '2026-10-01', activity: { '2026-11-21': 14, '2026-11-01': 14 } };
+  const f0 = C.forecast(base, { total: 150, written: 100 }, '2026-11-25');
+  const f3 = C.forecast({ ...base, activity: { ...base.activity, '2026-11-25': 3 } }, { total: 150, written: 103 }, '2026-11-25');
+  assert.equal(f3.gainToday, C.diffDays(f3.projectedEnd, f0.projectedEnd));
+  assert.ok(f3.gainToday >= 10, 'trois pages : ' + f3.gainToday + ' jours gagnés');
+  // Sans échéance : un pronostic quand même, sans verdict
+  assert.deepEqual([f0.status, f0.perWeek, f0.missing, !!f0.projectedEnd], ['none', null, 0, true]);
+  // Rythme infime : pas de date dans un siècle
+  assert.equal(C.forecast({ trackedSince: '2026-01-01', activity: { '2026-01-02': 0.01 } }, { total: 5000, written: 0 }, '2026-11-25').projectedEnd, null);
+  // Semaines et record
+  const wk = C.weeklyPages(base, '2026-11-25', 5);
+  assert.deepEqual(wk.map(w => [w.monday, w.pages]), [['2026-10-26', 14], ['2026-11-02', 0], ['2026-11-09', 0], ['2026-11-16', 14], ['2026-11-23', 0]]);
+  assert.deepEqual(C.bestWeek({ activity: { '2026-11-02': 3, '2026-11-04': 2.5, '2026-11-10': 4, '2026-11-12': -1 } }), { monday: '2026-11-02', pages: 5.5 });
+  assert.equal(C.bestWeek({ activity: {} }), null);
+}
+{
+  // Durées en mots
+  const w = d => C.spanWords(d);
+  assert.deepEqual([w(0), w(1), w(5), w(13)], ['moins d\'un jour', '1 jour', '5 jours', '13 jours']);
+  assert.deepEqual([w(14), w(20), w(59)], ['2 semaines', '3 semaines', '8 semaines']);
+  assert.deepEqual([w(60), w(423), w(700)], ['2 mois', '14 mois', '23 mois']);
+  assert.deepEqual([w(731), w(900), w(1100), w(1500)], ['2 ans', '2 ans et demi', '3 ans', '4 ans']);
+  // La période sans rédaction en cours est signalée
+  const st = { trackedSince: '2026-06-01', activity: { '2026-11-10': 7 }, pauses: [{ from: '2026-11-20', to: '2026-12-05', kind: 'terrain' }] };
+  assert.equal(C.forecast(st, { total: 100, written: 20 }, '2026-11-25').pause.kind, 'terrain');
+  assert.equal(C.forecast(st, { total: 100, written: 20 }, '2026-12-06').pause, null);
+  // Pendant la période, la date de fin ne bouge pas : ni le rythme ni le reste ne changent, et un jour de pause est passé
+  assert.equal(C.forecast(st, { total: 100, written: 20 }, '2026-11-25').projectedEnd, C.forecast(st, { total: 100, written: 20 }, '2026-11-30').projectedEnd);
+}
 const fcDone = C.forecast({}, { total: 10, written: 12 }, '2026-11-25');
 assert.equal(fcDone.status, 'done');
 const fcOver = C.forecast({ deadline: '2026-11-01', marginDays: 0 }, { total: 10, written: 2 }, '2026-11-25');
@@ -325,6 +413,18 @@ console.log('outline.js : plan de document OK');
   assert.match(wk, /--g:0\.500/, 'ligne d\'objectif à mi-hauteur');
   assert.match(wk, /aria-label="Pages par jour cette semaine : jour0 2, jour1 0, jour2 4"/);
   assert.ok(!/wk-goal/.test(V.weekBarsHTML(days, 0)), 'pas de ligne sans objectif');
+  // La vélocité : une barre par semaine, la semaine en cours en avant, le rythme à tenir en repère
+  const weeks = [0, 3, 0, 6, 1.5].map((pages, i) => ({ label: 'semaine ' + i, pages, now: i === 4, off: i === 0 }));
+  const pc = V.paceBarsHTML(weeks, 4);
+  assert.equal((pc.match(/class="pc-col/g) || []).length, 5);
+  assert.equal((pc.match(/pc-col is-off/g) || []).length, 1, 'avant le suivi : rien à montrer');
+  assert.match(pc, /pc-col is-now" data-tip="semaine 4 : 1,5 p\."/);
+  assert.match(pc, /pc-col is-zero" data-tip="semaine 2 : 0 p\."/);
+  assert.match(pc, /--h:0\.500/, '3 pages sur un maximum de 6');
+  assert.match(pc, /pc-need" style="--g:0\.667"/, 'repère aux deux tiers');
+  assert.match(pc, /aria-label="Pages par semaine : semaine 1 3, semaine 2 0, semaine 3 6, semaine 4 1,5 ; à tenir : 4 par semaine"/);
+  assert.ok(!/pc-need/.test(V.paceBarsHTML(weeks, 0)), 'pas de repère sans échéance');
+  assert.match(V.paceBarsHTML(weeks.map(w => ({ ...w, pages: 0 })), 12), /--g:1\.000/, 'le repère fixe l\'échelle quand il dépasse toutes les semaines');
   // Le niveau : une pastille par grade intermédiaire
   const ticks = V.levelTicksHTML(45, [0, 1, 10, 25, 40, 50, 65, 80, 95, 100]);
   assert.equal((ticks.match(/level-tick/g) || []).length, 8);
@@ -339,6 +439,53 @@ console.log('outline.js : plan de document OK');
   assert.match(V.initials('<img src=x onerror=alert(1)>'), /^[\p{L}\p{N}]{1,2}$/u, 'jamais de balise dans une pastille');
 }
 console.log('visuals.js : dessins OK');
+
+/* ------------------------------------------------------------
+   humour.js : la petite phrase du pronostic
+------------------------------------------------------------ */
+{
+  const H = await import('../humour.js');
+  const base = { hasEnd: true, basis: 'recent', daysToEnd: 300, velocity: 4, trend: 0, gainToday: 0 };
+  const moods = c => H.prognosisMoods({ ...base, ...c }).join('+');
+  assert.equal(moods({ status: 'done' }), 'done');
+  assert.equal(moods({ status: 'behind', margin: -40, paused: true }), 'paused', 'en pause, on ne parle pas de retard');
+  assert.equal(moods({ status: 'nopace', hasEnd: false }), 'none');
+  assert.equal(moods({ status: 'behind', margin: -40, basis: 'early' }), 'early', 'les premiers jours, l\'estimation reste modeste');
+  assert.equal(moods({ status: 'ontrack', margin: 90 }), 'ahead_big');
+  assert.equal(moods({ status: 'ontrack', margin: 12 }), 'ahead');
+  assert.equal(moods({ status: 'ontrack', margin: 0 }), 'exact');
+  assert.equal(moods({ status: 'behind', margin: -20 }), 'behind_small');
+  assert.equal(moods({ status: 'behind', margin: -62 }), 'behind');
+  assert.equal(moods({ status: 'behind', margin: -400 }), 'behind_far');
+  assert.equal(moods({ status: 'none' }), 'free');
+  assert.equal(moods({ status: 'none', daysToEnd: 2000 }), 'far');
+  assert.equal(moods({ status: 'overdue' }), 'overdue');
+  assert.equal(moods({ status: 'ontrack', margin: 5, daysToEnd: 12 }), 'soon+ahead');
+  assert.equal(moods({ status: 'behind', margin: -62, trend: 1.2 }), 'behind+faster');
+  assert.equal(moods({ status: 'behind', margin: -62, trend: -1.2 }), 'behind+slower');
+  assert.equal(moods({ status: 'behind', margin: -62, trend: -0.1 }), 'behind', 'une variation infime n\'est pas une tendance');
+  assert.equal(moods({ status: 'behind', margin: -62, trend: null }), 'behind');
+  // Le jour où l'on a écrit, on fête : ni retard, ni baisse de rythme
+  assert.equal(moods({ status: 'behind', margin: -62, trend: -1.2, gainToday: 9 }), 'gain');
+  assert.equal(moods({ status: 'ontrack', margin: 12, trend: 1.2, gainToday: 9 }), 'gain+ahead+faster');
+  // Une phrase pour chaque registre, la même toute la journée, typographiée, sans tiret d'incise
+  for (const [mood, lines] of Object.entries(H.PROGNOSIS)) {
+    assert.ok(lines.length >= 1, mood);
+    for (const l of lines) {
+      assert.ok(l.length > 20 && l.length <= 110, `${mood} : « ${l} » (${l.length} signes)`);
+      assert.ok(!/[—–]| - /.test(l), `pas de tiret : ${l}`);
+    }
+  }
+  const c = { ...base, status: 'behind', margin: -62 };
+  const line = H.prognosisLine(c, '2026-11-26');
+  assert.equal(line, H.prognosisLine(c, '2026-11-26'));
+  assert.ok(H.PROGNOSIS.behind.map(H.typo).includes(line));
+  const week = new Set(Array.from({ length: 14 }, (_, i) => H.prognosisLine(c, C.addDays('2026-11-26', i))));
+  assert.ok(week.size >= 2, 'la phrase change d\'un jour à l\'autre');
+  assert.match(H.prognosisLine({ ...base, status: 'none' }, '2026-11-27'), /\u00A0[:?»]|^[^:?»]*$/, 'espaces insécables à la française');
+  assert.equal(H.prognosisLine({ status: 'weird', hasEnd: true, basis: 'recent', daysToEnd: 10 }, '2026-11-26').length > 0, true);
+}
+console.log('humour.js : pronostic OK');
 
 /* ------------------------------------------------------------
    Périodes hors rédaction, activités de thèse, joker, défi de la semaine

@@ -150,7 +150,13 @@ const clone = o => JSON.parse(JSON.stringify(o));
     let d = await docOf(page, uid);
     assert.equal(written(d), 42);
     assert.ok(!d.activity || !d.activity[TODAY], 'mise à jour initiale non comptée : ' + JSON.stringify(d.activity));
-    assert.equal(await page.textContent('#sEndDate'), '—', 'pas de date de fin fantaisiste');
+    // Pas encore de rythme : une hypothèse clairement présentée comme telle, jamais un pronostic tiré des pages saisies le premier jour
+    assert.equal(await page.textContent('#sEndKicker'), 'À une page par jour d\'écriture, fin le', 'pas de date de fin fantaisiste');
+    assert.match(await page.getAttribute('#sEndDate', 'class'), /is-hypo/);
+    assert.match(await page.textContent('#sEndDate'), /^\d{1,2} \S+ \d{4}$/);
+    assert.match(await page.textContent('#sEndIn'), /dès vos premières pages notées/);
+    assert.ok((await page.textContent('#sEndQuip')).length > 20, 'une phrase pour donner envie de commencer');
+    assert.equal(await page.isVisible('#heroPace'), false, 'pas de vélocité sans page notée ni date de dépôt');
     assert.match(await page.textContent('#tdVal'), /^0 \//);
     await page.click('#setupBanner >> text=C\'est à jour');
     assert.equal(await page.isVisible('#setupBanner'), false);
@@ -177,8 +183,14 @@ const clone = o => JSON.parse(JSON.stringify(o));
     d = await docOf(page, uid);
     assert.equal(d.activity[TODAY], 2);
     assert.equal(written(d), 44);
-    assert.notEqual(await page.textContent('#sEndDate'), '—', 'première estimation affichée');
+    assert.equal(await page.textContent('#sEndKicker'), 'À ce rythme, dernière page le', 'première estimation affichée');
+    assert.doesNotMatch(await page.getAttribute('#sEndDate', 'class'), /is-hypo|is-empty/);
     assert.match(await page.textContent('#sEndLbl'), /première estimation/);
+    assert.match(await page.textContent('#sEndIn'), /^(demain|dans \d+ (jours|semaines|mois|ans))/);
+    assert.equal(await page.textContent('#sEndGain'), '', 'le premier jour, la date apparaît : il n\'y a pas encore de gain à annoncer');
+    assert.match(await page.textContent('#paceNow'), /^\d+,\d\sp\.\/sem\.$/);
+    assert.match(await page.textContent('#paceLever'), /^$|estimation se précise/);
+    assert.equal(await page.locator('#pacePlot .pc-col').count(), 0, 'pas de graphique avant trois semaines de suivi');
 
     // Date de dépôt : directement dans le tableau de bord
     await page.fill('#dlInline', addDays(TODAY, 300));
@@ -196,6 +208,185 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(d.deadline, addDays(TODAY, 300));
     assert.equal(d.startDate, null, 'aucune date de début demandée');
     await page.screenshot({ path: path.join(SHOTS, '21-02-apres-demarrage.png') });
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('Pronostic : « à ce rythme, dernière page le… », vélocité, tendance, record, ce que change une page, calcul expliqué', async () => {
+    const C = await import(path.join(DIR, '..', 'core.js'));
+    const H = await import(path.join(DIR, '..', 'humour.js'));
+    const NB = String.fromCharCode(160);
+    const txt = async (page, sel) => (await page.textContent(sel)).split(NB).join(' ');
+    const fr = k => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }); };
+    const pool = moods => moods.flatMap(m => H.PROGNOSIS[m]).map(l => H.typo(l).split(NB).join(' '));
+    const uid = 'u_fin';
+    const key = `users/${uid}/thesis/main`;
+    // Trois mois de suivi, des semaines inégales : 115 pages visées, 38 écrites
+    const mk = () => {
+      const d = Object.assign(clone(V1_DOC), { version: 2, writingDays: [1, 2, 3, 4, 5], trackedSince: addDays(TODAY, -90), deadline: addDays(TODAY, 300), marginDays: 21,
+        activity: {}, journal: {}, docFiles: {}, docIgnore: [], startDate: null });
+      for (let i = 1; i <= 90; i++) if (i % 2 && Math.floor(i / 7) % 3 !== 1) d.activity[addDays(TODAY, -i)] = 1 + (i % 3) * 0.5;
+      return d;
+    };
+    const totals = { total: 115, written: 38 };
+    let { ctx, page } = await newPage(browser, { user: { uid, email: 'fin@example.com' }, store: { [key]: mk() } });
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    let fc = C.forecast(mk(), totals, TODAY);
+    assert.equal(fc.pace.basis, 'recent');
+    assert.ok(fc.pace.pages >= 12, 'assez de pages en mémoire pour chiffrer : ' + fc.pace.pages);
+    // La date, en grand, et dans combien de temps
+    assert.equal(await page.textContent('#sEndKicker'), 'À ce rythme, dernière page le');
+    assert.equal(await txt(page, '#sEndDate'), fr(fc.projectedEnd));
+    assert.equal(await txt(page, '#sEndIn'), `dans ${C.spanWords(C.diffDays(TODAY, fc.projectedEnd))}`);
+    assert.equal(await page.textContent('#sEndLbl'), '', 'rythme établi : pas de mention « première estimation »');
+    assert.equal(await page.textContent('#sEndGain'), '', 'rien écrit aujourd\'hui : pas de gain affiché');
+    const fontSize = sel => page.$eval(sel, e => parseFloat(getComputedStyle(e).fontSize));
+    assert.ok(await fontSize('#sEndDate') >= 34, 'la date de fin est le deuxième grand chiffre de la page');
+    assert.ok(await fontSize('#sEndDate') > await fontSize('#dbDeadline .dl-count'), 'elle passe avant le compte à rebours');
+    // La petite phrase : celle du jour, pour cette situation
+    const ctxOf = f => ({ status: f.status, basis: f.pace.basis, hasEnd: !!f.projectedEnd, paused: !!f.pause, margin: f.margin,
+      daysToEnd: C.diffDays(TODAY, f.projectedEnd), gainToday: f.gainToday, velocity: f.velocity, trend: f.trend });
+    assert.equal(await txt(page, '#sEndQuip'), H.prognosisLine(ctxOf(fc), TODAY).split(NB).join(' '));
+    assert.ok(pool(H.prognosisMoods(ctxOf(fc))).includes(await txt(page, '#sEndQuip')));
+    // Le verdict, par rapport au dépôt
+    assert.equal(fc.status === 'ontrack' || fc.status === 'behind', true);
+    assert.match(await txt(page, '#dbDeadline .dl-verdict'), fc.status === 'ontrack' ? /^dans les temps, .+ d'avance$|^pile dans les temps$/ : /^en retard d.+ à ce rythme$/);
+    assert.equal(await page.textContent('#dbDeadline .dl-count'), 'J\u2212300');
+    // La vélocité : pages par semaine, tendance sur quatre semaines, record, rythme à tenir
+    const one = n => n.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    assert.equal(await txt(page, '#paceNow'), `${one(fc.velocity)} p./sem.`);
+    assert.equal(await txt(page, '#paceNeed'), `${one(fc.perWeek)} p./sem.`);
+    assert.ok(fc.trend != null, 'six semaines de suivi : une tendance');
+    assert.match(await txt(page, '#paceTrend'), /^(stable|[+\u2212]\d+(,\d)?)$/);
+    assert.match(await page.getAttribute('#paceTrend', 'aria-label'), /quatre semaines/);
+    const best = C.bestWeek(mk());
+    assert.equal(await txt(page, '#paceBest'), `${String(best.pages).replace('.', ',')} p./sem.`);
+    assert.match(await page.getAttribute('#paceBest', 'title'), /meilleure semaine/);
+    // Les semaines : douze barres, la semaine en cours en avant, le rythme à tenir en repère
+    assert.equal(await page.locator('#pacePlot .pc-col').count(), 12);
+    assert.equal(await page.locator('#pacePlot .pc-col.is-now').count(), 1);
+    assert.equal(await page.locator('#pacePlot .pc-need').count(), 1);
+    assert.match(await page.getAttribute('#pacePlot .pc-plot', 'aria-label'), /^Pages par semaine : .+cette semaine .+ ; à tenir : /);
+    await page.hover('#pacePlot .pc-col:nth-child(5)');
+    assert.match(await page.$eval('#pacePlot .pc-col:nth-child(5)', e => getComputedStyle(e, '::after').content), /semaine du .+ p\./, 'le détail d\'une semaine au survol');
+    // Le levier : ce que ferait gagner une page aujourd'hui
+    assert.ok(fc.gainPerPage > 0);
+    const by = n => (n === 1 ? 'd\'un jour' : `de ${C.spanWords(n)}`);
+    assert.ok((await txt(page, '#paceLever')).endsWith(`Une page aujourd'hui, et la fin avance ${by(fc.gainPerPage)}.`), await txt(page, '#paceLever'));
+    assert.equal(await page.evaluate(() => !!document.getElementById('heroPace').closest('.hero')), true, 'sur ordinateur, la vélocité est dans le bandeau');
+    await page.screenshot({ path: path.join(SHOTS, '50-01-pronostic.png') });
+
+    // Une page de plus : la date avance, et on le voit
+    const dateBefore = await txt(page, '#sEndDate');
+    await page.click('#tdPrimary');
+    await flush(page);
+    let d = await docOf(page, uid);
+    assert.equal(d.activity[TODAY], 1);
+    const fc1 = C.forecast(d, { total: 115, written: 39 }, TODAY);
+    assert.ok(fc1.projectedEnd < fc.projectedEnd, 'la fin estimée avance');
+    assert.equal(C.diffDays(fc1.projectedEnd, fc.projectedEnd), fc1.gainToday, 'du nombre de jours annoncé');
+    assert.equal(await txt(page, '#sEndDate'), fr(fc1.projectedEnd));
+    assert.notEqual(await txt(page, '#sEndDate'), dateBefore);
+    assert.match(await page.getAttribute('#sEndDate', 'class'), /bump/, 'la date sursaute');
+    const won = C.spanWords(fc1.gainToday);
+    assert.equal(await txt(page, '#sEndGain'), `${won} ${/semaines$/.test(won) ? 'gagnées' : won === '1 jour' ? 'gagné' : 'gagnés'} aujourd'hui`);
+    assert.ok((await txt(page, '#paceLever')).startsWith(`Votre page d'aujourd'hui a avancé la fin ${by(fc1.gainToday)}.`), await txt(page, '#paceLever'));
+    assert.ok(pool(H.prognosisMoods(ctxOf(fc1))).includes(await txt(page, '#sEndQuip')));
+    assert.equal(H.prognosisMoods(ctxOf(fc1))[0], 'gain', 'le jour où l\'on écrit, on fête');
+    // Annuler : tout revient
+    await page.click('.toast[data-key="quick"] .toast-act');
+    assert.equal(await txt(page, '#sEndDate'), dateBefore);
+    assert.equal(await page.textContent('#sEndGain'), '');
+
+    // « Comment c'est calculé » : la règle, avec les chiffres du moment
+    assert.equal(await page.isVisible('#paceHow'), false);
+    await page.click('#paceHowBtn');
+    assert.equal(await page.getAttribute('#paceHowBtn', 'aria-expanded'), 'true');
+    const how = await txt(page, '#paceHow');
+    assert.match(how, /une semaine vieille de (deux|trois|quatre|cinq|six|sept) mois compte moitié moins/);
+    assert.match(how, new RegExp(`il reste 77 pages ; à ${one(fc.velocity)} pages? par semaine, cela fait \\d+ semaines`));
+    assert.match(how, /C'est un pronostic, pas une promesse : comptez un tiers de marge, en plus ou en moins\. Ici, (entre .+ et .+ \d{4}|courant .+ \d{4})\./);
+    assert.match(how, /À tenir : le rythme pour écrire la dernière page le .+, soit 21 jours avant le dépôt/);
+    await page.screenshot({ path: path.join(SHOTS, '50-02-pronostic-calcul.png') });
+    await page.click('#paceHowBtn');
+    assert.equal(await page.isVisible('#paceHow'), false);
+    assert.equal(await page.getAttribute('#paceHowBtn', 'aria-expanded'), 'false');
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+
+    // Rédaction terminée : plus de pronostic, on fête
+    const done = mk();
+    done.chapters.forEach(c => { if (c.subsections.length) c.subsections.forEach(s => { s.writtenPages = s.targetPages; }); else c.writtenPages = c.targetPages; });
+    ({ ctx, page } = await newPage(browser, { user: { uid, email: 'fin@example.com' }, store: { [key]: done } }));
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    assert.equal(await page.textContent('#sEndKicker'), 'Rédaction');
+    assert.equal(await page.textContent('#sEndDate'), 'Terminée');
+    assert.ok(pool(['done']).includes(await txt(page, '#sEndQuip')));
+    assert.equal(await txt(page, '#dbDeadline .dl-verdict'), 'place à la relecture');
+    assert.equal(await page.isVisible('#heroPace'), false);
+    await ctx.close();
+
+    // Suivi tout jeune (cinq jours) et thèse commencée il y a un an : le rythme moyen sert de point de départ, sans rien chiffrer
+    const young = Object.assign(mk(), { trackedSince: addDays(TODAY, -5), startDate: addDays(TODAY, -365), activity: { [addDays(TODAY, -2)]: 1 } });
+    ({ ctx, page } = await newPage(browser, { user: { uid, email: 'fin@example.com' }, store: { [key]: young } }));
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    assert.equal(C.forecast(young, totals, TODAY).pace.basis, 'average');
+    assert.equal(await page.textContent('#sEndLbl'), 'd\'après votre rythme moyen');
+    assert.match(await txt(page, '#paceLever'), /Une page aujourd'hui, et l'estimation se précise\.$/);
+    assert.equal(await page.locator('#pacePlot .pc-col').count(), 0, 'pas de graphique avant trois semaines');
+    assert.equal(await page.isVisible('#paceBest'), false, 'pas de record au bout de cinq jours');
+    await page.click('#paceHowBtn');
+    assert.match(await txt(page, '#paceHow'), /Le suivi est encore jeune : en attendant, le calcul s'appuie surtout sur votre rythme moyen depuis le /);
+    await page.click('#tdPrimary');
+    assert.match(await txt(page, '#sEndGain'), /^la date a avancé$/, 'gain salué, pas chiffré');
+    await ctx.close();
+
+    // On écrit peu (une page toutes les deux semaines) : le calcul prend du recul, et le dit
+    const sparse = Object.assign(mk(), { trackedSince: addDays(TODAY, -400), deadline: null, activity: {} });
+    for (let i = 3; i <= 400; i += 14) sparse.activity[addDays(TODAY, -i)] = 1;
+    ({ ctx, page } = await newPage(browser, { user: { uid, email: 'fin@example.com' }, store: { [key]: sparse } }));
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    const fs0 = C.forecast(sparse, totals, TODAY);
+    assert.equal(fs0.pace.half, 224, 'mémoire longue');
+    assert.equal(await txt(page, '#sEndDate'), fr(fs0.projectedEnd));
+    assert.equal(await txt(page, '#paceNow'), `${one(fs0.velocity)} p./sem.`);
+    assert.equal(await page.isVisible('#paceNeed'), false, 'pas de rythme à tenir sans date de dépôt');
+    assert.equal(await page.locator('#pacePlot .pc-need').count(), 0);
+    await page.click('#paceHowBtn');
+    assert.match(await txt(page, '#paceHow'), /une semaine vieille de sept mois compte moitié moins.+Vous écrivez par petites touches : le calcul prend donc plus de recul/);
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+
+    // Téléphone : le bandeau reste court (la date de fin au premier écran), la vélocité passe sous « Aujourd'hui »
+    ({ ctx, page } = await newPage(browser, { viewport: { width: 390, height: 844 }, user: { uid, email: 'fin@example.com' }, store: { [key]: mk() } }));
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    const pos = await page.evaluate(() => {
+      const top = sel => document.querySelector(sel).getBoundingClientRect().top + scrollY;
+      const pace = document.getElementById('heroPace');
+      return { date: top('#sEndDate'), today: top('.today-strip'), pace: top('#heroPace'), plan: top('.workspace'), inHero: !!pace.closest('.hero'),
+        how: document.getElementById('paceHow').parentElement.id, overflow: document.documentElement.scrollWidth - innerWidth,
+        dateW: document.getElementById('sEndDate').scrollWidth - document.getElementById('sEndDate').clientWidth };
+    });
+    assert.equal(pos.inHero, false);
+    assert.ok(pos.date < 700, 'la date de fin au premier écran : ' + pos.date);
+    assert.ok(pos.today < pos.pace && pos.pace < pos.plan, 'bandeau, « Aujourd\'hui », vélocité, puis le plan : ' + JSON.stringify(pos));
+    assert.equal(pos.how, 'heroPace', 'l\'explication s\'ouvre dans la carte de la vélocité');
+    assert.ok(pos.overflow <= 0 && pos.dateW <= 0, 'rien ne déborde : ' + JSON.stringify(pos));
+    await page.evaluate(() => document.getElementById('heroPace').scrollIntoView({ block: 'center' }));
+    await page.click('#paceHowBtn');
+    assert.ok(await page.isVisible('#paceHow'));
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 0);
+    await page.screenshot({ path: path.join(SHOTS, '50-03-pronostic-mobile.png') });
+    // L'écran s'élargit (tablette en paysage) : la vélocité retourne dans le bandeau
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.waitForFunction(() => !!document.getElementById('heroPace').closest('.hero'));
+    assert.equal(await page.evaluate(() => document.getElementById('paceHow').parentElement.classList.contains('dashboard-banner')), true);
     assert.deepEqual(page._errors, []);
     await ctx.close();
   });
@@ -1253,6 +1444,8 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.match(await page.textContent('#tdSub'), /Colloque jusqu'au .+: le Journal n'attend pas de pages/);
     assert.equal(await page.locator('#weekBars .wk-col.is-today.rest').count(), 1, 'jour marqué comme un jour sans écriture');
     assert.notEqual(await page.textContent('#paceNeed'), paceBefore, 'soixante jours de moins pour écrire : le rythme à tenir augmente');
+    assert.match(await page.textContent('#paceLever'), /^Période sans rédaction jusqu'au .+ni votre rythme ni la date ne bougent\.$/);
+    assert.match(await page.textContent('#sEndQuip'), /Période sans rédaction|En pause déclarée/);
     await flush(page);
     d = await docOf(page, 'u_vie2');
     assert.deepEqual(d.pauses, [{ from: TODAY, to: addDays(TODAY, 59), kind: 'colloque' }]);
