@@ -7,6 +7,7 @@
      ics.js      export agenda
      humour.js   les textes : notes du jour, grades, bingo
      visuals.js  les dessins : étagère, plante, barres de la semaine
+     pages.js    la pagination d'un document (polices, lignes, pages, PDF de Google Docs)
      promo.js    la promo (fiches, classement, fil)
 ============================================================ */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
@@ -35,7 +36,8 @@ import {
   dayKey, todayKey, isDayKey, parseDay, addDays, diffDays, weekday, mondayOf,
   nthWritingDay, pagesOn, sumRange, hasNotes, streak, bestStreak,
   forecast, schedule, normalizeTitle, normalizeFull, titleScore, clamp, distribute,
-  parsePlanText,
+  parsePlanText, PAUSE_KINDS, ENTRY_KINDS, JOKERS_PER_WEEK, pauseOn, pausedDays, hasJoker, jokersInWeek, entryKind, kindTag, isPauseKind,
+  isActiveDay, weeklyChallenge,
 } from './core.js';
 import { buildICS, googleCalendarUrl, byDay } from './ics.js';
 import { parseDocumentFile, parsePasted } from './docx.js';
@@ -51,7 +53,7 @@ import {
 import { createPromo } from './promo.js';
 
 /* Version de l'application : la même que VERSION dans sw.js et que data-app-version dans index.html */
-const APP_VERSION = '4.0.1';
+const APP_VERSION = '4.1.0';
 const APP_URL = 'https://lejournaldebord.org/';
 
 /* Garde-fou de mise à jour (son jumeau est dans index.html) : ce script et la page doivent être de la même
@@ -67,7 +69,7 @@ window.__jdbVersion = APP_VERSION;
     sessionStorage.setItem('jdb_heal', String(n + 1));
   } catch { return; }
   window.__jdbHealing = true;
-  const files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'ics.js'];
+  const files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'ics.js'];
   Promise.all(files.map(u => fetch(u, { cache: 'reload' }).catch(() => {}))).then(() => location.reload());
   throw new Error('Mise à jour en cours : la page va se recharger.');
 })();
@@ -161,7 +163,7 @@ const WD_NAMES   = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi
 const WD_ORDER   = [1, 2, 3, 4, 5, 6, 0];
 const MONTHS_SHORT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 const WHATSNEW_KEY = 'jdb_whatsnew';
-const WHATSNEW_VER = '4'; // à augmenter pour annoncer une mise à jour à la connexion
+const WHATSNEW_VER = '5'; // à augmenter pour annoncer une mise à jour à la connexion
 
 /** Une icône du jeu défini en tête de index.html (<symbol id="i-…">). */
 function icon(name, cls = '') {
@@ -190,12 +192,17 @@ function defaultState() {
     introLast: true,         // rétroplanning : intro et conclusion à la fin
     sessionTime: '09:00',    // séances d'écriture (agenda)
     sessionMinutes: 90,
+    slots: [],               // horaire propre à un jour : [[jour, 'HH:MM', minutes]] ; les autres jours suivent sessionTime
+    alarmMin: 10,            // rappel avant la séance, en minutes (0 = aucun)
+    meetWeeks: 0,            // rappel « envoyer mes pages à ma direction » toutes les n semaines (0 = non)
+    pauses: [],              // périodes hors rédaction : [{ from, to, kind }]
+    defis: { won: [], off: false }, // défis de la semaine relevés, ou proposition désactivée
     // Journal
     activity: {},            // { 'AAAA-MM-JJ': pages écrites ce jour }
     journal: {},             // { 'AAAA-MM-JJ': [ { p, s, n, m, t } ] }
     trackedSince: null,
     // Synchro Word
-    docFiles: {},            // { cléFichier: { name, at, inclWords, wpp, scope, mtime, size } }
+    docFiles: {},            // { cléFichier: { name, at, inclWords, wpp, scope, level, mtime, size, pv, src, pages, k, gdoc, sig } }
     docIgnore: [],           // parties du document que l'utilisateur a choisi d'ignorer
   };
 }
@@ -276,16 +283,38 @@ function normalizeState(d) {
   if (isObj(d.journal)) {
     for (const [k, arr] of Object.entries(d.journal)) {
       if (!isDayKey(k) || !Array.isArray(arr)) continue;
-      s.journal[k] = arr.filter(isObj).map(e => ({
-        p: Number(e.p) || 0,
-        s: typeof e.s === 'string' ? e.s : null,
-        n: typeof e.n === 'string' ? e.n.slice(0, 500) : '',
-        m: clamp(Math.round(Number(e.m) || 0), 0, 5),
-        t: typeof e.t === 'string' ? e.t.slice(0, 5) : '',
-      }));
+      s.journal[k] = arr.filter(isObj).map(e => {
+        const kind = entryKind(e);                 // autre travail de thèse, ou joker
+        const o = {
+          p: Number(e.p) || 0,
+          s: kind ? kindTag(kind) : (typeof e.s === 'string' ? e.s : null),
+          n: typeof e.n === 'string' ? e.n.slice(0, 500) : '',
+          m: clamp(Math.round(Number(e.m) || 0), 0, 5),
+          t: typeof e.t === 'string' ? e.t.slice(0, 5) : '',
+        };
+        if (kind) o.k = kind;
+        return o;
+      });
     }
   }
   s.trackedSince = isDayKey(d.trackedSince) ? d.trackedSince : null;
+  if (Array.isArray(d.slots)) {
+    s.slots = d.slots.filter(x => Array.isArray(x) && Number.isInteger(x[0]) && x[0] >= 0 && x[0] <= 6 && /^\d{2}:\d{2}$/.test(x[1]) && Number.isFinite(x[2]))
+      .map(x => [x[0], x[1], clamp(Math.round(x[2]), 15, 480)]).slice(0, 7);
+  }
+  if (Number.isFinite(d.alarmMin)) s.alarmMin = clamp(Math.round(d.alarmMin), 0, 1440);
+  if (Number.isFinite(d.meetWeeks)) s.meetWeeks = clamp(Math.round(d.meetWeeks), 0, 12);
+  if (Array.isArray(d.pauses)) {
+    s.pauses = d.pauses.filter(p => isObj(p) && isDayKey(p.from) && isDayKey(p.to) && p.to >= p.from)
+      .map(p => ({ from: p.from, to: p.to, kind: isPauseKind(p.kind) ? p.kind : 'autre' }))
+      .sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0)).slice(0, 40);
+  }
+  if (isObj(d.defis)) {
+    s.defis = {
+      won: [...new Set((Array.isArray(d.defis.won) ? d.defis.won : []).filter(w => typeof w === 'string' && /^\d{4}-S\d{2}$/.test(w)))].slice(-120),
+      off: d.defis.off === true,
+    };
+  }
   const docFile = f => ({
     name: String(f.name || '').slice(0, 200),
     at: isDayKey(f.at) ? f.at : null,
@@ -296,6 +325,15 @@ function normalizeState(d) {
     level: f.level === 'auto' ? 'auto' : (Number.isInteger(f.level) && f.level >= 1 && f.level <= 9 ? f.level : null),
     mtime: Number.isFinite(f.mtime) ? f.mtime : null,
     size: Number.isFinite(f.size) ? f.size : null,
+    // Depuis la 4.1 : pages lues dans le document (pv = 2). src = d'où vient la pagination,
+    // pages = longueur du document, k = correction donnée par l'utilisateur (« il fait N pages »).
+    pv: f.pv === 2 ? 2 : null,
+    src: ['pdf', 'word', 'meta', 'layout', 'density'].includes(f.src) ? f.src : null,
+    pages: Number.isFinite(f.pages) && f.pages >= 0 && f.pages < 100000 ? Math.round(f.pages * 10) / 10 : null,
+    k: Number.isFinite(f.k) && f.k >= 0.2 && f.k <= 5 ? f.k : null,
+    // Google Docs lié : identifiant du document et signature de son texte à la dernière synchro
+    gdoc: typeof f.gdoc === 'string' && /^[A-Za-z0-9_-]{20,100}$/.test(f.gdoc) ? f.gdoc : null,
+    sig: typeof f.sig === 'string' && /^[a-z0-9.]{1,40}$/.test(f.sig) ? f.sig : null,
   });
   if (isObj(d.docFiles)) {
     for (const [k, f] of Object.entries(d.docFiles)) {
@@ -326,6 +364,11 @@ function serializeState() {
     introLast:      state.introLast,
     sessionTime:    state.sessionTime,
     sessionMinutes: state.sessionMinutes,
+    slots:          state.slots,
+    alarmMin:       state.alarmMin,
+    meetWeeks:      state.meetWeeks,
+    pauses:         state.pauses,
+    defis:          state.defis,
     activity:       state.activity,
     journal:        state.journal,
     trackedSince:   state.trackedSince,
@@ -569,7 +612,7 @@ const stampOf = d => `${(d && d.updatedAt) || ''}|${(d && d.clientId) || ''}`;
    entier sans les champs v2. Chaque appareil garde donc une copie
    locale de ces champs et les restaure si besoin. */
 const V2_FIELDS = ['deadline', 'deadlineMonth', 'marginDays', 'writingDays', 'dailyGoal', 'introLast', 'sessionTime',
-  'sessionMinutes', 'activity', 'journal', 'trackedSince', 'docFiles', 'docIgnore'];
+  'sessionMinutes', 'activity', 'journal', 'trackedSince', 'docFiles', 'docIgnore', 'slots', 'alarmMin', 'meetWeeks', 'pauses', 'defis'];
 const backupKey = () => 'jdb_v2_' + (currentUser && currentUser.uid);
 
 function backupV2() {
@@ -1131,7 +1174,8 @@ function idleDays(today) {
   for (const [k, v] of Object.entries(state.activity)) if (v > 0 && k > last && k <= today) last = k;
   for (const k of Object.keys(state.journal)) if (hasNotes(state.journal, k) && k > last && k <= today) last = k;
   if (!last) return 0;
-  return Math.max(0, diffDays(last, today));
+  // Une période hors rédaction (terrain, congés…) n'est pas une panne : elle ne fait ni faner la plante ni venir l'araignée
+  return Math.max(0, diffDays(last, today) - pausedDays(addDays(last, 1), today, state.pauses));
 }
 
 /**
@@ -1139,7 +1183,7 @@ function idleDays(today) {
  * Ne concerne que celles et ceux qui suivent leur avancée ainsi, sans fichier lié qui se relit tout seul.
  */
 function staleSyncDays(today) {
-  if (_linked.length) return 0;
+  if (hasAutoDocs()) return 0;
   let last = '';
   for (const f of Object.values(state.docFiles)) if (f.at && f.at > last) last = f.at;
   if (!last) return 0;
@@ -1164,7 +1208,13 @@ function renderToday(fc) {
   setText('tdDate', parseDay(today).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' }));
   const s = streak(state, today);
   const stale = staleSyncDays(today);
-  setText('tdSub', stale && !reached
+  const pause = pauseOn(state.pauses, today);
+  const other = (state.journal[today] || []).find(e => e.k && e.k !== 'joker');
+  setText('tdSub', !reached && pause
+    ? typo(`${PAUSE_KINDS[pause.kind]} jusqu'au ${fmtDateShort(pause.to)} : le Journal n'attend pas de pages. Votre série est à l'abri.`)
+    : !reached && hasJoker(state.journal, today) ? 'Joker posé : journée off assumée, la série est préservée.'
+    : !reached && other && !done ? typo(`${ENTRY_KINDS[other.k]} : c'est noté. Une journée de thèse, même sans une ligne écrite.`)
+    : stale && !reached
     ? typo(`Dernière synchro de votre document il y a ${stale} jours. Déposez-le dans la page (ou collez votre texte) : le Journal fait le calcul.`)
     : todayLine({
       done, goal,
@@ -1181,6 +1231,17 @@ function renderToday(fc) {
   setText('tdWeek', (wk > 0 ? '+' : '') + fmt1(wk));
   renderWeek(today, goal);
   renderPrimary();
+  // La prochaine séance prévue, et le chemin vers l'agenda
+  const next = document.getElementById('tdNext');
+  if (next) {
+    const nx = state.chapters.length ? nextSession() : null;
+    next.classList.toggle('hidden', !nx);
+    if (nx) {
+      const gap = diffDays(today, nx.day);
+      const when = gap === 0 ? 'aujourd\'hui' : gap === 1 ? 'demain' : gap < 7 ? WD_NAMES[weekday(nx.day)] : `le ${fmtDateShort(nx.day)}`;
+      setHTML('tdNextTxt', esc(typo(`Prochaine séance : ${when} à ${fmtHour(nx.time)} (${fmtDuration(nx.minutes)})`)));
+    }
+  }
 }
 
 /** Les sept jours de la semaine en cours : une barre par jour, celle d'aujourd'hui en avant. */
@@ -1193,7 +1254,7 @@ function renderWeek(today, goal) {
     days.push({
       label: WD_LETTERS[wd], name: WD_NAMES[wd],
       pages: k > today ? 0 : Math.max(0, pagesOn(state.activity, k)),
-      today: k === today, future: k > today, rest: !state.writingDays.includes(wd),
+      today: k === today, future: k > today, rest: !state.writingDays.includes(wd) || !!pauseOn(state.pauses, k),
     });
   }
   setHTML('weekBars', weekBarsHTML(days, goal));
@@ -1207,7 +1268,7 @@ function renderPrimary() {
   const fabLbl = document.querySelector('.fab .fab-lbl');
   if (!btn || !cap || !act) return;
   const leaf = currentLeaf();
-  const linked = _linked.length > 0;
+  const linked = hasAutoDocs();
   const usable = !!leaf || linked;
   act.classList.toggle('hidden', !usable);
   document.body.classList.toggle('no-plan', !usable);
@@ -1224,8 +1285,9 @@ function renderPrimary() {
     cap.classList.add('alert');
     cap.title = 'Vérifier les nouvelles parties avant de les ajouter';
   } else if (linked) {
-    cap.textContent = _linked.length === 1 ? trunc(_linked[0].name, 30) : `${_linked.length} fichiers liés`;
-    cap.title = 'Gérer les fichiers liés';
+    const names = _linked.map(l => l.name).concat(gdocEntries().filter(([k]) => !_linked.some(l => l.key === k)).map(([, f]) => f.name));
+    cap.textContent = names.length === 1 ? trunc(names[0], 30) : `${names.length} documents liés`;
+    cap.title = 'Gérer mes documents, ou en changer';
   } else {
     // « détailler » est souligné : c'est lui qui ouvre la saisie complète (autre partie, plusieurs pages, hier, une note)
     cap.innerHTML = `sur «\u00A0${esc(trunc(leafTitle(leaf), 26))}\u00A0» · <u>détailler</u>`;
@@ -1326,7 +1388,7 @@ function goToChapter(id) {
 
 function primaryAction() {
   if (!requireReady()) return;
-  if (_linked.length) syncLinked({ manual: true });
+  if (hasAutoDocs()) syncAll({ manual: true });
   else quickAdd(1);
 }
 
@@ -1334,7 +1396,7 @@ function primaryAction() {
 function captionAction() {
   if (!requireReady()) return;
   if (_pendingReview) { const m = _pendingReview; _pendingReview = null; openDocxPreview(m); renderPrimary(); }
-  else if (_linked.length) openDocxModal();
+  else if (hasAutoDocs()) openDocxModal();
   else openLogModal();
 }
 
@@ -1416,6 +1478,7 @@ function checkDailyGoal() {
     lsSet(streakKey, '1');
     toast(streakLine(s.count), 'success', { key: 'cheer', duration: 6000 });
   }
+  checkDefi();
 }
 
 /** Réservé à la toute dernière page : quelques confettis aux couleurs de la maison. */
@@ -1516,8 +1579,9 @@ function renderChapters() {
         <button type="button" class="dropzone ob-drop" onclick="pickWordFile()">
           ${icon('upload', 'ic-lg')}
           <span class="dz-main">Déposer mon document</span>
-          <span class="dz-sub">Word, LibreOffice ou LaTeX. Ou collez ici le texte de votre document (Google Docs, Overleaf…) : chapitres et pages rédigées se remplissent tout seuls. Il est lu sur votre appareil, il n'est envoyé nulle part.</span>
+          <span class="dz-sub">Word, LibreOffice ou LaTeX. Ou collez ici le texte de votre document (Overleaf, Word en ligne…) : chapitres et pages rédigées se remplissent tout seuls. Il est lu sur votre appareil, il n'est envoyé nulle part.</span>
         </button>
+        <button type="button" class="link-btn ob-gdoc" onclick="openDocxModal()">Mon manuscrit est dans Google Docs : le lier par son lien</button>
         <p class="ob-or">Pas de fichier sous la main ? Partez d'un modèle :</p>
         <div class="ob-choices">
           <button type="button" class="btn btn-outline" onclick="applyTemplate(0)">Thèse SHS</button>
@@ -1672,10 +1736,13 @@ function heatmapHTML(activity, journal, opts) {
       const k = addDays(monday, d);
       if (k > today) continue;
       const p    = pagesOn(activity, k);
-      const note = hasNotes(journal, k);
+      const kind = ((journal && journal[k]) || []).find(e => e && e.k && e.k !== 'joker');
+      const off  = !p && !kind && (hasJoker(journal, k) || (opts.pauses && pauseOn(opts.pauses, k)));
+      const note = hasNotes(journal, k) && !off;
       const pre  = since && k < since;
-      const lbl  = p ? `${fmt1(p)} p.` : note ? 'note' : 'rien';
-      cells += `<rect class="hm l${heatLevel(p, note, goal)}${k === today ? ' today' : ''}${pre ? ' pre' : ''}" x="${w * P}" y="${d * P}" width="${C}" height="${C}" rx="2.5"><title>${fmtDateLong(k)} : ${lbl}</title></rect>`;
+      const lbl  = p ? `${fmt1(p)} p.${kind ? ` · ${ENTRY_KINDS[kind.k].toLowerCase()}` : ''}` : kind ? ENTRY_KINDS[kind.k].toLowerCase()
+        : off ? (hasJoker(journal, k) ? 'joker' : PAUSE_KINDS[pauseOn(opts.pauses, k).kind].toLowerCase()) : note ? 'note' : 'rien';
+      cells += `<rect class="hm l${heatLevel(p, note, goal)}${k === today ? ' today' : ''}${pre ? ' pre' : ''}${off ? ' off' : ''}${!p && kind ? ' kind' : ''}" x="${w * P}" y="${d * P}" width="${C}" height="${C}" rx="2.5"><title>${fmtDateLong(k)} : ${lbl}</title></rect>`;
     }
   }
   return `<div class="hm-months" style="grid-template-columns:repeat(${weeks},1fr)">${months}</div>`
@@ -1693,7 +1760,8 @@ function renderJournal() {
   const weeks = card.clientWidth > 560 ? 26 : 16;
   const best  = bestStreak(state, today);
   setText('jcSummary', best > 1 ? `meilleure série : ${best} jours` : `${weeks} dernières semaines`);
-  setHTML('heatmap', heatmapHTML(state.activity, state.journal, { weeks, today, goal, since: state.trackedSince }));
+  setHTML('heatmap', heatmapHTML(state.activity, state.journal, { weeks, today, goal, since: state.trackedSince, pauses: state.pauses }));
+  renderDefi();
 
   const days = new Set();
   for (const [k, v] of Object.entries(state.activity)) if (v && k <= today) days.add(k);
@@ -1708,11 +1776,13 @@ function renderJournal() {
     const p = pagesOn(state.activity, k);
     const entries = state.journal[k] || [];
     const lines = entries.map((e, i) => {
-      if (!e.n && !e.s) return '';
+      if (!e.n && !e.s && !e.k) return '';
+      const kind = e.k ? `<span class="je-kind${e.k === 'joker' ? ' joker' : ''}">${esc(ENTRY_KINDS[e.k])}</span>` : '';
       const text = e.n ? `<span class="je-text">${esc(e.n)}</span>` : '';
       const meta = [e.p ? `+${fmt1(e.p)} p.` : '', e.s ? sectionLabel(e.s) : ''].filter(Boolean).join(' · ');
-      const del = e.n ? `<button type="button" class="je-del" onclick="deleteNote('${k}', ${i})" title="Supprimer la note" aria-label="Supprimer la note">${icon('x')}</button>` : '';
-      return `<div class="je-line">${text}${meta ? `<span class="je-meta">${esc(meta)}</span>` : ''}${del}</div>`;
+      const what = e.k ? (e.k === 'joker' ? 'le joker' : 'cette journée') : 'la note';
+      const del = e.n || e.k ? `<button type="button" class="je-del" onclick="deleteNote('${k}', ${i})" title="Supprimer ${what}" aria-label="Supprimer ${what}">${icon('x')}</button>` : '';
+      return `<div class="je-line">${kind}${text}${meta ? `<span class="je-meta">${esc(meta)}</span>` : ''}${del}</div>`;
     }).join('');
     const pCls = p > 0 ? 'pos' : p < 0 ? 'neg' : '';
     return `<div class="je"><div class="je-date">${relDay(k)}</div>
@@ -1727,18 +1797,63 @@ function renderJournal() {
 
 function toggleJournalAll() { _journalShowAll = !_journalShowAll; renderJournal(); }
 
+/* ---------- Le défi de la semaine : un seul, vérifié tout seul, et que l'on peut refuser ---------- */
+function currentDefi() {
+  if (state.defis.off || !state.chapters.length) return null;
+  const today = todayKey();
+  return weeklyChallenge(state, today, _lastForecast || forecast(state, totals(), today));
+}
+
+function renderDefi() {
+  const box = document.getElementById('jcDefi');
+  if (!box) return;
+  const d = currentDefi();
+  box.classList.toggle('hidden', !d);
+  if (!d) return;
+  const won = d.done || state.defis.won.includes(d.week);
+  const n = state.defis.won.length + (d.done && !state.defis.won.includes(d.week) ? 1 : 0);
+  const pct = Math.round(clamp(d.value / d.target, 0, 1) * 100);
+  box.classList.toggle('won', won);
+  box.innerHTML = `<div class="defi-head"><span class="defi-kicker">${icon(won ? 'check' : 'target')}Défi de la semaine${won ? ' relevé' : ''}</span>
+      <button type="button" class="defi-x" onclick="stopDefis()" title="Ne plus proposer de défi (se réactive dans « Dépôt, objectif et rythme »)" aria-label="Ne plus proposer de défi">${icon('x')}</button></div>
+    <p class="defi-text">${esc(typo(d.text))}</p>
+    <div class="defi-bar"><span class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="Avancée du défi"><span class="meter-fill" style="width:${pct}%"></span></span>
+      <span class="defi-val">${fmt1(d.value)} / ${fmt1(d.target)}</span></div>
+    ${n > 0 ? `<p class="defi-count">${n} défi${n > 1 ? 's' : ''} relevé${n > 1 ? 's' : ''} depuis le début</p>` : ''}`;
+}
+
+/** Défi atteint : on le retient (une fois par semaine) et on le dit. */
+function checkDefi() {
+  const d = currentDefi();
+  if (!d || !d.done || state.defis.won.includes(d.week)) return;
+  state.defis.won = [...state.defis.won, d.week].slice(-120);
+  saveDebounced();
+  renderDefi();
+  toast(typo(`Défi de la semaine relevé : ${d.text.charAt(0).toLowerCase()}${d.text.slice(1)}.`), 'success', { key: 'defi', duration: 6000 });
+}
+
+function stopDefis() {
+  state.defis.off = true;
+  saveDebounced();
+  renderDefi();
+  toast('Plus de défi proposé. Pour en retrouver : Dépôt, objectif et rythme, réglages avancés.', '', {
+    undo: true, action: { label: 'Annuler', fn: () => { state.defis.off = false; saveDebounced(); renderDefi(); } },
+  });
+}
+
 function deleteNote(k, i) {
   const arr = state.journal[k];
   if (!arr || !arr[i]) return;
   const snap = snapshotState();
   const copy = arr.map(e => ({ ...e }));
-  if (copy[i].p) { copy[i].n = ''; copy[i].m = 0; }
+  const wasKind = copy[i].k;
+  if (copy[i].p) { copy[i].n = ''; copy[i].m = 0; delete copy[i].k; }
   else copy.splice(i, 1);
   state.journal[k] = copy;
   saveNow();
   renderJournal();
   renderToday(_lastForecast || forecast(state, totals(), todayKey()));
-  toast('Note supprimée (les pages restent comptées).', '',
+  toast(wasKind === 'joker' ? 'Joker repris.' : wasKind ? 'Journée retirée du journal.' : 'Note supprimée (les pages restent comptées).', '',
     { undo: true, action: { label: 'Annuler', fn: () => restoreSnapshot(snap, 'Note rétablie.') } });
 }
 
@@ -2238,6 +2353,12 @@ function openProjectModal(mode) {
   if (!document.getElementById('pmMargin').value) document.getElementById('pmMargin').value = '21';
   document.getElementById('pmGoal').value = state.dailyGoal || '';
   document.getElementById('pmIntroLast').checked = state.introLast !== false;
+  document.getElementById('pmDefi').checked = !state.defis.off;
+  _pmPauses = state.pauses.map(p => ({ ...p }));
+  document.getElementById('pmPauseKind').innerHTML = Object.entries(PAUSE_KINDS).map(([k, label]) => `<option value="${k}">${esc(label)}</option>`).join('');
+  document.getElementById('pmPauseFrom').value = '';
+  document.getElementById('pmPauseTo').value = '';
+  renderPauses();
   document.getElementById('pmAdv').open = false;
   renderDayChips('pmDays', state.writingDays);
   const fc = _lastForecast;
@@ -2245,6 +2366,39 @@ function openProjectModal(mode) {
     ? `Vide = automatique (actuellement ${fmt1(fc.dailyGoal)} p. par jour d'écriture).`
     : 'Vide = automatique, calculé d\'après votre date de dépôt.');
   openModal('projectModal');
+}
+
+/* Périodes hors rédaction : on travaille sur une copie, enregistrée avec le reste du projet. */
+let _pmPauses = [];
+
+function renderPauses() {
+  const today = todayKey();
+  setHTML('pmPauses', _pmPauses.map((p, i) => {
+    const days = diffDays(p.from, p.to) + 1;
+    return `<div class="pause-item${p.to < today ? ' past' : ''}"><span class="chip">${esc(PAUSE_KINDS[p.kind] || PAUSE_KINDS.autre)}</span>
+      <span class="pause-dates">du ${fmtDateShort(p.from)} au ${fmtDateShort(p.to)} <small>(${days} jour${days > 1 ? 's' : ''})</small></span>
+      <button type="button" class="je-del" onclick="removePause(${i})" title="Retirer cette période" aria-label="Retirer cette période">${icon('x')}</button></div>`;
+  }).join(''));
+}
+
+function addPause() {
+  const from = document.getElementById('pmPauseFrom').value;
+  const to = document.getElementById('pmPauseTo').value || from;
+  const kind = document.getElementById('pmPauseKind').value;
+  if (!isDayKey(from) || !isDayKey(to)) { toast('Indiquez le début (et la fin) de la période', 'warn'); return; }
+  if (to < from) { toast('La fin de la période vient avant son début', 'warn'); return; }
+  if (diffDays(from, to) > 730) { toast('Période trop longue', 'warn'); return; }
+  if (_pmPauses.length >= 40) { toast('Trop de périodes : retirez les plus anciennes', 'warn'); return; }
+  _pmPauses.push({ from, to, kind: isPauseKind(kind) ? kind : 'autre' });
+  _pmPauses.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
+  document.getElementById('pmPauseFrom').value = '';
+  document.getElementById('pmPauseTo').value = '';
+  renderPauses();
+}
+
+function removePause(i) {
+  _pmPauses.splice(i, 1);
+  renderPauses();
 }
 
 /** Dépôt : « date précise » ou « période visée » (un mois). */
@@ -2300,6 +2454,10 @@ function saveProject() {
   state.dailyGoal  = goal ? Math.min(50, goal) : null;
   state.writingDays = days;
   state.introLast  = document.getElementById('pmIntroLast').checked;
+  state.defis.off  = !document.getElementById('pmDefi').checked;
+  // Une période saisie mais pas encore « ajoutée » : on la prend quand même
+  if (isDayKey(document.getElementById('pmPauseFrom').value)) addPause();
+  state.pauses = _pmPauses.map(p => ({ ...p }));
   if (total > 0 && total !== totalPages()) rescaleTargets(total);
   const dl = document.getElementById('dbDeadline');
   if (dl) dl.dataset.mode = ''; // la ligne « dépôt » du tableau de bord sera redessinée
@@ -2316,12 +2474,13 @@ function saveProject() {
    autre partie, autre quantité, hier, ou une note pour le journal.
 ============================================================ */
 let _logDay = 0; // 0 = aujourd'hui, -1 = hier
+let _logMode = 'write'; // 'write' : des pages ; 'other' : une journée de thèse sans pages (terrain, lectures, colloque…)
+let _logKind = '';
 
-function openLogModal() {
+/** mode : 'other' pour ouvrir directement sur « Autre travail de thèse ». */
+function openLogModal(mode) {
   if (!requireReady()) return;
   const leaves = leafSections();
-  document.getElementById('logNoPlan').classList.toggle('hidden', leaves.length > 0);
-  document.getElementById('logForm').classList.toggle('hidden', leaves.length === 0);
   if (leaves.length) {
     const chosen = currentLeaf().id;
     document.getElementById('logSection').innerHTML = leaves
@@ -2330,13 +2489,78 @@ function openLogModal() {
   document.getElementById('logPages').value = 1;
   document.getElementById('logNote').value = '';
   document.getElementById('logShare').checked = false;
+  _logKind = '';
+  setHTML('logKinds', Object.entries(ENTRY_KINDS).filter(([k]) => k !== 'joker')
+    .map(([k, label]) => `<button type="button" class="kind-chip" role="radio" aria-checked="false" data-kind="${k}" onclick="setLogKind('${k}')">${esc(label)}</button>`).join(''));
+  // Sans plan, on ne peut pas encore noter de pages, mais une journée de terrain ou de lectures, si
+  const writeTab = document.querySelector('#logModeSeg [data-mode="write"]');
+  writeTab.disabled = leaves.length === 0;
+  writeTab.title = leaves.length ? '' : 'Créez d\'abord votre plan pour y noter vos pages';
   setLogDay(0);
+  setLogMode(mode === 'other' || !leaves.length ? 'other' : 'write');
   openModal('logModal');
+}
+
+function setLogMode(mode) {
+  _logMode = mode === 'other' ? 'other' : 'write';
+  document.querySelectorAll('#logModeSeg .seg-btn').forEach(b => {
+    const on = b.dataset.mode === _logMode;
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+  document.getElementById('logWrite').classList.toggle('hidden', _logMode !== 'write');
+  document.getElementById('logOther').classList.toggle('hidden', _logMode !== 'other');
+  setText('logTitle', _logMode === 'write' ? 'J\'ai écrit' : 'Ma journée de thèse');
+  setText('logNoteLbl', _logMode === 'write' ? 'Une note pour mon journal' : 'Un mot sur cette journée');
+  updateJokerRow();
+}
+
+function setLogKind(kind) {
+  _logKind = entryKind({ k: kind }) && kind !== 'joker' ? kind : '';
+  document.querySelectorAll('#logKinds .kind-chip').forEach(b => {
+    const on = b.dataset.kind === _logKind;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-checked', String(on));
+  });
 }
 
 function setLogDay(offset) {
   _logDay = offset;
   document.querySelectorAll('#logDaySeg .seg-btn').forEach(b => b.classList.toggle('active', Number(b.dataset.day) === offset));
+  updateJokerRow();
+}
+
+const logDayKey = () => (_logDay === -1 ? addDays(todayKey(), -1) : todayKey());
+
+/** Le joker : une journée qu'on s'accorde. Il ne prolonge pas la série, il l'empêche de tomber. */
+function updateJokerRow() {
+  const row = document.getElementById('logJokerRow');
+  if (!row) return;
+  const day = logDayKey();
+  row.classList.toggle('hidden', _logMode !== 'other');
+  const used = jokersInWeek(state.journal, day);
+  const taken = hasJoker(state.journal, day);
+  const busy = isActiveDay(state, day);
+  const btn = document.getElementById('logJokerBtn');
+  btn.disabled = taken || busy || used >= JOKERS_PER_WEEK;
+  setText('logJokerHint', taken ? 'Joker déjà posé ce jour-là.'
+    : busy ? 'Vous avez travaillé ce jour-là : pas besoin de joker.'
+    : used >= JOKERS_PER_WEEK ? 'Joker de la semaine déjà utilisé. Le prochain revient lundi.'
+    : 'Une journée pour souffler, sans casser votre série. Un par semaine.');
+}
+
+function useJoker() {
+  if (!requireReady()) return;
+  const day = logDayKey();
+  if (hasJoker(state.journal, day) || isActiveDay(state, day) || jokersInWeek(state.journal, day) >= JOKERS_PER_WEEK) return;
+  const snap = snapshotState();
+  state.journal[day] = [...(state.journal[day] || []), { p: 0, s: kindTag('joker'), n: '', m: 0, t: nowHHMM(), k: 'joker' }];
+  if (!state.trackedSince || day < state.trackedSince) state.trackedSince = day;
+  saveNow();
+  closeModal('logModal');
+  render();
+  toast('Joker posé : journée off, votre série est préservée.', 'success',
+    { undo: true, action: { label: 'Annuler', fn: () => restoreSnapshot(snap, 'Joker repris.') } });
 }
 
 function stepLog(d) {
@@ -2350,14 +2574,28 @@ function nowHHMM() {
 }
 
 function saveLog() {
-  const pages = Math.max(0, parseInt(document.getElementById('logPages').value, 10) || 0);
   const note  = document.getElementById('logNote').value.trim().slice(0, 240);
   const shareIt = document.getElementById('logShare').checked && promo.isMember();
+  const day = logDayKey();
+  if (_logMode === 'other') {
+    // Une journée de thèse sans pages : elle compte dans le journal et dans la série
+    if (!_logKind) { toast('Choisissez ce que vous avez fait', 'warn'); return; }
+    state.journal[day] = [...(state.journal[day] || []), { p: 0, s: kindTag(_logKind), n: note, m: 0, t: nowHHMM(), k: _logKind }];
+    if (!state.trackedSince || day < state.trackedSince) state.trackedSince = day;
+    saveNow();
+    closeModal('logModal');
+    render();
+    if (shareIt && note) promo.addNote(note, 0);
+    const s = streak(state, todayKey());
+    toast(`${ENTRY_KINDS[_logKind]} : noté dans votre journal${s.count > 1 ? ` · série de ${s.count} jours` : ''}`, 'success');
+    checkDailyGoal();
+    return;
+  }
+  const pages = Math.max(0, parseInt(document.getElementById('logPages').value, 10) || 0);
   const leafId = document.getElementById('logSection').value;
   const leaf  = leafSections().find(l => l.id === leafId);
   if (!pages && !note) { toast('Indiquez des pages ou une petite note', 'warn'); return; }
   if (pages && !leaf) { toast('Choisissez une partie', 'warn'); return; }
-  const day = _logDay === -1 ? addDays(todayKey(), -1) : todayKey();
   if (pages) {
     if (leaf.ss) leaf.ss.writtenPages = (leaf.ss.writtenPages || 0) + pages;
     else leaf.ch.writtenPages = (leaf.ch.writtenPages || 0) + pages;
@@ -2378,14 +2616,50 @@ function saveLog() {
 }
 
 /* ============================================================
-   AGENDA — séances d'écriture, dépôt, échéances des chapitres
+   AGENDA — planifier ses séances d'écriture
+   Les créneaux (jours, heure, durée, éventuellement un horaire par
+   jour) sont gardés dans le compte : le tableau de bord annonce la
+   prochaine séance. On les envoie dans l'agenda de son choix :
+   Google Agenda (un lien prérempli par événement) ou un fichier
+   .ics (Apple, Outlook…). S'y ajoutent, au choix, le bilan de la
+   semaine, un rappel pour la direction, le dépôt et les échéances.
 ============================================================ */
+const DURATIONS = [30, 45, 60, 90, 120, 180, 240];
+const fmtDuration = m => (m >= 60 ? `${Math.floor(m / 60)} h${m % 60 ? ' ' + String(m % 60).padStart(2, '0') : ''}` : `${m} min`);
+const fmtHour = t => { const [h, mi] = t.split(':').map(Number); return `${h} h${mi ? ' ' + String(mi).padStart(2, '0') : ''}`; };
+let _calSlots = {};   // horaire de chaque jour pendant la saisie : { jour: ['HH:MM', minutes] }
+let _calSame = true;
+
+/** Créneau d'un jour d'écriture : le sien s'il en a un, sinon l'horaire commun. */
+function slotOf(day, st = state) {
+  const own = st.slots.find(x => x[0] === day);
+  return own ? [own[1], own[2]] : [st.sessionTime, st.sessionMinutes];
+}
+
+/** Prochaine séance prévue (aujourd'hui si elle n'est pas finie) : { day, time, minutes } ou null. */
+function nextSession(now = new Date()) {
+  const today = dayKey(now);
+  const mins = now.getHours() * 60 + now.getMinutes();
+  for (let i = 0; i < 60; i++) {
+    const k = addDays(today, i);
+    if (!state.writingDays.includes(weekday(k)) || pauseOn(state.pauses, k)) continue;
+    const [time, minutes] = slotOf(weekday(k));
+    const [h, mi] = time.split(':').map(Number);
+    if (i === 0 && mins > h * 60 + mi + minutes) continue; // la séance du jour est passée
+    return { day: k, time, minutes };
+  }
+  return null;
+}
+
 function openCalendarModal() {
   if (!requireReady()) return;
   renderDayChips('calDays', state.writingDays);
-  document.getElementById('calTime').value = state.sessionTime;
-  document.getElementById('calDur').value = String(state.sessionMinutes);
-  if (!document.getElementById('calDur').value) document.getElementById('calDur').value = '90';
+  _calSlots = {};
+  for (let d = 0; d < 7; d++) _calSlots[d] = slotOf(d);
+  _calSame = state.slots.length === 0;
+  document.getElementById('calSame').checked = _calSame;
+  document.getElementById('calAlarm').value = String(state.alarmMin);
+  if (!document.getElementById('calAlarm').value) document.getElementById('calAlarm').value = '10';
   const hasDl = !!state.deadline;
   ['calIncDeadline', 'calIncEnd', 'calIncChapters'].forEach(id => {
     const el = document.getElementById(id);
@@ -2395,81 +2669,200 @@ function openCalendarModal() {
   setText('calDlLbl', state.deadlineMonth
     ? `Période visée pour le dépôt : ${hasDl ? fmtMonthYear(state.deadline) : ''} (tout le mois, rappel une semaine avant)`
     : 'Date de dépôt (rappels une semaine et un jour avant)');
-  // Le point d'étape hebdomadaire sert à qui met son suivi à jour en déposant son document
-  document.getElementById('calIncSync').checked = hasDocFiles() && !_linked.length;
+  // Qui met son suivi à jour en déposant son document y gagne un rappel ; les autres, un moment pour faire le point
+  const deposits = hasDocFiles() && !hasAutoDocs();
+  document.getElementById('calIncSync').checked = deposits;
+  setText('calSyncLbl', deposits
+    ? 'Point d\'étape chaque semaine : un rappel pour déposer mon document, le Journal calcule mon avancée'
+    : 'Bilan de la semaine : un quart d\'heure après ma dernière séance, pour voir où j\'en suis');
+  document.getElementById('calIncMeet').checked = state.meetWeeks > 0;
+  document.getElementById('calMeetWeeks').value = String(state.meetWeeks || 4);
   document.getElementById('calNoDeadline').classList.toggle('hidden', hasDl);
+  renderCalSlots();
   updateCalendarLinks();
   openModal('calendarModal');
 }
 
-function calendarInputs() {
-  const days = readDayChips('calDays');
-  const time = /^\d{2}:\d{2}$/.test(document.getElementById('calTime').value) ? document.getElementById('calTime').value : '09:00';
-  const minutes = parseInt(document.getElementById('calDur').value, 10) || 90;
-  return { days, time, minutes };
+/** Les lignes d'horaire : une seule si tous les jours se ressemblent, sinon une par jour d'écriture. */
+function renderCalSlots() {
+  const days = WD_ORDER.filter(d => readDayChips('calDays').includes(d));
+  const durOpts = sel => DURATIONS.map(m => `<option value="${m}"${m === sel ? ' selected' : ''}>${fmtDuration(m)}</option>`).join('');
+  const row = (d, label, idT, idD) => {
+    const [time, minutes] = _calSlots[d] || [state.sessionTime, state.sessionMinutes];
+    return `<div class="cal-slot"><span class="cal-slot-day">${label}</span>
+      <label>à <input type="time" class="form-control" ${idT ? `id="${idT}"` : ''} data-day="${d}" data-f="time" value="${time}" onchange="calSlotChanged(this)" aria-label="Heure, ${label}" /></label>
+      <label>pendant <select class="form-control" ${idD ? `id="${idD}"` : ''} data-day="${d}" data-f="dur" onchange="calSlotChanged(this)" aria-label="Durée, ${label}">${durOpts(DURATIONS.includes(minutes) ? minutes : 90)}</select></label></div>`;
+  };
+  setHTML('calSlots', _calSame
+    ? row(days.length ? days[0] : 1, 'Chaque séance', 'calTime', 'calDur')
+    : days.map(d => row(d, WD_NAMES[d].charAt(0).toUpperCase() + WD_NAMES[d].slice(1), '', '')).join(''));
 }
 
+function calSlotChanged(el) {
+  const d = Number(el.dataset.day);
+  const cur = _calSlots[d] || [state.sessionTime, state.sessionMinutes];
+  const next = el.dataset.f === 'time'
+    ? [/^\d{2}:\d{2}$/.test(el.value) ? el.value : cur[0], cur[1]]
+    : [cur[0], parseInt(el.value, 10) || cur[1]];
+  if (_calSame) for (let k = 0; k < 7; k++) _calSlots[k] = next.slice();
+  else _calSlots[d] = next;
+  updateCalendarLinks();
+}
+
+function calSameChanged() {
+  _calSame = document.getElementById('calSame').checked;
+  if (_calSame) {
+    // On revient à un seul horaire : celui du premier jour d'écriture
+    const days = WD_ORDER.filter(d => readDayChips('calDays').includes(d));
+    const ref = _calSlots[days.length ? days[0] : 1];
+    for (let k = 0; k < 7; k++) _calSlots[k] = ref.slice();
+  }
+  renderCalSlots();
+  updateCalendarLinks();
+}
+
+function calChanged() {
+  renderCalSlots();
+  updateCalendarLinks();
+}
+
+/** Ce que dit la fenêtre : jours, créneaux regroupés par horaire, rappel, options. */
+function calendarInputs() {
+  const days = WD_ORDER.filter(d => readDayChips('calDays').includes(d));
+  const groups = [];
+  for (const d of days) {
+    const [time, minutes] = _calSlots[d] || [state.sessionTime, state.sessionMinutes];
+    const g = groups.find(x => x.time === time && x.minutes === minutes);
+    if (g) g.days.push(d);
+    else groups.push({ days: [d], time, minutes });
+  }
+  const first = groups[0] || { time: state.sessionTime, minutes: state.sessionMinutes };
+  const alarm = parseInt(document.getElementById('calAlarm').value, 10);
+  const meet = document.getElementById('calIncMeet').checked ? parseInt(document.getElementById('calMeetWeeks').value, 10) || 4 : 0;
+  return { days, groups, time: first.time, minutes: first.minutes, alarm: Number.isFinite(alarm) ? alarm : 10, meet };
+}
+
+/** Garde les créneaux dans le compte (au premier ajout à l'agenda, ou à la fermeture de la fenêtre). */
+function saveCalendarPrefs() {
+  const inp = calendarInputs();
+  if (!inp.days.length) return false;
+  const before = JSON.stringify([state.writingDays, state.sessionTime, state.sessionMinutes, state.slots, state.alarmMin, state.meetWeeks]);
+  state.writingDays = inp.days.slice().sort((a, b) => a - b);
+  state.sessionTime = inp.time;
+  state.sessionMinutes = inp.minutes;
+  state.slots = inp.groups.slice(1).flatMap(g => g.days.map(d => [d, g.time, g.minutes]));
+  state.alarmMin = inp.alarm;
+  state.meetWeeks = inp.meet;
+  const changed = before !== JSON.stringify([state.writingDays, state.sessionTime, state.sessionMinutes, state.slots, state.alarmMin, state.meetWeeks]);
+  if (changed) {
+    saveNow();
+    updateDashboard();
+    _lastForecast = forecast(state, totals(), todayKey());
+    renderToday(_lastForecast);
+  }
+  return changed;
+}
+
+function closeCalendar() {
+  if (saveCalendarPrefs()) toast('Créneaux d\'écriture enregistrés.', 'success');
+  closeModal('calendarModal');
+}
+
+const listDays = ds => { const n = ds.map(d => WD_NAMES[d]); return n.length > 1 ? `${n.slice(0, -1).join(', ')} et ${n[n.length - 1]}` : n[0]; };
+const ALARM_TEXT = { 0: 'Sans rappel.', 10: 'Rappel dix minutes avant.', 30: 'Rappel une demi-heure avant.', 60: 'Rappel une heure avant.', 1440: 'Rappel la veille.' };
+
 function updateCalendarLinks() {
-  const { days, time, minutes } = calendarInputs();
-  const g = document.getElementById('calGoogle');
-  const gs = document.getElementById('calGoogleSync');
-  const gd = document.getElementById('calGoogleDeadline');
-  if (!days.length) {
-    g.removeAttribute('href');
-    gs.classList.add('hidden');
+  const inp = calendarInputs();
+  const list = document.getElementById('calGoogleList');
+  if (!inp.days.length) {
+    setHTML('calGoogleList', '');
     setText('calSummary', 'Choisissez au moins un jour d\'écriture.');
     return;
   }
-  const ev = calendarEvents(days, time, minutes);
+  const ev = calendarEvents(inp);
   // En clair : ce que l'agenda va recevoir
-  const names = WD_ORDER.filter(d => days.includes(d)).map(d => WD_NAMES[d]);
-  const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} et ${names[names.length - 1]}` : names[0];
-  const [h, mi] = time.split(':').map(Number);
-  const dur = minutes >= 60 ? `${Math.floor(minutes / 60)} h${minutes % 60 ? ' ' + String(minutes % 60).padStart(2, '0') : ''}` : `${minutes} min`;
-  setText('calSummary', typo(`Un événement récurrent : chaque ${list} à ${h} h${mi ? ' ' + String(mi).padStart(2, '0') : ''}, pendant ${dur}, jusqu'au ${fmtDateShort(ev.until)}. Rappel dix minutes avant.`));
+  const until = fmtDateShort(ev.until);
+  const alarmTxt = ALARM_TEXT[inp.alarm] || '';
+  setText('calSummary', typo(inp.groups.length === 1
+    ? `Un événement récurrent : chaque ${listDays(inp.days)} à ${fmtHour(inp.time)}, pendant ${fmtDuration(inp.minutes)}, jusqu'au ${until}. ${alarmTxt}`
+    : `${inp.groups.length} événements récurrents : ${inp.groups.map(g => `${listDays(g.days)} à ${fmtHour(g.time)} (${fmtDuration(g.minutes)})`).join(' ; ')}, jusqu'au ${until}. ${alarmTxt}`));
   // Google Agenda associe un fuseau à l'événement : la fin de la récurrence doit alors être donnée en temps universel
-  const forGoogle = e => ({ ...e, rrule: e.rrule + 'Z' });
-  g.href = googleCalendarUrl(forGoogle(ev.sessions));
-  gs.classList.toggle('hidden', !ev.sync);
-  if (ev.sync) gs.href = googleCalendarUrl(forGoogle(ev.sync));
-  gd.classList.toggle('hidden', !ev.deadline);
-  if (ev.deadline) gd.href = googleCalendarUrl(ev.deadline);
+  const forGoogle = e => (e.rrule ? { ...e, rrule: e.rrule + 'Z' } : e);
+  const item = (e, label, id) => `<li><span>${esc(label)}</span><a class="btn btn-neutral btn-sm" ${id ? `id="${id}"` : ''} href="${esc(googleCalendarUrl(forGoogle(e)))}" target="_blank" rel="noopener noreferrer" onclick="calAdded(this)">Ajouter</a></li>`;
+  let html = '';
+  ev.sessions.forEach((e, i) => {
+    const g = inp.groups[i];
+    html += item(e, typo(`Séances : ${listDays(g.days)} à ${fmtHour(g.time)}`), i === 0 ? 'calGoogle' : '');
+  });
+  if (ev.sync) html += item(ev.sync, ev.sync.short, 'calGoogleSync');
+  if (ev.meet) html += item(ev.meet, typo(`Mes pages à ma direction, toutes les ${inp.meet} semaines`), 'calGoogleMeet');
+  if (ev.deadline && document.getElementById('calIncDeadline').checked) html += item(ev.deadline, state.deadlineMonth ? typo(`Dépôt visé : ${fmtMonthYear(state.deadline)}`) : typo(`Dépôt : ${fmtDateShort(state.deadline)}`), 'calGoogleDeadline');
+  if (ev.end && document.getElementById('calIncEnd').checked) html += item(ev.end, typo(`Fin de rédaction visée : ${fmtDateShort(ev.end.date)}`), 'calGoogleEnd');
+  const nCh = document.getElementById('calIncChapters').checked ? ev.chapters.length : 0;
+  if (nCh) html += `<li class="cal-gnote"><span>${nCh} échéance${nCh > 1 ? 's' : ''} de chapitre : plus simple avec le fichier, à droite.</span></li>`;
+  list.innerHTML = html;
+}
+
+/** Un événement vient d'être envoyé vers Google Agenda : on le coche, et on retient les créneaux. */
+function calAdded(a) {
+  a.classList.add('done');
+  a.textContent = 'Ajouté';
+  saveCalendarPrefs();
 }
 
 /** Les événements de l'agenda, décrits une fois pour le fichier .ics comme pour les liens Google. */
-function calendarEvents(days, time, minutes) {
+function calendarEvents(inp) {
   const today = todayKey();
-  const fc = _lastForecast || forecast(state, totals(), today);
+  const probe = { ...state, writingDays: inp.days };
+  const fc = forecast(probe, totals(), today);
   const until = fc.writingEnd && fc.writingEnd > today ? fc.writingEnd : addDays(today, 365);
   const title = state.documentTitle || 'ma thèse';
   const stamp = until.replace(/-/g, '');
   const log = `${APP_URL}?action=log`;
-  const sessions = {
-    uid: 'jdb-sessions@lejournaldebord.org',
+  const alarmOf = text => (inp.alarm > 0 ? [{ trigger: inp.alarm >= 1440 ? '-P1D' : `-PT${inp.alarm}M`, text }] : []);
+  const sessions = inp.groups.map((g, i) => ({
+    uid: i === 0 ? 'jdb-sessions@lejournaldebord.org' : `jdb-sessions-${i}@lejournaldebord.org`,
     title: `Écriture : ${title}`,
-    start: nthWritingDay(today, 1, days), time, minutes,
-    rrule: `FREQ=WEEKLY;BYDAY=${byDay(days)};UNTIL=${stamp}T235959`,
+    start: nthWritingDay(today, 1, g.days, state.pauses), time: g.time, minutes: g.minutes,
+    rrule: `FREQ=WEEKLY;BYDAY=${byDay(g.days)};UNTIL=${stamp}T235959`,
     description: `Séance d'écriture. Après la séance, notez vos pages en un clic : ${log}`,
     details: `Séance d'écriture. Après la séance, notez vos pages en un clic : ${log}`,
     url: log,
-    alarms: [{ trigger: '-PT10M', text: 'Séance d\'écriture dans 10 minutes' }],
-  };
+    alarms: alarmOf(inp.alarm >= 1440 ? 'Séance d\'écriture demain' : `Séance d'écriture dans ${inp.alarm} minutes`),
+  }));
+  // Le dernier jour d'écriture de la semaine, à la fin de sa séance
+  const last = inp.days[inp.days.length - 1];
+  const lastSlot = inp.groups.find(g => g.days.includes(last)) || { time: inp.time, minutes: inp.minutes };
+  const [lh, lm] = lastSlot.time.split(':').map(Number);
+  const endMin = Math.min(1425, lh * 60 + lm + lastSlot.minutes);
+  const endTime = `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`;
   let sync = null;
   if (document.getElementById('calIncSync').checked) {
-    // Une fois par semaine, à la fin de la dernière séance : on dépose son document, le Journal fait le calcul
-    const last = WD_ORDER.filter(d => days.includes(d)).pop();
-    const [h, mi] = time.split(':').map(Number);
-    const endMin = Math.min(1425, h * 60 + mi + minutes);
-    const link = `${APP_URL}?action=sync`;
+    const deposits = hasDocFiles() && !hasAutoDocs();
+    const link = deposits ? `${APP_URL}?action=sync` : APP_URL;
+    const text = deposits
+      ? `Déposez votre document (ou collez votre texte) : le Journal calcule vos pages de la semaine. ${link}`
+      : `Un quart d'heure pour regarder votre semaine, relever votre défi et préparer la suivante. ${link}`;
     sync = {
       uid: 'jdb-sync@lejournaldebord.org',
-      title: 'Point d\'étape : mettre mon Journal de Bord à jour',
-      start: nthWritingDay(today, 1, [last]), time: `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`, minutes: 15,
+      title: deposits ? 'Point d\'étape : mettre mon Journal de Bord à jour' : 'Bilan de la semaine : mon Journal de Bord',
+      short: deposits ? 'Point d\'étape de la semaine' : 'Bilan de la semaine',
+      start: nthWritingDay(today, 1, [last], state.pauses), time: endTime, minutes: 15,
       rrule: `FREQ=WEEKLY;BYDAY=${byDay([last])};UNTIL=${stamp}T235959`,
-      description: `Déposez votre document (ou collez votre texte) : le Journal calcule vos pages de la semaine. ${link}`,
-      details: `Déposez votre document (ou collez votre texte) : le Journal calcule vos pages de la semaine. ${link}`,
-      url: link,
-      alarms: [{ trigger: 'PT0M', text: 'Point d\'étape : déposer mon document dans le Journal' }],
+      description: text, details: text, url: link,
+      alarms: [{ trigger: 'PT0M', text: deposits ? 'Point d\'étape : déposer mon document dans le Journal' : 'Bilan de la semaine dans le Journal de Bord' }],
+    };
+  }
+  let meet = null;
+  if (inp.meet > 0) {
+    const text = `Envoyer à ma direction ce que j'ai écrit depuis la dernière fois, même imparfait. Mon avancée : ${APP_URL}`;
+    meet = {
+      uid: 'jdb-direction@lejournaldebord.org',
+      title: 'Envoyer mes pages à ma direction',
+      start: nthWritingDay(addDays(today, 7 * (inp.meet - 1)), 1, [last], state.pauses), time: endTime, minutes: 15,
+      rrule: `FREQ=WEEKLY;INTERVAL=${inp.meet};BYDAY=${byDay([last])};UNTIL=${stamp}T235959`,
+      description: text, details: text, url: APP_URL,
+      alarms: [{ trigger: 'PT0M', text: 'Envoyer mes pages à ma direction' }],
     };
   }
   let deadline = null;
@@ -2487,55 +2880,54 @@ function calendarEvents(days, time, minutes) {
       alarms: [{ trigger: '-P6DT15H', text: 'Dépôt dans une semaine' }, { trigger: '-PT15H', text: 'Dépôt demain !' }],
     };
   }
-  return { sessions, sync, deadline, until, fc };
-}
-
-function downloadICS() {
-  const { days, time, minutes } = calendarInputs();
-  if (!days.length) { toast('Choisissez au moins un jour d\'écriture', 'warn'); return; }
-  state.writingDays = days;
-  state.sessionTime = time;
-  state.sessionMinutes = minutes;
-  saveNow();
-  updateDashboard();
-  _lastForecast = forecast(state, totals(), todayKey());
-  const ev = calendarEvents(days, time, minutes);
-  const fc = ev.fc;
-  const events = [ev.sessions];
-  if (ev.sync) events.push(ev.sync);
-  if (document.getElementById('calIncDeadline').checked && ev.deadline) events.push(ev.deadline);
-  if (document.getElementById('calIncEnd').checked && fc.writingEnd) {
-    events.push({
-      uid: 'jdb-writing-end@lejournaldebord.org', title: 'Fin de rédaction visée', date: fc.writingEnd,
-      description: 'Objectif : manuscrit complet, place à la relecture et à la mise en forme.',
+  const end = fc.writingEnd ? {
+    uid: 'jdb-writing-end@lejournaldebord.org', title: 'Fin de rédaction visée', date: fc.writingEnd,
+    description: 'Objectif : manuscrit complet, place à la relecture et à la mise en forme.',
+    details: `Objectif : manuscrit complet, place à la relecture et à la mise en forme. ${APP_URL}`,
+    alarms: [{ trigger: '-PT15H' }],
+  } : null;
+  const chapters = [];
+  const sch = schedule(state.chapters.map(c => ({ id: c.id, title: c.title, remaining: c.review === 'ok' ? 0 : Math.max(0, chapterStats(c).tP - chapterStats(c).wP) })), probe, today, fc);
+  for (const c of state.chapters) {
+    if (!sch[c.id]) continue;
+    chapters.push({
+      uid: `jdb-ch-${c.id}@lejournaldebord.org`, title: `Fin visée : ${c.title}`, date: sch[c.id],
+      description: `Échéance proposée par votre rétroplanning. Suivi : ${APP_URL}`,
       alarms: [{ trigger: '-PT15H' }],
     });
   }
-  if (document.getElementById('calIncChapters').checked) {
-    const sch = currentSchedule(fc);
-    for (const c of state.chapters) {
-      if (!sch[c.id]) continue;
-      events.push({
-        uid: `jdb-ch-${c.id}@lejournaldebord.org`, title: `Fin visée : ${c.title}`, date: sch[c.id],
-        description: `Échéance proposée par votre rétroplanning. Suivi : ${APP_URL}`,
-        alarms: [{ trigger: '-PT15H' }],
-      });
-    }
-  }
+  return { sessions, sync, meet, deadline, end, chapters, until, fc };
+}
+
+function downloadICS() {
+  const inp = calendarInputs();
+  if (!inp.days.length) { toast('Choisissez au moins un jour d\'écriture', 'warn'); return; }
+  saveCalendarPrefs();
+  const ev = calendarEvents(inp);
+  const events = [...ev.sessions];
+  if (ev.sync) events.push(ev.sync);
+  if (ev.meet) events.push(ev.meet);
+  if (document.getElementById('calIncDeadline').checked && ev.deadline) events.push(ev.deadline);
+  if (document.getElementById('calIncEnd').checked && ev.end) events.push(ev.end);
+  if (document.getElementById('calIncChapters').checked) events.push(...ev.chapters);
   const ics = buildICS('Le Journal de Bord', events);
   downloadBlob(new Blob([ics], { type: 'text/calendar;charset=utf-8' }), 'journal-de-bord.ics');
   toast('Fichier agenda téléchargé : ouvrez-le pour l\'ajouter.', 'success');
 }
 
 /* ============================================================
-   SYNCHRO WORD (.docx) — le tracker qui se remplit tout seul
+   SYNCHRO DU DOCUMENT — le tracker qui se remplit tout seul
    • 1re fois : un aperçu pour valider les correspondances.
    • Ensuite : un seul geste (fichier déposé n'importe où dans la
      page, ou bouton), sans aperçu tant que rien de nouveau
      n'apparaît dans le document. Toujours annulable.
    • Chrome / Edge sur ordinateur : le fichier reste « lié » à
      l'appareil et le suivi se met à jour au retour sur l'onglet.
+   • Google Docs : le document se lie par son lien de partage et se
+     relit de lui-même, sur tous les appareils (voir plus bas).
    • Un fichier peut contenir tout le manuscrit ou un seul chapitre.
+   • Les pages sont celles du document : pagination réelle quand il
+     la donne, mise en page simulée sinon (pages.js).
    Le fichier est lu sur l'appareil : rien n'est envoyé.
 ============================================================ */
 let _dx = null;             // modèle affiché dans l'aperçu
@@ -2549,21 +2941,29 @@ const _forceReview = new Set(); // documents dont on veut revoir le plan à la p
 // Parties ignorées par défaut (titres normalisés : minuscules, sans accents)
 const DOCX_IGNORE = /^(bibliograph|references|sources\b|annexe|appendi|table des|sommaire|index\b|remerciement|acknowledg|resume\b|abstract|glossaire|liste des|sigles|abreviation|dedicace|avant propos|preface|notes\b)/;
 const REVISION_NOTE = 'Relecture et corrections (synchro Word)';
+const NEW_CHAPTER = '+';    // portée « ce document est un chapitre de plus »
 
 const canLink = () => typeof window.showOpenFilePicker === 'function' && 'indexedDB' in window;
 const hasDocFiles = () => Object.keys(state.docFiles).length > 0;
+/** Google Docs liés : [[clé, fiche]]. */
+const gdocEntries = () => Object.entries(state.docFiles).filter(([, f]) => f.gdoc);
+/** Un document que le Journal sait relire seul : fichier lié sur cet appareil, ou Google Doc. */
+const hasAutoDocs = () => _linked.length > 0 || gdocEntries().length > 0;
 
 /* ---------- Points d'entrée ---------- */
 
 function updateWordButton() {
   const b = document.getElementById('wordBtn');
-  if (b) b.textContent = hasDocFiles() || _linked.length ? 'Synchroniser mon document' : 'Importer mon document';
+  const known = hasDocFiles() || _linked.length > 0;
+  if (b) b.textContent = known ? 'Synchroniser mon document' : 'Importer mon document';
+  const c = document.getElementById('wordChange');
+  if (c) c.classList.toggle('hidden', !known);
 }
 
 /** Bouton « Word » du plan : le chemin le plus court selon la situation. */
 function wordAction() {
   if (!requireReady()) return;
-  if (_linked.length) syncLinked({ manual: true });
+  if (hasAutoDocs()) syncAll({ manual: true });
   else if (hasDocFiles()) pickWordFile();
   else openDocxModal();
 }
@@ -2603,6 +3003,8 @@ async function pickWordFile() {
 function showDocxStep(n) {
   document.getElementById('docxStep1').classList.toggle('hidden', n !== 1);
   document.getElementById('docxStep2').classList.toggle('hidden', n !== 2);
+  const box = document.querySelector('#docxModal .modal');
+  if (box) box.scrollTop = 0; // chaque étape se lit depuis le haut
 }
 
 function setDocxBusy(on) {
@@ -2646,10 +3048,16 @@ const DOC_ERRORS = {
   'old-doc': 'Ce fichier est au format .doc (ancien Word). Ouvrez-le dans Word, puis Fichier > Enregistrer sous > Document Word (.docx), et réessayez.',
   'rtf': 'Ce fichier est au format RTF. Ouvrez-le dans Word ou LibreOffice, enregistrez-le en .docx ou .odt, puis réessayez. Vous pouvez aussi coller votre texte.',
   'pages': 'Ce fichier vient de Pages. Dans Pages : Fichier > Exporter vers > Word, puis déposez le .docx. Vous pouvez aussi coller votre texte.',
-  'not-docx': 'Format non reconnu. Le Journal lit Word (.docx), LibreOffice (.odt), LaTeX (.tex), Markdown (.md) et le texte simple (.txt). Depuis Google Docs : Fichier > Télécharger > Microsoft Word, ou copiez-collez votre texte.',
+  'not-docx': 'Format non reconnu. Le Journal lit Word (.docx), LibreOffice (.odt), LaTeX (.tex), Markdown (.md) et le texte simple (.txt). Depuis Google Docs : liez votre document par son lien (« Lier un Google Doc »), ou Fichier > Télécharger > Microsoft Word, ou copiez-collez votre texte.',
   'too-big': 'Ce fichier texte est trop volumineux pour être lu ici.',
   'zip-lib': 'Impossible de charger le lecteur de fichiers : vérifiez votre connexion internet.',
   'bad-xml': 'Le document semble endommagé : ouvrez-le et réenregistrez-le.',
+  'gdoc-link': 'Ce lien n\'est pas celui d\'un document Google Docs. Ouvrez votre document, copiez l\'adresse de la page (elle commence par docs.google.com/document), puis collez-la ici.',
+  'gdoc-private': 'Le Journal n\'a pas pu lire ce document. Dans Google Docs : Partager, puis Accès général, « Tous les utilisateurs disposant du lien » (Lecteur suffit). Réessayez ensuite.',
+  'gdoc-404': 'Document introuvable : vérifiez le lien (document supprimé ou adresse incomplète ?).',
+  'gdoc-busy': 'Google Docs ne répond pas pour le moment. Réessayez dans quelques minutes.',
+  'gdoc-slow': 'Google Docs met trop de temps à préparer ce document. Réessayez, ou téléchargez-le (Fichier, Télécharger, Microsoft Word) et déposez le fichier ici.',
+  'gdoc-offline': 'Pas de connexion internet : impossible de lire le document Google Docs pour le moment.',
 };
 
 /** Texte collé (Google Docs, Word, LibreOffice, LaTeX…) : le presse-papiers garde les titres. */
@@ -2677,8 +3085,8 @@ function handleDocPaste(e) {
 }
 
 /** Un document vient d'être lu : aperçu la première fois (ou s'il y a du nouveau), sinon mise à jour directe. */
-function routeDocument(res, file, handle) {
-  const m = buildDocxModel(res, file, handle);
+function routeDocument(res, file, handle, extra) {
+  const m = buildDocxModel(res, file, handle, extra);
   if (_forceReview.delete(m.key)) { m.review = true; m.clean = false; }
   if (!m.rows.length && m.planEmpty) {
     const how = res.kind === 'docx' || res.kind === 'odt' || res.kind === 'html'
@@ -2724,22 +3132,41 @@ function docxMatchChildren(r) {
   }
 }
 
-/** Devine si un fichier inconnu est tout le manuscrit ou un seul chapitre du plan. */
+/** Titre proposé pour le chapitre que forme un document : son titre unique, sinon le nom du fichier. */
+function docxDefaultTitle(m) {
+  const tops = buildOutline(m.res.segments, m.res.frontWords, 'auto').chapters.filter(c => !DOCX_IGNORE.test(normalizeTitle(c.title)));
+  const roots = m.res.segments.filter(s => s.level === Math.min(...m.res.segments.map(x => x.level)));
+  if (roots.length === 1 && roots[0].title) return roots[0].title;
+  if (tops.length === 1) return tops[0].title;
+  const base = String(m.name).replace(DOC_EXT, '').replace(/[_-]+/g, ' ').trim();
+  return base && m.name !== PASTE_NAME ? base.charAt(0).toUpperCase() + base.slice(1) : 'Nouveau chapitre';
+}
+
+/**
+ * Devine ce qu'est un fichier inconnu : tout le manuscrit (''), un chapitre du plan (son identifiant)
+ * ou un chapitre de plus (NEW_CHAPTER), pour celles et ceux qui rédigent un fichier par chapitre.
+ */
 function detectScope(res, fileName) {
   if (!state.chapters.length) return '';
   const tops = buildOutline(res.segments, res.frontWords, 'auto').chapters.filter(c => !DOCX_IGNORE.test(normalizeTitle(c.title)));
   if (tops.some(c => state.chapters.some(ch => titleScore(c.title, ch.title) >= 0.55))) return '';
-  if (fileName === PASTE_NAME) return ''; // un texte collé n'a pas de nom qui renseigne
   const base = String(fileName).replace(DOC_EXT, '');
+  const named = fileName !== PASTE_NAME; // un texte collé n'a pas de nom qui renseigne
   const secs = buildOutline(res.segments, res.frontWords, 'auto', { single: true }).chapters;
   let best = '';
   let bestScore = 0;
   for (const ch of state.chapters) {
-    let score = titleScore(base, ch.title) >= 0.55 ? 1.5 : 0;
+    let score = named && titleScore(base, ch.title) >= 0.55 ? 1.5 : 0;
     score += secs.filter(c => ch.subsections.some(s => titleScore(c.title, s.title) >= 0.55)).length;
     if (score > bestScore) { bestScore = score; best = ch.id; }
   }
-  return bestScore >= 1 ? best : '';
+  if (bestScore >= 1) return best;
+  // Rien ne correspond au plan. Si l'on travaille déjà fichier par chapitre, ou si le fichier se présente
+  // comme un chapitre (un seul titre qui coiffe tout, ou son nom le dit), c'est un chapitre de plus.
+  const perChapter = Object.values(state.docFiles).some(f => f.scope);
+  const oneTitle = tops.length <= 1;
+  const saysChapter = named && /\b(chap|chapitre|chapter|partie|part|section|intro|conclu)/i.test(base);
+  return perChapter || oneTitle || saysChapter ? NEW_CHAPTER : '';
 }
 
 /* Choix « inclure / ignorer » mémorisés par fichier et par partie.
@@ -2755,22 +3182,44 @@ function defaultInclude(m, r, c) {
   return !(firstLevel && DOCX_IGNORE.test(normalizeTitle((c || r).title)));
 }
 
-function buildDocxModel(res, file, handle) {
-  const key = fileKeyOf(file.name);
+/** La pagination vient-elle du document lui-même (et non d'une estimation) ? */
+const exactPages = res => res.pageSource === 'pdf' || res.pageSource === 'word';
+
+/**
+ * extra : { key, gdoc, sig } pour un document Google Docs (clé stable tirée de son identifiant,
+ * signature de son texte pour savoir plus tard s'il a changé).
+ */
+function buildDocxModel(res, file, handle, extra = {}) {
+  const key = extra.key || fileKeyOf(file.name);
   const known = state.docFiles[key] || null;
   const m = {
     key, name: file.name, res, handle: handle || null, known,
+    gdoc: extra.gdoc || (known && known.gdoc) || null, sig: extra.sig || null,
     mtime: Number.isFinite(file.lastModified) ? file.lastModified : null,
     size: Number.isFinite(file.size) ? file.size : null,
-    wpp: (known && known.wpp) || res.wpp,
+    k: 1,              // correction du nombre de pages (« ce document fait N pages »)
+    wpp: res.wpp,      // mots par page des parties suivies (recalculé à chaque évaluation)
+    recount: false,    // document déjà suivi avec l'ancien calcul (mots par page) : on explique le changement
     planEmpty: state.chapters.length === 0,
     // Niveau de titre des chapitres : celui retenu pour ce fichier, sinon repéré automatiquement.
     // Un fichier synchronisé avant la 3.1 garde son ancien découpage tant qu'on ne le revoit pas.
     level: known ? (known.level || 'legacy') : 'auto',
-    scope: '', rows: [], totalTarget: 0, count: false, clean: false, replace: false, suggest: false, review: false,
+    scope: '', newTitle: '', rows: [], totalTarget: 0, count: false, clean: false, replace: false, suggest: false, review: false,
   };
-  if (known) m.scope = findCh(known.scope) ? known.scope : '';
-  else m.scope = detectScope(res, file.name);
+  if (known) {
+    if (known.pv === 2) {
+      // La correction vaut pour la source de pages avec laquelle elle a été donnée
+      if (known.k && known.src === res.pageSource) m.k = known.k;
+    } else {
+      m.recount = true;
+      // L'ancien réglage « mots par page » avait été ajusté à la main : on le traduit en nombre de pages
+      if (!exactPages(res) && known.wpp && res.legacyWpp && res.totalPages > 0
+          && Math.abs(known.wpp - res.legacyWpp) / res.legacyWpp > 0.03) {
+        m.k = clamp((res.totalWords / known.wpp) / res.totalPages, 0.4, 2.5);
+      }
+    }
+    m.scope = findCh(known.scope) ? known.scope : '';
+  } else m.scope = detectScope(res, file.name);
   const body = o => o.chapters.filter(c => !DOCX_IGNORE.test(normalizeTitle(c.title))).length;
   m.autoLevel = buildOutline(res.segments, res.frontWords, 'auto').chapterLevel;
   if (m.level === 'legacy' && !m.scope
@@ -2789,27 +3238,31 @@ function buildDocxModel(res, file, handle) {
 function buildDocxRows(m) {
   const res = m.res;
   if (m.replace) m.scope = '';
-  const scopeCh = m.scope ? findCh(m.scope) : null;
-  const o = buildOutline(res.segments, res.frontWords, scopeCh ? 'auto' : m.level, { single: !!scopeCh });
+  const scopeCh = m.scope && m.scope !== NEW_CHAPTER ? findCh(m.scope) : null;
+  if (m.scope && m.scope !== NEW_CHAPTER && !scopeCh) m.scope = '';
+  const single = !!m.scope; // le fichier est un chapitre : ses titres de premier niveau en sont les sous-sections
+  const o = buildOutline(res.segments, res.frontWords, single ? 'auto' : m.level, { single, frontPages: res.frontPages });
   m.outline = o;
   const fresh = m.planEmpty || m.replace; // le plan sera créé (ou recréé) à partir du document
-  const node = (title, words) => ({ title, words, include: true, map: '', target: 0, touched: false });
-  if (scopeCh) {
-    // Le fichier est un chapitre : ses titres de premier niveau sont les sous-sections du chapitre
-    const r = { ...node(scopeCh.title, res.totalWords), ownWords: o.front, locked: true, map: scopeCh.id, children: [] };
+  const node = (title, words, pages) => ({ title, words, pages: pages || 0, include: true, map: '', target: 0, touched: false, pg: 0 });
+  if (single) {
+    if (!scopeCh && !m.newTitle) m.newTitle = docxDefaultTitle(m).slice(0, 300);
+    const r = {
+      ...node(scopeCh ? scopeCh.title : m.newTitle, res.totalWords, res.totalPages),
+      ownWords: o.front, ownPages: o.frontPages, locked: true, map: scopeCh ? scopeCh.id : '', children: [],
+    };
     r.children = o.chapters.map(c => {
-      const n = node(c.title, c.words);
+      const n = node(c.title, c.words, c.pages);
       n.include = defaultInclude(m, r, n);
       return n;
     });
     m.rows = [r];
   } else {
-    m.scope = '';
     m.rows = o.chapters.map(c => {
-      const r = { ...node(c.title, c.words), ownWords: c.ownWords, children: [] };
+      const r = { ...node(c.title, c.words, c.pages), ownWords: c.ownWords, ownPages: c.ownPages || 0, children: [] };
       r.include = defaultInclude(m, r);
       r.children = c.children.map(x => {
-        const n = node(x.title, x.words);
+        const n = node(x.title, x.words, x.pages);
         n.include = defaultInclude(m, r, n);
         return n;
       });
@@ -2826,25 +3279,36 @@ function buildDocxRows(m) {
   }
   if (!fresh) for (const r of m.rows) docxMatchChildren(r);
   if (m.planEmpty && !m.totalTarget) {
-    const pages = m.rows.filter(r => r.include).reduce((s, r) => s + r.words, 0) / m.wpp;
+    const pages = m.rows.filter(r => r.include).reduce((s, r) => s + docxChapterPages(r), 0) * m.k;
     m.totalTarget = Math.max(50, Math.ceil((pages * 1.5) / 10) * 10);
   }
   computeDocxTargets(m);
   evaluateDocx(m);
 }
 
-/** Mots attribués à une sous-partie : le texte d'ouverture du chapitre va à la première. */
+/** Mots et pages attribués à une sous-partie : le texte d'ouverture du chapitre va à la première. */
 function docxKidWords(r, c) {
   const kids = r.children.filter(x => x.include);
   return c.words + (kids[0] === c ? r.ownWords : 0);
 }
+function docxKidPages(r, c) {
+  const kids = r.children.filter(x => x.include);
+  return c.pages + (kids[0] === c ? r.ownPages : 0);
+}
 function docxChapterWords(r) {
   return r.ownWords + r.children.filter(x => x.include).reduce((s, x) => s + x.words, 0);
+}
+function docxChapterPages(r) {
+  return r.ownPages + r.children.filter(x => x.include).reduce((s, x) => s + x.pages, 0);
 }
 
 /**
  * Bilan du rapprochement. « clean » = fichier déjà connu, rien de nouveau, rien de disparu :
  * la synchro peut alors s'appliquer sans aperçu.
+ * C'est aussi ici que les pages deviennent des nombres entiers : le total des parties suivies
+ * est arrondi une seule fois, puis réparti (chaque partie reçoit l'entier juste en dessous ou
+ * juste au-dessus de sa longueur). On évite ainsi que trente petites sections arrondies une
+ * à une finissent par peser dix pages de trop, ou de moins.
  */
 function evaluateDocx(m) {
   let news = 0;
@@ -2870,27 +3334,45 @@ function evaluateDocx(m) {
       }
     }
   }
+  const leaves = [];
+  for (const r of m.rows) {
+    const kids = r.children.filter(c => c.include);
+    for (const c of r.children) c.pg = Math.round(c.pages * m.k);        // affichage d'une partie ignorée
+    r.pg = Math.round(docxChapterPages(r) * m.k);
+    if (!r.include) continue;
+    if (kids.length) kids.forEach(c => leaves.push({ node: c, p: docxKidPages(r, c) * m.k }));
+    else leaves.push({ node: r, p: docxChapterPages(r) * m.k });
+  }
+  const inclPages = leaves.reduce((s, l) => s + l.p, 0);
+  const whole = distribute(Math.round(inclPages), leaves.map(l => l.p));
+  leaves.forEach((l, i) => { l.node.pg = whole[i]; });
+  for (const r of m.rows) {
+    const kids = r.children.filter(c => c.include);
+    if (r.include && kids.length) r.pg = kids.reduce((s, c) => s + c.pg, 0);
+  }
   m.news = news;
   m.missing = missing;
   m.inclWords = m.rows.filter(r => r.include).reduce((s, r) => s + docxChapterWords(r), 0);
-  m.clean = !!m.known && !m.replace && !m.review && !m.suggest
+  m.inclPages = inclPages;
+  m.wpp = inclPages > 0 && m.inclWords > 0 ? m.inclWords / inclPages : (m.res.wpp || 380) / m.k;
+  m.clean = !!m.known && !m.replace && !m.review && !m.suggest && !m.recount
     && news === 0 && missing.length === 0 && m.rows.some(r => r.include);
 }
 
 function computeDocxTargets(m) {
-  const pg = w => Math.ceil(w / m.wpp);
+  const pg = p => Math.ceil(p * m.k - 1e-6);
   if (m.planEmpty) {
     const leaves = [];
     for (const r of m.rows) {
       if (!r.include) continue;
       const kids = r.children.filter(c => c.include);
-      if (kids.length) kids.forEach(c => leaves.push({ node: c, words: docxKidWords(r, c) }));
-      else leaves.push({ node: r, words: docxChapterWords(r) });
+      if (kids.length) kids.forEach(c => leaves.push({ node: c, words: docxKidWords(r, c), pages: docxKidPages(r, c) }));
+      else leaves.push({ node: r, words: docxChapterWords(r), pages: docxChapterPages(r) });
     }
     const W = leaves.reduce((s, l) => s + l.words, 0);
     const avg = leaves.length ? W / leaves.length : 0;
     const shares = distribute(Math.max(0, Math.round(m.totalTarget || 0)), leaves.map(l => (W > 0 ? l.words + avg : 1)));
-    leaves.forEach((l, i) => { if (!l.node.touched) l.node.target = Math.max(1, shares[i], pg(l.words)); });
+    leaves.forEach((l, i) => { if (!l.node.touched) l.node.target = Math.max(1, shares[i], pg(l.pages)); });
     return;
   }
   const chAvg = avgTarget(state.chapters.map(c => chapterStats(c).tP), 20);
@@ -2905,11 +3387,11 @@ function computeDocxTargets(m) {
         const whole = kept(r.title);
         const shares = whole ? distribute(whole, kids.map(c => docxKidWords(r, c) + 1)) : null;
         kids.forEach((c, i) => {
-          if (!c.touched) c.target = kept(c.title) || (shares ? Math.max(1, shares[i]) : Math.max(ssAvg, pg(docxKidWords(r, c))));
+          if (!c.touched) c.target = kept(c.title) || (shares ? Math.max(1, shares[i]) : Math.max(ssAvg, pg(docxKidPages(r, c))));
         });
-      } else if (!r.touched) r.target = kept(r.title) || Math.max(chAvg, pg(docxChapterWords(r)));
+      } else if (!r.touched) r.target = kept(r.title) || Math.max(chAvg, pg(docxChapterPages(r)));
     } else {
-      for (const c of kids) if (!c.map && !c.touched) c.target = Math.max(ssAvg, pg(docxKidWords(r, c)));
+      for (const c of kids) if (!c.map && !c.touched) c.target = Math.max(ssAvg, pg(docxKidPages(r, c)));
     }
   }
 }
@@ -2931,7 +3413,6 @@ function oldTargetFor(title) {
 
 /** Applique le modèle à une liste de chapitres (une copie pour simuler, ou le vrai plan). */
 function applyDocxModel(m, chapters) {
-  const pg = w => Math.round(w / m.wpp);
   const ref = t => ({ docKey: normalizeTitle(t), docFile: m.key });
   for (const r of m.rows) {
     if (!r.include) continue;
@@ -2942,29 +3423,30 @@ function applyDocxModel(m, chapters) {
       if (kids.length) {
         ch.subsections = kids.map(c => ({
           id: uid(), title: c.title.slice(0, 300), targetPages: Math.max(1, c.target || 1),
-          writtenPages: pg(docxKidWords(r, c)), ...ref(c.title),
+          writtenPages: c.pg, ...ref(c.title),
         }));
       } else {
         ch.targetPages = Math.max(1, r.target || 1);
-        ch.writtenPages = pg(docxChapterWords(r));
+        ch.writtenPages = r.pg;
       }
       chapters.push(ch);
+      r.createdId = ch.id;
       continue;
     }
     Object.assign(ch, ref(r.title));
     if (!ch.subsections.length) {
-      ch.writtenPages = pg(docxChapterWords(r));
+      ch.writtenPages = r.pg;
     } else if (!kids.length) {
-      const shares = distribute(pg(docxChapterWords(r)), ch.subsections.map(s => s.targetPages || 1));
+      const shares = distribute(r.pg, ch.subsections.map(s => s.targetPages || 1));
       ch.subsections.forEach((s, i) => { s.writtenPages = shares[i]; });
     } else {
       for (const c of kids) {
         const ss = c.map ? ch.subsections.find(s => s.id === c.map) : null;
-        if (ss) { ss.writtenPages = pg(docxKidWords(r, c)); Object.assign(ss, ref(c.title)); }
+        if (ss) { ss.writtenPages = c.pg; Object.assign(ss, ref(c.title)); }
         else {
           ch.subsections.push({
             id: uid(), title: c.title.slice(0, 300), targetPages: Math.max(1, c.target || 1),
-            writtenPages: pg(docxKidWords(r, c)), ...ref(c.title),
+            writtenPages: c.pg, ...ref(c.title),
           });
         }
       }
@@ -2982,7 +3464,11 @@ function docxPageDelta(m) {
   return sum(applyDocxModel(m, copy)) - writtenPages();
 }
 
-/** Pages à porter au journal du jour : au mot près quand le fichier est déjà connu. */
+/**
+ * Pages à porter au journal du jour : au mot près quand le fichier est déjà connu.
+ * On part des mots (et non des pages) : changer d'interligne ou insérer un saut de page
+ * déplace la pagination sans que rien n'ait été écrit.
+ */
 function docxActivityDelta(m) {
   if (docxComparable(m)) return Math.round(((m.inclWords - m.known.inclWords) / m.wpp) * 100) / 100;
   // Même document mais autre découpage (plan refait, autre niveau de titre) : rien de comparable, on repart de là
@@ -3008,6 +3494,7 @@ function markRevisionDay(day = todayKey()) {
 function applyDocx(m, quick) {
   if (!m.rows.some(r => r.include)) { toast('Sélectionnez au moins une partie', 'warn'); return false; }
   const snap = snapshotState();
+  const before = writtenPages();
   const pageDelta = docxPageDelta(m);
   const act = m.count ? docxActivityDelta(m) : 0;
   const wordsChanged = !m.known || m.known.inclWords !== m.inclWords;
@@ -3042,9 +3529,15 @@ function applyDocx(m, quick) {
     if (r.include) r.children.forEach(c => remember(r, c));
   }
   state.docIgnore = [...ig].slice(-300);
+  // Un chapitre de plus : la prochaine fois, ce fichier sera reconnu comme ce chapitre-là
+  const scope = m.scope === NEW_CHAPTER ? ((m.rows[0] && m.rows[0].createdId) || '') : (m.scope || '');
+  const wpp = Math.round(m.wpp);
   state.docFiles[m.key] = {
-    name: m.name.slice(0, 200), at: todayKey(), inclWords: m.inclWords, wpp: m.wpp, scope: m.scope || '',
+    name: m.name.slice(0, 200), at: todayKey(), inclWords: m.inclWords, wpp: wpp >= 80 && wpp <= 1500 ? wpp : null, scope,
     level: m.level === 'legacy' ? null : m.level, mtime: m.mtime, size: m.size,
+    pv: 2, src: m.res.pageSource, pages: Math.round(m.res.totalPages * m.k * 10) / 10,
+    k: Math.abs(m.k - 1) > 0.001 ? Math.round(m.k * 10000) / 10000 : null,
+    gdoc: m.gdoc || null, sig: m.sig || null,
   };
   if (!state.trackedSince) state.trackedSince = todayKey();
   _dx = null;
@@ -3054,19 +3547,25 @@ function applyDocx(m, quick) {
   saveNow();
   closeModal('docxModal');
   render();
+  updateWordButton();
   if (same) return 'same'; // fichier réenregistré sans changement
 
-  const detail = act ? `${act > 0 ? '+' : ''}${fmt1(act)} p. aujourd'hui`
+  const detail = m.recount && pageDelta ? `pages recomptées (${fmtInt(before)} → ${fmtInt(before + pageDelta)})${act ? `, ${act > 0 ? '+' : ''}${fmt1(act)} p. aujourd'hui` : ''}`
+    : act ? `${act > 0 ? '+' : ''}${fmt1(act)} p. aujourd'hui`
     : pageDelta ? `${pageDelta > 0 ? '+' : ''}${pageDelta} p.` : 'tout est à jour';
   toast(`${trunc(m.name, 28)} synchronisé : ${detail}`, 'success', {
     key: 'docx', undo: true,
     action: { label: 'Annuler', fn: () => {
       if (m.mtime) _autoSkip.set(m.key, m.mtime);
+      else if (m.sig) _autoSkip.set(m.key, m.sig);
       restoreSnapshot(snap, 'Synchronisation annulée');
+      updateWordButton();
     } },
   });
   if (newlyLinked) {
     setTimeout(() => toast('Fichier lié : vos pages se mettront à jour toutes seules quand vous reviendrez ici.', '', { duration: 6000 }), 1200);
+  } else if (m.gdoc && !m.known) {
+    setTimeout(() => toast('Google Doc lié : vos pages se mettront à jour toutes seules, sur tous vos appareils.', '', { duration: 7000 }), 1200);
   }
   if (act > 0) checkDailyGoal();
   return true;
@@ -3083,7 +3582,7 @@ function docxRowHTML(m, node, i, j, r) {
   const isCh = j < 0;
   const fresh = m.planEmpty || m.replace; // plan créé à partir du document : rien à rapprocher
   const words = isCh ? docxChapterWords(node) : docxKidWords(r, node);
-  const pages = Math.round(words / m.wpp);
+  const pages = node.pg;
   let ctl = '';
   if (!node.include) ctl = '<span class="dx-ign">ignoré</span>';
   else if (isCh) {
@@ -3093,7 +3592,7 @@ function docxRowHTML(m, node, i, j, r) {
     if (!ch) extra = kids.length ? `<span class="dx-note">+ ${kids.length} sous-section${kids.length > 1 ? 's' : ''}</span>` : docxTargetInput(i, -1, node.target);
     else if (!ch.subsections.length) extra = `<span class="dx-delta">${ch.writtenPages || 0} → <b>${pages}</b> p.</span>`;
     else if (!kids.length) extra = `<span class="dx-note">réparti sur vos ${ch.subsections.length} sous-sections</span>`;
-    if (node.locked) ctl = `<span class="dx-note">ce fichier = ce chapitre</span>${extra}`;
+    if (node.locked) ctl = `<span class="dx-note">${ch ? 'ce fichier = ce chapitre' : 'nouveau chapitre'}</span>${extra}`;
     else if (fresh) ctl = extra;
     else {
       const opts = ['<option value="">+ Nouveau chapitre</option>']
@@ -3125,46 +3624,70 @@ function renderDocxPreview() {
   if (!m) return;
   const res = m.res;
   const o = m.outline;
-  const nCh  = m.scope ? 0 : m.rows.length;
+  const single = !!m.scope;
+  const nCh  = single ? 0 : m.rows.length;
   const nSub = m.rows.filter(r => r.include).reduce((s, r) => s + r.children.filter(c => c.include).length, 0);
-  const pagesTxt = res.pagesMeta ? `${res.pagesMeta} pages selon ${res.kind === 'odt' ? 'LibreOffice' : 'Word'}` : `≈ ${Math.round(res.totalWords / m.wpp)} pages`;
-  const found = m.scope
+  const total = Math.max(1, Math.round(res.totalPages * m.k));
+  const found = single
     ? (nSub ? `${nSub} sous-section${nSub > 1 ? 's' : ''} détectée${nSub > 1 ? 's' : ''}.` : 'Pas de titres : tout le texte est compté pour ce chapitre.')
     : `${nCh} partie${nCh > 1 ? 's' : ''} détectée${nCh > 1 ? 's' : ''}${nSub ? `, ${nSub} sous-section${nSub > 1 ? 's' : ''}` : ''}.`;
-  const front = !m.scope && Math.round(o.front / m.wpp) >= 1 ? ` Pages liminaires non comptées : ≈ ${Math.round(o.front / m.wpp)} p.` : '';
-  setHTML('docxSummary', `<b>${esc(m.name)}</b> : ${fmtInt(res.totalWords)} mots, ${pagesTxt}. ${found}${front}`);
-  const note = document.getElementById('docxSuggest');
-  note.classList.toggle('hidden', !m.suggest);
+  const frontP = Math.round(o.frontPages * m.k);
+  const front = !single && frontP >= 1 ? ` Pages liminaires non comptées : ${frontP} p.` : '';
+  // « ≈ » quand le nombre de pages est calculé (mise en page simulée, densité) et non lu dans le document
+  const firm = res.pageSource === 'pdf' || res.pageSource === 'word' || res.pageSource === 'meta' || Math.abs(m.k - 1) > 0.001;
+  setHTML('docxSummary', `<b>${esc(m.name)}</b> : ${fmtInt(res.totalWords)} mots, <b>${firm ? '' : '≈ '}${fmtInt(total)} page${total > 1 ? 's' : ''}</b>. ${found}${front}`);
+  document.getElementById('docxSuggest').classList.toggle('hidden', !m.suggest);
+  document.getElementById('docxRecount').classList.toggle('hidden', !m.recount);
 
-  const wppEl = document.getElementById('docxWpp');
-  if (document.activeElement !== wppEl) wppEl.value = m.wpp;
-  setText('docxWppHint', m.known && m.known.wpp ? 'comme à la dernière synchro'
-    : res.wppSource === 'word' ? `calibré sur la pagination de ${res.kind === 'odt' ? 'LibreOffice' : 'Word'}` : 'estimation, ajustez si besoin');
+  // D'où vient le nombre de pages, et comment le corriger
+  const pagesEl = document.getElementById('docxPages');
+  if (document.activeElement !== pagesEl) pagesEl.value = total;
+  const lay = res.layout;
+  const layTxt = lay && lay.font ? ` (${esc(lay.font)} ${fmt1(lay.size)}${lay.spacing ? `, interligne ${fmt1(lay.spacing)}` : ''}${lay.paper ? `, ${lay.paper === 'Letter' ? 'format Lettre' : lay.paper}` : ''})` : '';
+  const SRC = {
+    pdf: 'pagination de Google Docs, exacte',
+    word: 'pagination enregistrée par Word, exacte',
+    meta: `nombre de pages indiqué par ${res.kind === 'odt' || res.gen === 'libreoffice' ? 'LibreOffice' : 'le fichier'}`,
+    layout: `calculé d'après la mise en page${layTxt}`,
+    density: 'estimation sans mise en page (une page courante : Times 12, interligne 1,5). Indiquez le vrai nombre de pages de votre document : il sera retenu',
+  };
+  const corrected = Math.abs(m.k - 1) > 0.001;
+  setHTML('docxPagesHint', corrected
+    ? `corrigé par vous, retenu pour ce document · <button type="button" class="linklike" onclick="docxResetPages()">rétablir (${fmtInt(Math.max(1, Math.round(res.totalPages)))})</button>`
+    : (SRC[res.pageSource] || ''));
 
-  // Ce fichier : tout le manuscrit, ou un seul chapitre du plan ?
-  const scopeRow = document.getElementById('docxScopeRow');
-  scopeRow.classList.toggle('hidden', m.planEmpty || m.replace);
-  if (!m.planEmpty) {
-    document.getElementById('docxScope').innerHTML = `<option value="">tout mon manuscrit</option>`
-      + state.chapters.map(c => `<option value="${c.id}"${c.id === m.scope ? ' selected' : ''}>seulement : ${esc(trunc(c.title, 40))}</option>`).join('');
+  // Que faire de ce document ? (tout le manuscrit, un chapitre de plus, un chapitre du plan)
+  const mode = docxMode(m);
+  const opt = (v, title, sub) => `<label class="dx-mode${mode === v ? ' on' : ''}"><input type="radio" name="docxMode" value="${v}" ${mode === v ? 'checked' : ''} onchange="docxSetMode('${v}')">
+      <span><b>${title}</b><small>${sub}</small></span></label>`;
+  setHTML('docxModes', m.planEmpty
+    ? opt('match', 'Tout mon manuscrit', 'Ses chapitres deviennent mon plan.')
+      + opt('add', 'Un seul chapitre', 'J\'ajouterai les autres ensuite, fichier par fichier.')
+    : opt('match', 'Mettre à jour mon plan', 'Ses parties sont rapprochées de celles de mon plan.')
+      + opt('replace', 'Refaire mon plan', 'Le plan repart de ce document. Objectifs et statuts repris quand les titres correspondent.')
+      + opt('add', 'Ajouter un chapitre', 'Ce fichier est un chapitre de plus.')
+      + opt('chapter', 'Un chapitre de mon plan', 'Ce fichier correspond à un chapitre déjà présent.'));
+  const chapRow = document.getElementById('docxScopeRow');
+  chapRow.classList.toggle('hidden', mode !== 'chapter');
+  if (mode === 'chapter') {
+    document.getElementById('docxScope').innerHTML = state.chapters.map(c => `<option value="${c.id}"${c.id === m.scope ? ' selected' : ''}>${esc(trunc(c.title, 48))}</option>`).join('');
   }
+  const titleRow = document.getElementById('docxNewTitleRow');
+  titleRow.classList.toggle('hidden', mode !== 'add');
+  const titleEl = document.getElementById('docxNewTitle');
+  if (mode === 'add' && document.activeElement !== titleEl) titleEl.value = m.newTitle;
 
   // À quel niveau de titre sont les chapitres ? (proposé automatiquement, modifiable, retenu pour ce document)
   const levelRow = document.getElementById('docxLevelRow');
-  const showLevel = !m.scope && o.levels.length >= 2;
+  const showLevel = !single && o.levels.length >= 2;
   levelRow.classList.toggle('hidden', !showLevel);
   if (showLevel) {
-    const opt = (v, label) => `<option value="${v}"${String(m.level) === String(v) ? ' selected' : ''}>${label}</option>`;
+    const lv = (v, label) => `<option value="${v}"${String(m.level) === String(v) ? ' selected' : ''}>${label}</option>`;
     document.getElementById('docxLevel').innerHTML =
-      (m.known && !m.known.level ? opt('legacy', 'comme à la dernière synchro') : '')
-      + opt('auto', `repérés automatiquement${m.autoLevel ? ` (niveau ${m.autoLevel})` : ''}`)
-      + o.levels.map(l => opt(l.level, `les titres de niveau ${l.level} (${l.count})`)).join('');
+      (m.known && !m.known.level ? lv('legacy', 'comme à la dernière synchro') : '')
+      + lv('auto', `repérés automatiquement${m.autoLevel ? ` (niveau ${m.autoLevel})` : ''}`)
+      + o.levels.map(l => lv(l.level, `les titres de niveau ${l.level} (${l.count})`)).join('');
   }
-
-  // Refaire le plan à partir du document (au lieu de rapprocher le document du plan existant)
-  const replaceRow = document.getElementById('docxReplaceRow');
-  replaceRow.classList.toggle('hidden', m.planEmpty || !!m.scope);
-  document.getElementById('docxReplace').checked = m.replace;
 
   document.getElementById('docxTotalRow').classList.toggle('hidden', !m.planEmpty);
   const totEl = document.getElementById('docxTotal');
@@ -3176,13 +3699,13 @@ function renderDocxPreview() {
     if (r.include) r.children.forEach((c, j) => { html += docxRowHTML(m, c, i, j, r); });
   });
   if (!m.rows.length) {
-    html = '<p class="dx-empty">Aucun titre détecté dans ce document. S\'il correspond à un chapitre de votre plan, choisissez-le ci-dessus : tout son texte sera compté.</p>';
+    html = '<p class="dx-empty">Aucun titre détecté dans ce document. S\'il correspond à un chapitre, choisissez « Ajouter un chapitre » ou « Un chapitre de mon plan » ci-dessus : tout son texte sera compté.</p>';
   }
   setHTML('docxRows', html);
 
   // Parties du plan absentes du document
   let absentNote = '';
-  if (!m.scope && m.rows.length) {
+  if (!single && m.rows.length) {
     const mapped = new Set(m.rows.filter(r => r.include && r.map).map(r => r.map));
     const absent = state.chapters.filter(c => !mapped.has(c.id)).map(c => `« ${esc(trunc(c.title, 40))} »`);
     if (absent.length) {
@@ -3199,13 +3722,18 @@ function renderDocxPreview() {
   setText('docxCountHint', docxComparable(m)
     ? 'C\'est ce qui a changé depuis la dernière synchro de ce document.'
     : 'Première synchro de ce document : laissez décoché, ces pages étaient déjà écrites.');
-  setText('docxApply', m.replace ? 'Refaire mon plan' : 'Mettre à jour mon plan');
+  setText('docxApply', m.replace ? 'Refaire mon plan' : mode === 'add' ? 'Ajouter ce chapitre' : m.planEmpty ? 'Créer mon plan' : 'Mettre à jour mon plan');
   document.getElementById('docxApply').disabled = !m.rows.some(r => r.include);
 }
 
 function docxNode(i, j) { const r = _dx.rows[i]; return j < 0 ? r : r.children[j]; }
 
 function docxRefresh() {
+  if (_dx.planEmpty && !_dx.totalTouched) {
+    // L'objectif total proposé suit le nombre de pages du document tant qu'on ne l'a pas fixé soi-même
+    const pages = _dx.rows.filter(r => r.include).reduce((s, r) => s + docxChapterPages(r), 0) * _dx.k;
+    _dx.totalTarget = Math.max(50, Math.ceil((pages * 1.5) / 10) * 10);
+  }
   computeDocxTargets(_dx);
   evaluateDocx(_dx);
   renderDocxPreview();
@@ -3236,11 +3764,36 @@ function docxTarget(i, j, val) {
   node.touched = true;
 }
 
+/** Que faire du document : 'match' (rapprocher du plan), 'replace' (refaire le plan), 'add' (chapitre de plus), 'chapter' (chapitre du plan). */
+const docxMode = m => (m.replace ? 'replace' : m.scope === NEW_CHAPTER ? 'add' : m.scope ? 'chapter' : 'match');
+
+function docxSetMode(mode) {
+  if (!_dx) return;
+  const m = _dx;
+  m.replace = mode === 'replace';
+  if (mode === 'add') m.scope = NEW_CHAPTER;
+  else if (mode === 'chapter') m.scope = findCh(m.scope) ? m.scope : (state.chapters[0] ? state.chapters[0].id : '');
+  else m.scope = '';
+  buildDocxRows(m);
+  renderDocxPreview();
+}
+
 function docxSetScope(val) {
   if (!_dx) return;
-  _dx.scope = findCh(val) ? val : '';
+  _dx.scope = val === NEW_CHAPTER || findCh(val) ? val : '';
   buildDocxRows(_dx);
   renderDocxPreview();
+}
+
+/** Titre du chapitre que ce fichier va créer. */
+function docxSetNewTitle(val) {
+  if (!_dx || _dx.scope !== NEW_CHAPTER) return;
+  const t = String(val || '').trim().slice(0, 300);
+  if (!t) return;
+  _dx.newTitle = t;
+  if (_dx.rows[0]) _dx.rows[0].title = t;
+  const el = document.querySelector('#docxRows .dx-ch .dx-title');
+  if (el) el.textContent = t;
 }
 
 /** Niveau de titre des chapitres : 'auto', 'legacy' (comme avant) ou un numéro de niveau. */
@@ -3251,19 +3804,21 @@ function docxSetLevel(val) {
   renderDocxPreview();
 }
 
-/** Refaire le plan à partir du document, ou rapprocher le document du plan existant. */
-function docxSetReplace(on) {
+/** « Ce document fait N pages » : la correction est retenue pour ce document et suivra ses prochaines synchros. */
+function docxSetPages(val) {
   if (!_dx) return;
-  _dx.replace = !!on;
-  buildDocxRows(_dx);
-  renderDocxPreview();
+  const v = parseFloat(String(val).replace(',', '.'));
+  if (!(v >= 1) || !(_dx.res.totalPages > 0)) return;
+  _dx.k = clamp(v / _dx.res.totalPages, 0.2, 5);
+  if (Math.abs(_dx.k - 1) < 0.001 || Math.round(_dx.res.totalPages) === Math.round(v)) _dx.k = 1;
+  docxRefresh();
 }
 
-function docxSetWpp(val) {
+function docxResetPages() {
   if (!_dx) return;
-  const v = parseInt(val, 10);
-  if (!(v >= 80 && v <= 1500)) return;
-  _dx.wpp = v;
+  _dx.k = 1;
+  const el = document.getElementById('docxPages');
+  if (el) el.value = '';
   docxRefresh();
 }
 
@@ -3272,6 +3827,7 @@ function docxSetTotal(val) {
   const v = parseInt(val, 10);
   if (!(v > 0)) return;
   _dx.totalTarget = v;
+  _dx.totalTouched = true;
   docxRefresh();
 }
 
@@ -3319,16 +3875,18 @@ function saveLinked() {
 async function initLinkedFiles() {
   _linked = [];
   _pendingReview = null;
-  if (!canLink() || !currentUser) return;
-  const owner = currentUser.uid;
-  try {
-    const list = await filesGet(owner);
-    if (!currentUser || currentUser.uid !== owner) return;
-    if (Array.isArray(list)) _linked = list.filter(x => x && x.key && x.handle && typeof x.handle.getFile === 'function');
-  } catch (e) { console.warn('Fichiers liés :', e); }
+  const owner = currentUser && currentUser.uid;
+  if (!owner) return;
+  if (canLink()) {
+    try {
+      const list = await filesGet(owner);
+      if (!currentUser || currentUser.uid !== owner) return;
+      if (Array.isArray(list)) _linked = list.filter(x => x && x.key && x.handle && typeof x.handle.getFile === 'function');
+    } catch (e) { console.warn('Fichiers liés :', e); }
+  }
   renderPrimary();
   updateWordButton();
-  if (_linked.length) syncLinked({ manual: false });
+  if (hasAutoDocs()) syncAll({ manual: false });
 }
 
 function linkFile(key, name, handle) {
@@ -3349,31 +3907,81 @@ function unlinkFile(key, silent) {
   if (!silent) toast('Fichier délié. Vos pages restent telles quelles.', '');
 }
 
+/** « Mes documents » : ceux que le Journal connaît, avec de quoi les resynchroniser, revoir leur plan ou les oublier. */
 function renderLinkedList() {
   const box = document.getElementById('linkedBox');
   if (!box) return;
-  const known = Object.entries(state.docFiles);
-  box.classList.toggle('hidden', known.length === 0 && _linked.length === 0);
   const linkedKeys = new Set(_linked.map(l => l.key));
-  const review = k => `<button type="button" class="lk-btn" onclick="reviewDocPlan('${k}')" title="Rouvrir l'aperçu : niveau de titre des chapitres, parties ignorées, plan à refaire">Revoir le plan</button>`;
-  const rows = _linked.map(l => {
-    const f = state.docFiles[l.key];
-    return `<div class="lk-item"><span class="lk-name">${esc(trunc(l.name, 38))}</span>
-      <span class="lk-meta">${f && f.at ? 'synchro : ' + relDay(f.at).toLowerCase() : 'lié'}</span>
-      ${review(l.key)}<button type="button" class="lk-btn" onclick="unlinkFile('${l.key}')">Délier</button></div>`;
-  }).concat(known.filter(([k]) => !linkedKeys.has(k)).map(([k, f]) =>
-    `<div class="lk-item"><span class="lk-name">${esc(trunc(f.name, 38))}</span>
-      <span class="lk-meta">${f.at ? 'synchro : ' + relDay(f.at).toLowerCase() : ''}</span>${review(k)}</div>`));
+  const all = _linked.filter(l => !state.docFiles[l.key]).map(l => [l.key, { name: l.name }]).concat(Object.entries(state.docFiles));
+  box.classList.toggle('hidden', all.length === 0);
+  const rows = all.map(([k, f]) => {
+    const linked = linkedKeys.has(k);
+    const kind = f.gdoc ? 'Google Docs' : linked ? 'fichier lié à cet appareil' : f.name === PASTE_NAME ? 'texte collé' : 'fichier';
+    const when = f.at ? `synchro : ${relDay(f.at).toLowerCase()}` : 'pas encore synchronisé';
+    const pages = f.pages ? ` · ${fmtInt(Math.round(f.pages))} p.` : '';
+    return `<div class="lk-item">
+      <span class="lk-ico">${icon(f.gdoc ? 'link' : 'doc')}</span>
+      <span class="lk-main"><span class="lk-name">${esc(trunc(f.name, 44))}</span><span class="lk-meta">${kind} · ${when}${pages}</span></span>
+      <span class="lk-acts">
+        ${f.gdoc || linked ? `<button type="button" class="lk-btn strong" onclick="syncDoc('${k}')">Synchroniser</button>` : ''}
+        <button type="button" class="lk-btn" onclick="reviewDocPlan('${k}')" title="Rouvrir l'aperçu : ce que contient le document, niveau de titre des chapitres, parties ignorées, nombre de pages">Revoir</button>
+        ${f.gdoc ? `<a class="lk-btn" href="https://docs.google.com/document/d/${f.gdoc}/edit" target="_blank" rel="noopener">Ouvrir</a>` : ''}
+        <button type="button" class="lk-btn" onclick="forgetDoc('${k}')" title="Le Journal oublie ce document. Vos pages et votre plan restent tels quels.">${f.gdoc || linked ? 'Délier' : 'Oublier'}</button>
+      </span></div>`;
+  });
   setHTML('linkedList', rows.join(''));
-  setText('linkedHint', _linked.length
-    ? 'Les fichiers liés se mettent à jour tout seuls quand vous revenez sur cet onglet.'
-    : canLink() ? 'Choisissez à nouveau un fichier pour le lier à cet appareil.' : 'Pour mettre à jour : déposez le fichier dans la page, ou collez votre texte.');
+  setText('linkedHint', hasAutoDocs()
+    ? 'Les documents liés se mettent à jour tout seuls quand vous revenez sur cet onglet.'
+    : 'Pour mettre à jour : déposez le fichier dans la page, collez votre texte, ou liez un Google Doc.');
+  setText('docxAddTitle', all.length ? 'Ajouter un document, ou en changer' : 'Choisir mon document');
 }
 
-/** « Revoir le plan » d'un document déjà synchronisé : son aperçu se rouvrira à la prochaine lecture. */
+/** Le Journal oublie un document : le plan et les pages ne bougent pas, mais ils ne sont plus rattachés à lui. */
+function forgetDoc(key) {
+  if (!requireReady()) return;
+  const f = state.docFiles[key];
+  const lf = _linked.find(l => l.key === key);
+  if (!f && !lf) return;
+  const snap = snapshotState();
+  const before = _linked.slice();
+  delete state.docFiles[key];
+  for (const ch of state.chapters) {
+    if (ch.docFile === key) { delete ch.docFile; delete ch.docKey; }
+    for (const ss of ch.subsections) if (ss.docFile === key) { delete ss.docFile; delete ss.docKey; }
+  }
+  state.docIgnore = state.docIgnore.filter(x => !x.startsWith(`${key}|`) && !x.startsWith(`+${key}|`));
+  if (lf) { _linked = _linked.filter(l => l.key !== key); saveLinked(); }
+  if (_pendingReview && _pendingReview.key === key) _pendingReview = null;
+  _forceReview.delete(key);
+  saveNow(true); // enregistrement complet : en fusion, une fiche retirée resterait sur le serveur
+  render();
+  renderLinkedList();
+  updateWordButton();
+  toast(`${trunc((f || lf).name, 30)} : document oublié. Votre plan et vos pages restent tels quels.`, '', {
+    undo: true,
+    action: { label: 'Annuler', fn: () => {
+      _linked = before;
+      saveLinked();
+      restoreSnapshot(snap, 'Document rétabli');
+      renderLinkedList();
+      updateWordButton();
+    } },
+  });
+}
+
+/** Synchroniser un document précis de la liste. */
+async function syncDoc(key) {
+  if (!requireReady()) return;
+  closeModal('docxModal');
+  await syncAll({ manual: true, only: key });
+}
+
+/** « Revoir » un document déjà synchronisé : son aperçu se rouvrira à la prochaine lecture. */
 async function reviewDocPlan(key) {
   if (!requireReady()) return;
   _forceReview.add(key);
+  const f = state.docFiles[key];
+  if (f && f.gdoc) { loadGoogleDoc(f.gdoc, f.name); return; }
   const lf = _linked.find(l => l.key === key);
   if (lf) {
     try {
@@ -3382,7 +3990,6 @@ async function reviewDocPlan(key) {
       if (perm === 'granted') { handleDocxFile(await lf.handle.getFile(), lf.handle); return; }
     } catch (e) { console.warn('Relecture :', e); }
   }
-  const f = state.docFiles[key];
   if (f && f.name === PASTE_NAME) {
     setDocxError('');
     toast('Collez de nouveau votre texte : l\'aperçu du plan s\'ouvrira.', '', { duration: 6000 });
@@ -3394,32 +4001,200 @@ async function reviewDocPlan(key) {
   pickWordFile();
 }
 
+/* ---------- Google Docs : un document lié par son lien de partage ----------
+   Un document partagé « à tous les utilisateurs disposant du lien » peut être
+   téléchargé par le navigateur, sans compte ni serveur intermédiaire :
+     • en .docx, pour le plan, le texte et la mise en page ;
+     • en PDF, dont les signets donnent la page exacte de chaque titre.
+   On ne garde que l'identifiant du document (dans les données du compte, donc
+   sur tous les appareils) et une signature de son texte, pour savoir s'il a
+   changé sans tout relire. */
+const GDOC_LINK = /docs\.google\.com\/document\/(?:u\/\d+\/)?d\/([A-Za-z0-9_-]{20,100})/;
+let _gsyncing = false;
+const _gdocChecked = new Map(); // identifiant → heure de la dernière vérification automatique
+
+function gdocIdOf(input) {
+  const s = String(input || '').trim();
+  const m = GDOC_LINK.exec(s);
+  if (m) return m[1];
+  return /^[A-Za-z0-9_-]{25,100}$/.test(s) ? s : '';
+}
+
+const gdocKey = id => `g_${id.toLowerCase().replace(/[^a-z0-9]/g, '_')}`.slice(0, 100);
+
+function gdocError(code) {
+  const e = new Error(code);
+  e.code = code;
+  return e;
+}
+
+async function gdocFetch(id, format, ms) {
+  const ctl = new window.AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(`https://docs.google.com/document/d/${id}/export?format=${format}`, { credentials: 'omit', cache: 'no-store', signal: ctl.signal });
+    if (r.status === 404 || r.status === 410) throw gdocError('gdoc-404');
+    if (r.status === 429 || r.status >= 500) throw gdocError('gdoc-busy');
+    if (!r.ok || /text\/html/i.test(r.headers.get('content-type') || '')) throw gdocError('gdoc-private');
+    return r;
+  } catch (e) {
+    if (e && e.code) throw e;
+    // Document non partagé : Google renvoie vers sa page de connexion, que le navigateur refuse de lire
+    throw gdocError(e && e.name === 'AbortError' ? 'gdoc-slow' : navigator.onLine === false ? 'gdoc-offline' : 'gdoc-private');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Signature courte d'un texte (longueur + empreinte) : dit si le document a changé depuis la dernière fois. */
+function textSignature(text) {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return `${text.length.toString(36)}.${(h >>> 0).toString(36)}`;
+}
+
+async function gdocSignature(id) {
+  const r = await gdocFetch(id, 'txt', 45000);
+  return textSignature(await r.text());
+}
+
+/** Titre du document, donné par Google dans l'en-tête du téléchargement. */
+function gdocTitle(res) {
+  const cd = res.headers.get('content-disposition') || '';
+  let name = '';
+  const star = /filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i.exec(cd);
+  try { if (star) name = decodeURIComponent(star[1].trim().replace(/^"|"$/g, '')); } catch { /* nom mal encodé */ }
+  if (!name) { const plain = /filename\s*=\s*"?([^";]+)"?/i.exec(cd); if (plain) name = plain[1]; }
+  return name.replace(/\.docx$/i, '').trim().slice(0, 150);
+}
+
+/** Lit un Google Doc : renvoie l'analyse, de quoi nommer le document, et la signature de son texte. */
+async function readGoogleDoc(id, knownName, knownSig) {
+  const [docx, pdf, sig] = await Promise.all([
+    gdocFetch(id, 'docx', 120000),
+    gdocFetch(id, 'pdf', 150000).then(r => r.arrayBuffer()).catch(e => { console.warn('PDF Google Docs :', e); return null; }),
+    knownSig ? Promise.resolve(knownSig) : gdocSignature(id).catch(() => null),
+  ]);
+  const name = gdocTitle(docx) || knownName || 'Google Doc';
+  const buf = await docx.arrayBuffer();
+  // Sans le PDF (document très lourd, délai dépassé), la pagination est simulée d'après la mise en page
+  const res = await parseDocumentFile(new File([buf], `${name}.docx`), pdf ? { pdf: new Uint8Array(pdf) } : {});
+  return { res, file: { name, lastModified: null, size: buf.byteLength }, sig };
+}
+
+/** Lie (ou relit) un Google Doc à partir de son lien. */
+async function linkGoogleDoc(input) {
+  if (!requireReady()) return;
+  const el = document.getElementById('gdocUrl');
+  const id = gdocIdOf(typeof input === 'string' ? input : (el ? el.value : ''));
+  if (!id) { setDocxError(DOC_ERRORS['gdoc-link']); return; }
+  const ok = await loadGoogleDoc(id);
+  if (ok && el) el.value = '';
+}
+
+async function loadGoogleDoc(id, name) {
+  setDocxError('');
+  setDocxBusy(true);
+  const busy = toast('Lecture de votre Google Doc…', '', { key: 'docx', duration: 150000 });
+  try {
+    const { res, file, sig } = await readGoogleDoc(id, name);
+    if (!currentUser || !_loaded) return false;
+    routeDocument(res, file, null, { key: gdocKey(id), gdoc: id, sig });
+    return true;
+  } catch (e) {
+    console.error('Google Docs :', e);
+    showDocxFailure(DOC_ERRORS[e && e.code] || 'Lecture impossible de ce document Google Docs.');
+    return false;
+  } finally {
+    setDocxBusy(false);
+    busy.remove();
+  }
+}
+
+/**
+ * Relit les Google Docs liés. On commence par leur texte seul (léger) : s'il n'a pas changé
+ * depuis la dernière synchro, on s'arrête là. Renvoie le bilan, ou null si rien n'a été tenté.
+ */
+async function syncGoogleDocs({ manual, only }) {
+  const docs = gdocEntries().filter(([k]) => !only || k === only);
+  if (!docs.length || _gsyncing || !_loaded || !currentUser) return null;
+  if (!manual && (isBusy() || navigator.onLine === false)) return null;
+  _gsyncing = true;
+  const out = { applied: 0, upToDate: 0, failed: 0, review: null, error: '' };
+  let busy = null;
+  try {
+    for (const [key, f] of docs) {
+      const now = Date.now();
+      if (!manual && now - (_gdocChecked.get(f.gdoc) || 0) < 5 * 60000) continue; // au plus une vérification automatique toutes les cinq minutes
+      _gdocChecked.set(f.gdoc, now);
+      try {
+        const sig = await gdocSignature(f.gdoc);
+        if (!currentUser || !_loaded) return null;
+        if (!_forceReview.has(key) && f.pv === 2 && f.sig && sig === f.sig) { out.upToDate++; continue; }
+        if (!manual && _autoSkip.get(key) === sig) continue;                      // synchro annulée par l'utilisateur
+        if (manual && !busy) busy = toast(`Lecture de ${trunc(f.name, 30)}…`, '', { key: 'docx', duration: 150000 });
+        const { res, file } = await readGoogleDoc(f.gdoc, f.name, sig);
+        if (!currentUser || !_loaded) return null;
+        const m = buildDocxModel(res, file, null, { key, gdoc: f.gdoc, sig });
+        if (_forceReview.delete(key)) { m.review = true; m.clean = false; }
+        if (!m.clean) out.review = m;
+        else {
+          const r = applyDocx(m, true);
+          if (r === 'same') out.upToDate++;
+          else if (r) out.applied++;
+        }
+      } catch (e) {
+        console.warn('Synchro Google Docs', f.name, e);
+        out.failed++;
+        out.error = (e && e.code) || 'gdoc-busy';
+      }
+    }
+  } finally {
+    _gsyncing = false;
+    if (busy) busy.remove();
+  }
+  return out;
+}
+
+/** Relit tout ce qui peut l'être (fichiers liés à l'appareil, Google Docs), puis dit ce qu'il en est. */
+async function syncAll({ manual, only }) {
+  if (!_loaded || !currentUser) return;
+  const a = _linked.length ? await syncLinked({ manual, only }) : null;
+  const g = await syncGoogleDocs({ manual, only });
+  const review = (g && g.review) || (a && a.review) || null;
+  if (review && manual) openDocxPreview(review);
+  else if (review) _pendingReview = review;
+  if (manual && !review && !((a ? a.applied : 0) + (g ? g.applied : 0))) {
+    if (g && g.failed) toast(DOC_ERRORS[g.error] || 'Lecture impossible du document Google Docs.', 'warn', { key: 'docx', duration: 10000 });
+    else if (a && a.refused && !a.upToDate) toast('Autorisez la lecture du fichier pour le synchroniser.', 'warn');
+    else if (a || g) toast('Déjà à jour : votre document n\'a pas changé.', 'success', { key: 'docx' });
+  }
+  renderPrimary();
+}
+
 /**
  * Relit les fichiers liés. manual = clic de l'utilisateur (peut demander l'autorisation,
  * ouvre l'aperçu si besoin) ; sinon passage silencieux au retour sur l'onglet.
  */
-async function syncLinked({ manual }) {
-  if (!_linked.length || _syncing || !_loaded || !currentUser) return;
+async function syncLinked({ manual, only }) {
+  if (!_linked.length || _syncing || !_loaded || !currentUser) return null;
   if (!manual) {
-    if (Date.now() - _lastAutoSync < 15000 || isBusy()) return;
+    if (Date.now() - _lastAutoSync < 15000 || isBusy()) return null;
     _lastAutoSync = Date.now();
   }
   _syncing = true;
-  let applied = 0;
-  let upToDate = 0;
-  let refused = 0;
-  let review = null;
+  const out = { applied: 0, upToDate: 0, refused: 0, review: null };
   try {
     // 1. Autorisations d'abord, tant que le clic de l'utilisateur est « frais »
     const ready = [];
-    for (const lf of _linked.slice()) {
+    for (const lf of _linked.filter(l => !only || l.key === only)) {
       let perm = 'denied';
       try {
         perm = await lf.handle.queryPermission({ mode: 'read' });
         if (perm !== 'granted' && manual) perm = await lf.handle.requestPermission({ mode: 'read' });
       } catch (e) { console.warn('Autorisation :', e); }
       if (perm === 'granted') ready.push(lf);
-      else refused++;
+      else out.refused++;
     }
     // 2. Lecture des fichiers modifiés
     for (const lf of ready) {
@@ -3433,7 +4208,7 @@ async function syncLinked({ manual }) {
         continue;
       }
       const known = state.docFiles[lf.key];
-      if (known && known.mtime === file.lastModified && known.size === file.size) { upToDate++; continue; }
+      if (known && known.pv === 2 && known.mtime === file.lastModified && known.size === file.size) { out.upToDate++; continue; }
       if (!manual) {
         if (known && known.mtime && file.lastModified < known.mtime) continue; // copie plus ancienne que la dernière synchro
         if (_autoSkip.get(lf.key) === file.lastModified) continue;             // synchro annulée par l'utilisateur
@@ -3445,24 +4220,18 @@ async function syncLinked({ manual }) {
         if (manual) toast(`Lecture impossible de ${trunc(lf.name, 30)}`, 'warn');
         continue;
       }
-      if (!currentUser || !_loaded) return;
-      if (!m.clean) review = m;
+      if (!currentUser || !_loaded) return null;
+      if (!m.clean) out.review = m;
       else {
         const r = applyDocx(m, true);
-        if (r === 'same') upToDate++;
-        else if (r) applied++;
+        if (r === 'same') out.upToDate++;
+        else if (r) out.applied++;
       }
     }
   } finally {
     _syncing = false;
   }
-  if (review && manual) openDocxPreview(review);
-  else _pendingReview = review;
-  if (manual && !applied && !review) {
-    if (refused && !upToDate) toast('Autorisez la lecture du fichier pour le synchroniser.', 'warn');
-    else toast('Déjà à jour : votre document n\'a pas changé.', 'success', { key: 'docx' });
-  }
-  renderPrimary();
+  return out;
 }
 
 /* ---------- Déposer le fichier n'importe où dans la page ---------- */
@@ -3502,9 +4271,9 @@ function initGlobalDrop() {
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') syncLinked({ manual: false });
+  if (document.visibilityState === 'visible') syncAll({ manual: false });
 });
-window.addEventListener('focus', () => syncLinked({ manual: false }));
+window.addEventListener('focus', () => syncAll({ manual: false }));
 
 /* ============================================================
    EXPORT / IMPORT (JSON portability — independent of Firestore)
@@ -4196,7 +4965,7 @@ Object.assign(window, {
   // Page de titre
   primaryAction, captionAction, setDeadlineInline, nextQuote,
   // Projet
-  openProjectModal, saveProject, setDeadlineMode,
+  openProjectModal, saveProject, setDeadlineMode, addPause, removePause,
   // Table des matières
   toggleChapter, updateChTitle, addChapterInline, handlePlanPaste,
   togglePlanTyping, createPlanFromText, endSetup,
@@ -4205,14 +4974,14 @@ Object.assign(window, {
   // Pages
   stepPages, updateWritten, updateTarget, updateChWritten, updateChTarget,
   // Journal
-  openLogModal, setLogDay, stepLog, saveLog,
-  toggleJournalAll, deleteNote,
+  openLogModal, setLogDay, setLogMode, setLogKind, useJoker, stepLog, saveLog,
+  toggleJournalAll, deleteNote, stopDefis,
   // Agenda
-  openCalendarModal, updateCalendarLinks, downloadICS,
+  openCalendarModal, updateCalendarLinks, downloadICS, calChanged, calSameChanged, calSlotChanged, calAdded, closeCalendar,
   // Synchro Word
   wordAction, openDocxModal, pickWordFile, handleDocxFile, unlinkFile,
-  docxToggle, docxMap, docxTarget, docxSetScope, docxSetLevel, docxSetReplace, docxSetWpp, docxSetTotal,
-  handleDocPaste, reviewDocPlan,
+  docxToggle, docxMap, docxTarget, docxSetScope, docxSetLevel, docxSetMode, docxSetNewTitle, docxSetPages, docxResetPages, docxSetTotal,
+  handleDocPaste, reviewDocPlan, linkGoogleDoc, syncDoc, forgetDoc,
   docxCountChanged, applyDocxImport, docxBack,
   // Titre
   updateDocumentTitle,

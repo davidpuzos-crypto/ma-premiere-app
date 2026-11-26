@@ -53,10 +53,43 @@ function daySet(arr) {
   return s.size ? s : new Set(ALL_DAYS);
 }
 
-/** Nombre de jours d'écriture entre from et to inclus. */
-export function countWritingDays(from, to, writingDays) {
+/* ------------------------------------------------------------
+   PÉRIODES HORS RÉDACTION — terrain, colloque, formation, congés…
+   state.pauses = [{ from, to, kind }] (dates incluses).
+   Pendant ces périodes on n'attend pas de pages : elles ne comptent
+   ni dans les jours d'écriture restants (le rythme à tenir se
+   recalcule), ni contre la série.
+------------------------------------------------------------ */
+export const PAUSE_KINDS = {
+  terrain: 'Terrain', colloque: 'Colloque', formation: 'Formation', cours: 'Enseignement',
+  conges: 'Congés', sante: 'Santé', autre: 'Autre',
+};
+
+/** Périodes valides, triées et fusionnées quand elles se chevauchent : [[from, to]]. */
+export function pauseRanges(pauses) {
+  const list = (Array.isArray(pauses) ? pauses : [])
+    .filter(p => p && isDayKey(p.from) && isDayKey(p.to) && p.to >= p.from)
+    .map(p => [p.from, p.to])
+    .sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  const out = [];
+  for (const r of list) {
+    const last = out[out.length - 1];
+    if (last && r[0] <= addDays(last[1], 1)) { if (r[1] > last[1]) last[1] = r[1]; }
+    else out.push([r[0], r[1]]);
+  }
+  return out;
+}
+
+/** La période hors rédaction qui couvre ce jour, ou null. */
+export function pauseOn(pauses, k) {
+  for (const p of Array.isArray(pauses) ? pauses : []) {
+    if (p && isDayKey(p.from) && isDayKey(p.to) && p.from <= k && k <= p.to) return p;
+  }
+  return null;
+}
+
+function plainWritingDays(from, to, wd) {
   if (to < from) return 0;
-  const wd = daySet(writingDays);
   const n = diffDays(from, to) + 1;
   const fullWeeks = Math.floor(n / 7);
   let count = fullWeeks * wd.size;
@@ -68,19 +101,45 @@ export function countWritingDays(from, to, writingDays) {
   return count;
 }
 
-/** Date du n-ième jour d'écriture à partir de from (inclus), n ≥ 1. */
-export function nthWritingDay(from, n, writingDays) {
+/** Nombre de jours d'écriture entre from et to inclus, hors périodes sans rédaction. */
+export function countWritingDays(from, to, writingDays, pauses) {
+  if (to < from) return 0;
   const wd = daySet(writingDays);
+  let count = plainWritingDays(from, to, wd);
+  for (const [a, b] of pauseRanges(pauses)) {
+    const lo = a > from ? a : from;
+    const hi = b < to ? b : to;
+    if (hi >= lo) count -= plainWritingDays(lo, hi, wd);
+  }
+  return Math.max(0, count);
+}
+
+/** Date du n-ième jour d'écriture à partir de from (inclus), n ≥ 1, hors périodes sans rédaction. */
+export function nthWritingDay(from, n, writingDays, pauses) {
+  const wd = daySet(writingDays);
+  const ranges = pauseRanges(pauses);
+  const paused = k => ranges.some(r => r[0] <= k && k <= r[1]);
   let k = from;
   let c = 0;
-  for (let i = 0; i < 5000; i++) {
-    if (wd.has(weekday(k))) {
+  for (let i = 0; i < 6000; i++) {
+    if (wd.has(weekday(k)) && !paused(k)) {
       c++;
       if (c >= n) return k;
     }
     k = addDays(k, 1);
   }
   return k;
+}
+
+/** Jours calendaires hors rédaction entre from et to inclus. */
+export function pausedDays(from, to, pauses) {
+  let n = 0;
+  for (const [a, b] of pauseRanges(pauses)) {
+    const lo = a > from ? a : from;
+    const hi = b < to ? b : to;
+    if (hi >= lo) n += diffDays(lo, hi) + 1;
+  }
+  return n;
 }
 
 /* ------------------------------------------------------------
@@ -109,8 +168,54 @@ export function hasNotes(journal, k) {
   return Array.isArray(journal && journal[k]) && journal[k].length > 0;
 }
 
+/* Le journal ne note pas que des pages : une journée de terrain, de lecture ou de colloque est une
+   journée de thèse. Chaque entrée peut porter un genre (k). Le « joker » est à part : c'est une journée
+   qu'on s'accorde, elle ne prolonge pas la série mais ne la casse pas. */
+export const ENTRY_KINDS = {
+  terrain: 'Terrain', lecture: 'Lectures', analyse: 'Analyse, données', colloque: 'Colloque, séminaire',
+  formation: 'Formation', publi: 'Article, publication', cours: 'Enseignement', direction: 'Point avec ma direction',
+  admin: 'Administratif', joker: 'Joker',
+};
+export const JOKERS_PER_WEEK = 1;
+
+const own = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
+export const isPauseKind = k => own(PAUSE_KINDS, k);
+
+/* Le genre voyage deux fois : dans « k », et dans « s » précédé d'un tilde. Les versions d'avant la 4.1
+   gardent « s » tel quel mais effacent « k » quand elles réenregistrent le journal : grâce à ce double,
+   un appareil resté ouvert en ancienne version ne fait perdre ni la journée de terrain ni le joker. */
+export const kindTag = k => '~' + k;
+
+/** Genre d'une entrée du journal ('' pour une entrée ordinaire), lu dans « k » ou, à défaut, dans « s ». */
+export function entryKind(e) {
+  if (!e) return '';
+  if (own(ENTRY_KINDS, e.k)) return e.k;
+  const t = typeof e.s === 'string' && e.s[0] === '~' ? e.s.slice(1) : '';
+  return own(ENTRY_KINDS, t) ? t : '';
+}
+
+export function hasJoker(journal, k) {
+  return Array.isArray(journal && journal[k]) && journal[k].some(e => entryKind(e) === 'joker');
+}
+
+/** Jokers posés dans la semaine (du lundi au dimanche) qui contient k. */
+export function jokersInWeek(journal, k) {
+  const monday = mondayOf(k);
+  let n = 0;
+  for (let i = 0; i < 7; i++) if (hasJoker(journal, addDays(monday, i))) n++;
+  return n;
+}
+
+/** Jour travaillé : des pages, ou une entrée de journal autre qu'un joker. */
 export function isActiveDay(state, k) {
-  return pagesOn(state.activity, k) > 0 || hasNotes(state.journal, k);
+  if (pagesOn(state.activity, k) > 0) return true;
+  const arr = state.journal && state.journal[k];
+  return Array.isArray(arr) && arr.some(e => e && entryKind(e) !== 'joker');
+}
+
+/** Jour où l'on n'attend rien : joker posé, ou période hors rédaction. */
+export function isExcusedDay(state, k) {
+  return hasJoker(state.journal, k) || !!pauseOn(state.pauses, k);
 }
 
 /**
@@ -127,7 +232,7 @@ export function streak(state, today) {
   let count = 0;
   for (let i = 0; i < 2000 && k >= since; i++) {
     if (isActiveDay(state, k)) count++;
-    else if (wd.has(weekday(k))) break;
+    else if (wd.has(weekday(k)) && !isExcusedDay(state, k)) break;
     k = addDays(k, -1);
   }
   return { count, includesToday };
@@ -141,7 +246,7 @@ export function bestStreak(state, today) {
   let cur = 0;
   for (let k = since, i = 0; k <= today && i < 5000; k = addDays(k, 1), i++) {
     if (isActiveDay(state, k)) { cur++; best = Math.max(best, cur); }
-    else if (wd.has(weekday(k)) && k !== today) cur = 0;
+    else if (wd.has(weekday(k)) && k !== today && !isExcusedDay(state, k)) cur = 0;
   }
   return best;
 }
@@ -190,20 +295,29 @@ export function forecast(state, totals, today) {
     dailyGoal: 1, goalIsAuto: true,
   };
   if (p.forecast > 0 && remaining > 0) {
-    res.projectedEnd = addDays(today, Math.ceil(remaining / p.forecast));
+    // Les périodes hors rédaction à venir repoussent d'autant la fin estimée
+    let end = addDays(today, Math.ceil(remaining / p.forecast));
+    for (let i = 0, from = today; i < 12; i++) {
+      const off = pausedDays(from, end, state.pauses);
+      if (!off) break;
+      from = addDays(end, 1);
+      end = addDays(end, off);
+    }
+    res.projectedEnd = end;
   }
   if (total > 0 && remaining <= 0) res.status = 'done';
   if (state.deadline) {
     const margin = Number.isFinite(state.marginDays) ? state.marginDays : 21;
     res.writingEnd = addDays(state.deadline, -margin);
     res.daysLeft = diffDays(today, res.writingEnd) + 1;
-    res.writingDaysLeft = countWritingDays(today, res.writingEnd, state.writingDays);
+    res.writingDaysLeft = countWritingDays(today, res.writingEnd, state.writingDays, state.pauses);
     if (res.status !== 'done') {
       if (res.daysLeft <= 0) {
         res.status = 'overdue';
       } else {
+        const free = Math.max(1, res.daysLeft - pausedDays(today, res.writingEnd, state.pauses));
         res.perWritingDay = remaining / Math.max(1, res.writingDaysLeft);
-        res.perWeek = remaining / (res.daysLeft / 7);
+        res.perWeek = remaining / (free / 7);
         if (!res.projectedEnd) res.status = 'nopace';
         else {
           res.margin = diffDays(res.projectedEnd, res.writingEnd);
@@ -253,9 +367,65 @@ export function schedule(chapters, state, today, fc) {
   for (const c of list) {
     cum += c.remaining;
     const idx = Math.min(W, Math.max(1, Math.ceil((cum / R) * W)));
-    out[c.id] = nthWritingDay(today, idx, state.writingDays);
+    out[c.id] = nthWritingDay(today, idx, state.writingDays, state.pauses);
   }
   return out;
+}
+
+/* ------------------------------------------------------------
+   DÉFI DE LA SEMAINE — un seul, simple, vérifié tout seul
+   Choisi d'après la semaine (il change chaque lundi) parmi ceux
+   qui ont un sens pour la personne. Renvoie
+   { id, week, text, target, value, done } ou null.
+------------------------------------------------------------ */
+/** Numéro de semaine ISO : 'AAAA-Snn'. */
+export function weekId(k) {
+  const d = parseDay(k);
+  const thursday = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 3 - ((d.getDay() + 6) % 7));
+  const jan4 = new Date(thursday.getFullYear(), 0, 4);
+  const n = 1 + Math.round(((thursday - jan4) / 86400000 - 3 + ((jan4.getDay() + 6) % 7)) / 7);
+  return `${thursday.getFullYear()}-S${String(n).padStart(2, '0')}`;
+}
+
+export function weeklyChallenge(state, today, fc) {
+  const monday = mondayOf(today);
+  const sunday = addDays(monday, 6);
+  const wd = daySet(state.writingDays);
+  const days = [];
+  for (let i = 0; i < 7; i++) days.push(addDays(monday, i));
+  const upTo = days.filter(k => k <= today);
+  const planned = days.filter(k => wd.has(weekday(k)) && !pauseOn(state.pauses, k)).length;
+  if (!planned) return null;                                   // semaine entière hors rédaction : pas de défi
+  const goal = fc && fc.dailyGoal > 0 ? fc.dailyGoal : 1;
+  const weekPages = Math.max(0, sumRange(state.activity, monday, sunday));
+  const worked = upTo.filter(k => isActiveDay(state, k)).length;
+  const fmt = v => String(Math.round(v * 10) / 10).replace('.', ',');
+  // Meilleure semaine passée
+  let best = 0;
+  const since = state.trackedSince || today;
+  for (let m = mondayOf(since), i = 0; m < monday && i < 520; m = addDays(m, 7), i++) {
+    best = Math.max(best, sumRange(state.activity, m, addDays(m, 6)));
+  }
+  let run = 0;
+  let longest = 0;
+  for (const k of upTo) {
+    if (isActiveDay(state, k)) { run++; longest = Math.max(longest, run); }
+    else if (wd.has(weekday(k)) && !isExcusedDay(state, k)) run = 0;
+  }
+  const pool = [];
+  pool.push({ id: 'seances', text: planned > 1 ? `Tenir mes ${planned} séances de la semaine` : 'Tenir ma séance de la semaine', target: planned, value: Math.min(planned, upTo.filter(k => wd.has(weekday(k)) && isActiveDay(state, k)).length) });
+  const need = fc && fc.perWeek > 0 ? Math.max(2, Math.ceil(fc.perWeek)) : Math.max(3, Math.round(goal * planned));
+  pool.push({ id: 'pages', text: `Écrire ${fmt(need)} pages cette semaine`, target: need, value: Math.min(need, weekPages) });
+  if (planned >= 3) {
+    const n = Math.min(3, planned);
+    pool.push({ id: 'objectif', text: `Atteindre mon objectif du jour ${n} fois`, target: n, value: Math.min(n, upTo.filter(k => pagesOn(state.activity, k) >= goal).length) });
+    pool.push({ id: 'suite', text: `Travailler ${n} jours de suite`, target: n, value: Math.min(n, longest) });
+  }
+  if (best >= 2) pool.push({ id: 'record', text: `Battre ma meilleure semaine (${fmt(best)} p.)`, target: Math.floor(best * 10 + 1) / 10, value: Math.min(Math.floor(best * 10 + 1) / 10, weekPages) });
+  pool.push({ id: 'journal', text: 'Écrire une ligne dans mon journal deux jours cette semaine', target: 2, value: Math.min(2, upTo.filter(k => Array.isArray(state.journal && state.journal[k]) && state.journal[k].some(e => e && e.n && e.k !== 'joker')).length) });
+  const week = weekId(today);
+  const pick = pool[(parseInt(week.slice(-2), 10) + parseInt(week.slice(0, 4), 10)) % pool.length];
+  return { ...pick, week, done: pick.value >= pick.target, worked };
 }
 
 /* ------------------------------------------------------------
