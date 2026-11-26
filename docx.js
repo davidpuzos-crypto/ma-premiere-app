@@ -20,6 +20,7 @@ import { countWords, parseTextDocument, signs, guessHeadings } from './outline.j
 import { paginate, spans, readPdf, byBreaks } from './pages.js';
 import { openZip, canInflate } from './zip.js';
 import { readPdfDocument } from './pdfread.js';
+import { parseRtf, parseTypst, parseOrg, parseAsciidoc, parseRst, texMain, resolveTex, resolveTypst } from './formats.js';
 
 export { countWords };
 
@@ -73,7 +74,10 @@ async function openArchive(buf) {
   };
 }
 
-const TEXT_EXT = /\.(tex|ltx|md|markdown|mdown|txt|text|rst)$/i;
+const TEXT_EXT = /\.(tex|ltx|rnw|md|markdown|mdown|qmd|rmd|typ|org|adoc|asciidoc|txt|text|rst)$/i;
+// Fichiers qu'un projet (archive .zip, plusieurs fichiers déposés) peut contenir
+const PROJECT_TEXT = /\.(tex|ltx|rnw|typ|md|markdown|qmd|rmd)$/i;
+const INNER_DOC = /\.(docx|docm|odt|pdf|rtf)$/i;
 const MAX_TEXT = 30 * 1024 * 1024;
 
 function decodeText(buf) {
@@ -114,7 +118,6 @@ export async function parseDocumentFile(file, opts = {}) {
   const buf = await file.arrayBuffer();
   const sig = new Uint8Array(buf.slice(0, 5));
   if (sig[0] === 0xD0 && sig[1] === 0xCF && sig[2] === 0x11 && sig[3] === 0xE0) throw new DocxError('old-doc');
-  if (sig[0] === 0x7B && sig[1] === 0x5C && sig[2] === 0x72 && sig[3] === 0x74) throw new DocxError('rtf');
   if (sig[0] === 0x50 && sig[1] === 0x4B) {
     const zip = await openArchive(buf);
     const read = p => zip.text(p).catch(e => { throw e instanceof DocxError ? e : new DocxError('bad-xml'); });
@@ -141,8 +144,45 @@ export async function parseDocumentFile(file, opts = {}) {
       return analyzeOdt({ contentXml, stylesXml, metaXml, planTitles: opts.planTitles });
     }
     if (/\.pages$/i.test(name) || zip.has('Index/Document.iwa')) throw new DocxError('pages');
-    throw new DocxError('not-docx');
+    if (zip.names.some(n => /^(xl|ppt)\//.test(n)) || /\.(key|numbers)$/i.test(name)) throw new DocxError('not-text');
+    if (zip.has('META-INF/container.xml')) throw new DocxError('epub');
+    // Une archive : un projet LaTeX ou Typst (Overleaf : Menu, Télécharger, Source), ou un document qu'on a zippé
+    if (opts.depth) throw new DocxError('not-docx');
+    const names = zip.names.filter(n => !/(^|\/)(__MACOSX|\.git)\//.test(n) && !/(^|\/)\._/.test(n));
+    const texts = names.filter(n => PROJECT_TEXT.test(n));
+    if (texts.length) {
+      const files = new Map();
+      let total = 0;
+      for (const n of texts) {
+        if (zip.size(n) > MAX_TEXT) continue;
+        const t = await zip.text(n).catch(() => null);
+        if (t === null) continue;
+        total += t.length;
+        if (total > 2 * MAX_TEXT) throw new DocxError('too-big');
+        files.set(n, t);
+      }
+      const res = analyzeProject(files);
+      if (res) return res;
+    }
+    const inner = names.filter(n => INNER_DOC.test(n)).sort((a, b) => zip.size(b) - zip.size(a))[0];
+    if (inner) {
+      const bytes = await zip.bytes(inner).catch(() => null);
+      if (bytes) return parseDocumentFile(new File([bytes], inner.split('/').pop()), { ...opts, depth: 1 });
+    }
+    throw new DocxError('zip-empty');
   }
+  if (sig[0] === 0x7B && sig[1] === 0x5C && sig[2] === 0x72 && sig[3] === 0x74) {
+    if (buf.byteLength > 4 * MAX_TEXT) throw new DocxError('too-big');
+    return analyzeRtf(decodeText(buf), opts.planTitles);
+  }
+  if (/\.(gdoc|gddoc)$/i.test(name) && buf.byteLength < 4000) {
+    // Raccourci créé par Google Drive pour ordinateur : il contient l'adresse du document, pas son texte
+    const e = new DocxError('gdoc-shortcut');
+    try { const j = JSON.parse(decodeText(buf)); e.link = String(j.doc_id || j.url || ''); } catch { e.link = ''; }
+    throw e;
+  }
+  if (/\.(scriv|scrivx)$/i.test(name)) throw new DocxError('scriv');
+  if (/^image\//.test(file.type || '') || /\.(png|jpe?g|gif|heic|webp|tiff?)$/i.test(name)) throw new DocxError('image');
   if (/\.fodt$/i.test(name) || (sig[0] === 0x3C && /<office:document\b[^>]*opendocument\.text/.test(new TextDecoder('utf-8').decode(buf.slice(0, 4000))))) {
     // LibreOffice « à plat » : un seul fichier XML pour le texte, les styles et les statistiques
     if (buf.byteLength > 4 * MAX_TEXT) throw new DocxError('too-big');
@@ -155,9 +195,54 @@ export async function parseDocumentFile(file, opts = {}) {
   }
   if (TEXT_EXT.test(name) || /^text\//.test(file.type || '')) {
     if (buf.byteLength > MAX_TEXT) throw new DocxError('too-big');
-    return analyzeText(decodeText(buf));
+    return analyzeText(decodeText(buf), name);
   }
   throw new DocxError('not-docx');
+}
+
+/**
+ * Plusieurs fichiers déposés ensemble (un projet LaTeX : fichier principal et chapitres ; des chapitres
+ * en Markdown ou en Typst). Renvoie l'analyse du document assemblé, ou null si ce n'est pas un projet.
+ */
+export async function parseProjectFiles(fileList) {
+  const list = [...fileList].filter(f => PROJECT_TEXT.test(f.name));
+  if (list.length < 2 || list.length !== [...fileList].length) return null;
+  const files = new Map();
+  let total = 0;
+  for (const f of list) {
+    total += f.size;
+    if (total > 2 * MAX_TEXT) throw new DocxError('too-big');
+    files.set(f.webkitRelativePath || f.name, decodeText(await f.arrayBuffer()));
+  }
+  return analyzeProject(files);
+}
+
+/** Un projet : fichiers LaTeX assemblés autour du fichier principal, ou Typst, sinon chapitres Markdown mis bout à bout. */
+function analyzeProject(files) {
+  const names = [...files.keys()];
+  const tex = names.filter(n => /\.(tex|ltx|rnw)$/i.test(n));
+  let res = null;
+  let main = '';
+  if (tex.length) {
+    main = texMain(files);
+    let text = resolveTex(main, files);
+    // Pas de fichier principal (seulement des chapitres) : on les met bout à bout, dans l'ordre de leurs noms
+    if (!/\\(chapter|section|part)\b/.test(text)) text = tex.slice().sort((a, b) => a.localeCompare(b, 'fr', { numeric: true })).map(n => files.get(n)).join('\n\n');
+    res = analyzeText(text, 'projet.tex');
+  } else {
+    const typ = names.filter(n => /\.typ$/i.test(n));
+    if (typ.length) {
+      main = typ.map(n => [n, (files.get(n).match(/#include\s+"/g) || []).length]).sort((a, b) => b[1] - a[1] || a[0].split('/').length - b[0].split('/').length)[0][0];
+      res = analyzeText(resolveTypst(main, files), 'projet.typ');
+    } else {
+      const md = names.filter(n => /\.(md|markdown|qmd|rmd)$/i.test(n) && !/(^|\/)(readme|license|changelog)\b/i.test(n)).sort((a, b) => a.localeCompare(b, 'fr', { numeric: true }));
+      if (!md.length) return null;
+      main = md[0];
+      res = analyzeText(md.map(n => files.get(n)).join('\n\n'), 'projet.md');
+    }
+  }
+  res.project = { main: main.split('/').pop(), files: names.length };
+  return res;
 }
 
 /** Ancien nom, gardé pour compatibilité. */
@@ -1365,8 +1450,44 @@ export function analyzeHtml(html) {
 /* ------------------------------------------------------------
    Texte brut : LaTeX, Markdown, texte simple
 ------------------------------------------------------------ */
-export function analyzeText(text) {
-  const r = parseTextDocument(text);
-  // Une page de thèse composée en LaTeX contient un peu plus de texte qu'une page Word à interligne 1,5
-  return finish(r.kind, r.segments.map(x => ({ ...x, bodyWords: 0 })), r.frontWords, null, r.kind === 'latex' ? 420 : DEFAULT_WPP, null, r.frontChars || 0);
+export function analyzeText(text, name = '') {
+  const ext = (/\.([a-z0-9]+)$/i.exec(String(name)) || ['', ''])[1].toLowerCase();
+  const r = ext === 'typ' ? parseTypst(text) : ext === 'org' ? parseOrg(text) : ext === 'adoc' || ext === 'asciidoc' ? parseAsciidoc(text)
+    : ext === 'rst' ? parseRst(text) : parseTextDocument(text);
+  // Une page de thèse composée en LaTeX ou en Typst contient un peu plus de texte qu'une page Word à interligne 1,5
+  const dense = r.kind === 'latex' || r.kind === 'typst';
+  return finish(dense ? 'latex' : r.kind, r.segments.map(x => ({ ...x, bodyWords: 0 })), r.frontWords, null, dense ? 420 : DEFAULT_WPP, null, r.frontChars || 0);
+}
+
+/* ------------------------------------------------------------
+   RTF (Scrivener, Nisus Writer, Mellel, TextEdit, anciens Word)
+------------------------------------------------------------ */
+export function analyzeRtf(text, planTitles) {
+  const { paras, pagesMeta } = parseRtf(text);
+  const recs = paras.map(p => {
+    const m = HEADING_NAME.exec(p.style || '');
+    return { ...p, level: p.table || !p.text ? 0 : p.outline || (m ? +m[2] : 0) };
+  });
+  let headingSource = 'styles';
+  const styled = recs.filter(r => r.level > 0).length;
+  if (styled < 2) {
+    const lv = guessHeadings(recs.map(r => ({ text: r.text, words: r.words, size: r.size, bold: r.bold, center: r.center, table: r.table, caption: /caption|l[ée]gende/.test(r.style || '') })),
+      { planTitles: (planTitles || []).map(t => t.title) });
+    const n = lv.filter(Boolean).length;
+    if (n >= 2 && n > styled) { recs.forEach((r, i) => { r.level = lv[i]; }); headingSource = 'layout'; }
+  }
+  const segments = [];
+  let front = 0;
+  let frontChars = 0;
+  for (const r of recs) {
+    if (r.level > 0 && r.text) { pushHeading(segments, r.level, r.text, r.words + r.notes); continue; }
+    const w = r.words + r.notes;
+    if (!w) continue;
+    const c = r.text.length + 1 + r.notes * 6;
+    if (segments.length) { const s = segments[segments.length - 1]; s.words += w; s.bodyWords += w; s.chars += c; }
+    else { front += w; frontChars += c; }
+  }
+  const res = finish('rtf', segments, front, pagesMeta, DEFAULT_WPP, null, frontChars);
+  res.headingSource = segments.length ? headingSource : '';
+  return res;
 }

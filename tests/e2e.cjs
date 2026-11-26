@@ -625,6 +625,81 @@ const clone = o => JSON.parse(JSON.stringify(o));
   });
 
   /* ------------------------------------------------------------ */
+  await test('Synchro en continu et datée juste : fichier relu sans changer de fenêtre, pages portées au jour de son enregistrement', async () => {
+    const C2 = await import(path.join(DIR, '..', 'core.js'));
+    const uid = 'u_watch';
+    const { ctx, page } = await newPage(browser, { user: { uid, email: 'watch@example.com' } });
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    const b64 = n => fs.readFileSync(FIX(n)).toString('base64');
+    await page.evaluate(() => {
+      window.__writeDocx = async base64 => {
+        const root = await navigator.storage.getDirectory();
+        const fh = await root.getFileHandle('these.docx', { create: true });
+        const w = await fh.createWritable();
+        await w.write(Uint8Array.from(atob(base64), c => c.charCodeAt(0)));
+        await w.close();
+        return fh;
+      };
+    });
+    await page.evaluate(async b => { const fh = await window.__writeDocx(b); window.showOpenFilePicker = async () => [fh]; }, b64('these.docx'));
+    await page.click('.ob-drop');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    // L'état de la synchro se lit sous le bouton
+    await page.waitForFunction(() => /^these\.docx · à jour à \d{1,2} h \d\d$/.test(document.getElementById('tdCap').textContent), null, { timeout: 8000 });
+    let d = await docOf(page, uid);
+    assert.equal(written(d), 10);
+    // On écrit dans Word et on enregistre, SANS revenir sur le Journal (il est resté à l'écran, dans une autre fenêtre) :
+    // il revérifie le fichier de lui-même
+    await page.waitForTimeout(1100);
+    await page.evaluate(async b => { await window.__writeDocx(b); }, b64('these_v2.docx'));
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /synchronisé\s:\s\+1,3\sp\./.test(t.textContent)), null, { timeout: 35000 });
+    assert.match((await toasts(page)).join('|'), /these\.docx synchronisé : \+1,3 p\. aujourd'hui/);
+    d = await docOf(page, uid);
+    assert.equal(written(d), 11);
+    assert.equal(d.activity[TODAY], 1.3);
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+
+    // Sans fichier lié (Firefox, Safari) : dernière synchro il y a trois jours ; le fichier a été enregistré hier soir,
+    // on ne le dépose que ce matin. Les pages sont portées à hier, pas à aujourd'hui.
+    const second = await newPage(browser, { user: { uid: 'u_watch2', email: 'watch2@example.com' } });
+    const p2 = second.page;
+    await p2.goto(BASE);
+    await p2.waitForSelector('.onboarding');
+    await p2.evaluate(() => { window.showOpenFilePicker = undefined; });
+    await sendDocx(p2, 'these.docx');
+    await p2.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    await p2.click('#docxApply');
+    await p2.waitForSelector('.chapter-card');
+    await flush(p2);
+    await p2.waitForTimeout(700);
+    await p2.evaluate(({ u, day }) => window.__fbStore.remoteSet(`users/${u}/thesis/main`, { docFiles: { these: { at: day } }, updatedAt: new Date().toISOString(), clientId: 'autre-appareil' }), { u: 'u_watch2', day: addDays(TODAY, -3) });
+    await p2.waitForTimeout(1900);
+    const yesterdayEvening = (() => { const [y, m, dd] = addDays(TODAY, -1).split('-').map(Number); return new Date(y, m - 1, dd, 22, 30).getTime(); })();
+    const dropAt = (fixture, ts) => p2.evaluate(async ({ b, ts }) => {
+      await window.handleDocxFile(new File([Uint8Array.from(atob(b), c => c.charCodeAt(0))], 'these.docx', { lastModified: ts }));
+    }, { b: b64(fixture), ts });
+    await dropAt('these_v2.docx', yesterdayEvening);
+    await p2.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /jour où le fichier/.test(t.textContent)), null, { timeout: 15000 });
+    assert.match((await toasts(p2)).join('|'), /these\.docx synchronisé : \+1,3 p\. hier, jour où le fichier a été enregistré/);
+    await flush(p2);
+    d = await docOf(p2, 'u_watch2');
+    assert.equal(d.activity[addDays(TODAY, -1)], 1.3, 'ce qui a été écrit hier est porté à hier');
+    assert.ok(!d.activity[TODAY], 'rien aujourd\'hui');
+    assert.equal(d.docFiles.these.at, TODAY, 'la synchro, elle, date d\'aujourd\'hui');
+    assert.deepEqual(C2.streak(d, TODAY), { count: 1, includesToday: false }, 'la série tient compte du jour réel d\'écriture');
+    // Un fichier enregistré aujourd'hui : aujourd'hui, comme toujours
+    await dropAt('these_v3.docx', Date.now());
+    await p2.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.match(await p2.textContent('#docxCountLbl'), /à mon journal d'aujourd'hui/);
+    assert.deepEqual(p2._errors, []);
+    await second.ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
   await test('Déposer le fichier n\'importe où dans la page', async () => {
     const uid = 'u_drop';
     const { ctx, page } = await newPage(browser, { user: { uid, email: 'drop@example.com' }, store: { [`users/${uid}/thesis/main`]: clone(V1_DOC) } });
@@ -2281,6 +2356,85 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.waitForFunction(() => /Format non reconnu/.test(document.getElementById('docxError').textContent));
     assert.equal(await page.evaluate(() => window.__fbStore.writes.filter(w => w.data && w.data.chapters).length), 0, 'rien n\'a été écrit');
     assert.deepEqual(page._errors.filter(e => !/document :/.test(e)), []);
+    await ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('Autres formats : projet LaTeX en .zip ou en plusieurs fichiers, RTF, Typst, plusieurs documents à la suite, raccourci Google Drive', async () => {
+    const uid = 'u_formats';
+    const { ctx, page } = await newPage(browser, { user: { uid, email: 'formats@example.com' } });
+    // Un raccourci .gdoc mène au document Google : on sert ce document
+    const GID = '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd';
+    await ctx.route(u => u.hostname === 'docs.google.com', route => {
+      const fmt = new URL(route.request().url()).searchParams.get('format');
+      const headers = { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'Content-Disposition', 'content-disposition': `attachment; filename="Ma these.${fmt}"` };
+      if (fmt === 'docx') return route.fulfill({ status: 200, headers, contentType: DOCX, body: fs.readFileSync(FIX('these.docx')) });
+      if (fmt === 'txt') return route.fulfill({ status: 200, headers, contentType: 'text/plain', body: 'texte' });
+      return route.fulfill({ status: 500, headers, body: '' });
+    });
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+    const send = files => page.setInputFiles('#docxInput', files.map(([name, mimeType, buffer]) => ({ name, mimeType, buffer })));
+    const preview = async () => {
+      try { await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 20000 }); }
+      catch (e) { throw new Error(`pas d'aperçu · erreur affichée : « ${await page.textContent('#docxError')} » · messages : ${(await toasts(page)).join(' | ')} · erreurs : ${page._errors.join(' | ')}`); }
+      return [await page.textContent('#docxSummary'), await page.$$eval('#docxRows .dx-row .dx-title', els => els.map(e => e.textContent))];
+    };
+    const back = async () => { await page.click('#docxModal >> text=Changer de document'); await page.waitForSelector('#docxStep1:not(.hidden)'); };
+
+    // Projet LaTeX téléchargé depuis Overleaf (Menu, Télécharger, Source) : le fichier principal et ses chapitres sont assemblés
+    await send([['projet-latex.zip', 'application/zip', fs.readFileSync(FIX('projet-latex.zip'))]]);
+    let [sum, titles] = await preview();
+    assert.match(sum, /^projet-latex\.zip : [\d\s]+ mots, ≈ \d+ pages\. 3 parties détectées, 2 sous-sections/);
+    assert.deepEqual(titles, ['Introduction', 'Problématique', 'Méthode', 'Corpus', 'Résultats']);
+    await back();
+    // Les mêmes fichiers déposés ensemble, sans archive
+    const zipDir = { 'main.tex': null, 'chapitres/intro.tex': null, 'chapitres/methode.tex': null, 'chapitres/resultats.tex': null };
+    const Z = await import(path.join(DIR, '..', 'zip.js'));
+    const zip = Z.openZip(fs.readFileSync(FIX('projet-latex.zip')));
+    for (const n of Object.keys(zipDir)) zipDir[n] = Buffer.from(await zip.bytes(n));
+    await send(Object.entries(zipDir).map(([n, b]) => [n.split('/').pop(), 'text/x-tex', b]));
+    [sum, titles] = await preview();
+    assert.match(sum, /^main\.tex \(projet de 4 fichiers\) : /);
+    assert.deepEqual(titles, ['Introduction', 'Problématique', 'Méthode', 'Corpus', 'Résultats']);
+    await back();
+    // RTF (Scrivener, Nisus, TextEdit) et Typst
+    for (const [file, type] of [['notes.rtf', 'application/rtf'], ['notes.typ', 'text/plain']]) {
+      await send([[file, type, fs.readFileSync(FIX(file))]]);
+      [sum, titles] = await preview();
+      assert.match(sum, /4 parties détectées, 3 sous-sections/, file);
+      assert.deepEqual(titles, ['Introduction générale', 'Chapitre 1 : État de l’art', '1.1 Contexte général', '1.2 Travaux existants', 'Chapitre 2 : Méthodologie', 'Un détail de méthode', 'Conclusion générale'], file);
+      await back();
+    }
+    // Ce qui ne se lit pas est refusé avec la marche à suivre
+    for (const [name, type, msg] of [['these.scriv', 'application/octet-stream', /Scrivener : Fichier, Compiler/], ['page.png', 'image/png', /Une image ne contient pas de texte/]]) {
+      await send([[name, type, Buffer.from('xxxxxxxx')]]);
+      await page.waitForFunction(m => new RegExp(m).test(document.getElementById('docxError').textContent), msg.source, { timeout: 8000 });
+    }
+    await page.click('#docxModal >> text=Fermer');
+
+    // Deux documents déposés ensemble (un fichier par chapitre) : lus l'un après l'autre
+    await send([['these.docx', DOCX, fs.readFileSync(FIX('these.docx'))], ['discussion.docx', DOCX, fs.readFileSync(FIX('discussion.docx'))]]);
+    [sum] = await preview();
+    assert.match(sum, /^these\.docx : /);
+    assert.match((await toasts(page)).join('|'), /2 fichiers : ils sont lus l'un après l'autre/);
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    await page.waitForFunction(() => /^discussion\.docx/.test(document.getElementById('docxSummary').textContent) && !document.getElementById('docxStep2').classList.contains('hidden') && !document.getElementById('docxModal').classList.contains('hidden'), null, { timeout: 15000 });
+    assert.equal(await page.isChecked('#docxModes input[value="add"]'), true, 'le second fichier, sans titres, est proposé comme un chapitre de plus');
+    await page.click('#docxApply');
+    await page.waitForSelector('#docxModal.hidden', { state: 'attached' });
+    await flush(page);
+    let d = await docOf(page, uid);
+    assert.deepEqual(Object.keys(d.docFiles).sort(), ['discussion', 'these']);
+    assert.equal(d.chapters[d.chapters.length - 1].title, 'Discussion');
+
+    // Raccourci créé par Google Drive pour ordinateur (.gdoc) : le Journal lie le document qu'il désigne
+    await send([['Ma thèse.gdoc', 'application/json', Buffer.from(JSON.stringify({ url: `https://docs.google.com/open?id=${GID}`, doc_id: GID, email: 'quelquun@example.com' }))]]);
+    [sum] = await preview();
+    assert.match(sum, /^Ma these : 5\s270 mots/);
+    assert.deepEqual(page._errors.filter(e => !/document :|PDF Google Docs|status of 500/.test(e)), []);
     await ctx.close();
   });
 

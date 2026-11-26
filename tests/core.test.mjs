@@ -874,3 +874,188 @@ console.log('pdfdoc.js : PDF OK');
   assert.notEqual(K.shortHash('abc'), K.shortHash('abd'));
 }
 console.log('links.js : liens de partage OK');
+
+// -----------------------------------------------------------
+// formats.js : RTF, Typst, Org, AsciiDoc, reStructuredText, projets en plusieurs fichiers ; Markdown enrichi
+// -----------------------------------------------------------
+{
+  const F = await import('../formats.js');
+  const O = await import('../outline.js');
+  const plan = r => r.segments.map(s => `${s.level} ${s.title}`);
+  // Typst : titres « = », réglages (#set, #let, #show) et commentaires ignorés
+  let r = F.parseTypst(`#set page(paper: "a4")
+#let note(body) = {
+  text(size: 9pt)[#body]
+}
+#show: doc => conf(
+  title: [Ma thèse],
+  doc,
+)
+/* un commentaire
+   sur deux lignes */
+= Introduction générale <intro>
+Les ponts suspendus apparaissent en France. // remarque
+Voir @navier et $x^2$ pour #emph[le détail].
+== Contexte
+Un paragraphe *important* de six mots.
+\`\`\`python
+print("ce code ne compte pas")
+\`\`\`
+= Conclusion
+Fin.`);
+  assert.deepEqual(plan(r), ['1 Introduction générale', '2 Contexte', '1 Conclusion']);
+  assert.equal(r.frontWords, 0, 'le préambule n\'est pas du texte');
+  assert.deepEqual(r.segments.map(s => s.words), [2 + 6 + 5, 1 + 6, 1 + 1]);
+  // Org : tiroirs, blocs de code, mots-clés TODO et étiquettes
+  r = F.parseOrg(`#+title: Ma thèse
+* TODO Introduction générale :brouillon:
+:PROPERTIES:
+:CUSTOM_ID: intro
+:END:
+Les ponts [[https://exemple.fr][suspendus]] apparaissent[fn:1].
+#+begin_src python
+print("non compté")
+#+end_src
+** Contexte
+Trois mots ici.
+* Conclusion
+[fn:1] Une note de quatre mots.`);
+  assert.deepEqual(plan(r), ['1 Introduction générale', '2 Contexte', '1 Conclusion']);
+  assert.deepEqual(r.segments.map(s => s.words), [2 + 4, 1 + 3, 1 + 5]);
+  // AsciiDoc : titre du document, sections, blocs de code, attributs, notes
+  r = F.parseAsciidoc(`= Ma thèse
+:toc:
+
+== Introduction générale
+
+Les ponts suspendusfootnote:[Voir Navier.] apparaissent.
+
+[source,python]
+----
+print("non compté")
+----
+
+=== Contexte
+
+Trois mots ici.`);
+  assert.deepEqual(plan(r), ['1 Ma thèse', '2 Introduction générale', '3 Contexte']);
+  assert.deepEqual(r.segments.map(s => s.words), [2, 2 + 6, 1 + 3]);
+  // reStructuredText : le rang d'un soulignement est son ordre d'apparition
+  r = F.parseRst(`=========
+Ma thèse
+=========
+
+Introduction
+============
+
+Les ponts suspendus apparaissent [1]_.
+
+.. code-block:: python
+
+   print("non compté")
+
+Contexte
+--------
+
+Trois mots ici.
+
+Conclusion
+==========
+
+Fin.`);
+  assert.deepEqual(plan(r), ['1 Ma thèse', '2 Introduction', '3 Contexte', '2 Conclusion']);
+  assert.deepEqual(r.segments.map(s => s.words), [2, 1 + 4, 1 + 3, 1 + 1]);
+
+  // Markdown : en-tête YAML, titres soulignés, blocs Quarto, commentaires, identifiants de titre
+  r = O.parseTextDocument(`---
+title: "Ma thèse"
+author: Camille
+---
+
+Introduction générale
+=====================
+
+Les ponts suspendus apparaissent.
+
+<!-- à revoir
+plus tard -->
+
+Contexte {#sec-contexte}
+--------
+
+::: {.callout-note}
+Trois mots ici.
+:::
+
+\`\`\`{r}
+summary(cars)
+\`\`\`
+
+# Conclusion {.unnumbered}
+
+Fin.
+`);
+  assert.equal(r.kind, 'markdown');
+  assert.deepEqual(plan(r), ['1 Introduction générale', '2 Contexte', '1 Conclusion']);
+  assert.equal(r.frontWords, 0, 'l\'en-tête YAML n\'est pas du texte');
+  assert.deepEqual(r.segments.map(s => s.words), [2 + 4, 1 + 3, 1 + 1]);
+  // Une ligne de tirets après une liste ou un tableau n'est pas un titre
+  r = O.parseTextDocument('# Un\n\n- élément\n---\n\nTexte\n\n| a | b |\n|---|---|\n');
+  assert.deepEqual(plan(r), ['1 Un']);
+
+  // RTF : styles de titre, niveaux de plan, caractères accentués, notes, tableaux, nombre de pages
+  const rtf = String.raw`{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0 Times New Roman;}}
+{\stylesheet{\s0 Normal;}{\s1\b\fs32 heading 1;}{\s2\b\fs28 Titre 2;}}
+{\info{\title Ma th\'e8se}{\nofpages12}{\nofwords3400}}
+{\header\pard Ent\'eate \par}
+\pard\qc\b\fs44 Ma th\'e8se\b0\par
+\pard\s1\b\fs32 Introduction g\u233 ?n\u233 ?rale\par
+\pard\plain\fs24 Les ponts suspendus\~apparaissent{\super\chftn}{\footnote\pard Voir Navier, 1823.\par} en France \'e0 l\rquote \'e9poque.\par
+\pard\s2\b\fs28 Contexte\par
+\pard\plain Trois mots ici.\par
+\trowd\pard\intbl Ouvrage\cell Ann\'e9e\cell\row
+\pard\outlinelevel0\b Conclusion\par
+\pard\plain Fin.{\pict\pngblip 89504e470d0a}\par}`;
+  const R = F.parseRtf(rtf);
+  assert.equal(R.pagesMeta, 12);
+  assert.deepEqual(R.paras.map(p => [p.text, p.style, p.outline, p.words, p.notes]), [
+    ['Ma thèse', 'normal', 0, 2, 0],
+    ['Introduction générale', 'heading 1', 0, 2, 0],
+    ['Les ponts suspendus apparaissent en France à l’époque.', 'normal', 0, 8, 3],
+    ['Contexte', 'titre 2', 0, 1, 0],
+    ['Trois mots ici.', 'normal', 0, 3, 0],
+    ['Ouvrage Année', 'normal', 0, 2, 0],
+    ['Conclusion', 'normal', 1, 1, 0],
+    ['Fin.', 'normal', 0, 1, 0],
+  ], 'en-tête de page, image et tables de polices ignorés ; note comptée à part');
+  assert.deepEqual([R.paras[0].center, R.paras[0].bold, R.paras[0].size, R.paras[5].table, R.paras[2].bold, R.paras[2].size], [true, true, 22, true, false, 12]);
+  assert.deepEqual(F.parseRtf('').paras, []);
+  assert.deepEqual(F.parseRtf('{\\rtf1 Bonjour').paras.map(p => p.text), ['Bonjour'], 'fichier tronqué : on garde ce qui est lisible');
+
+  // Projet LaTeX : fichier principal et chapitres (\input, \include, \subfile, \import)
+  const files = new Map([
+    ['main.tex', '\\documentclass{book}\n% \\input{brouillon}\n\\begin{document}\n\\input{chapitres/intro}\n\\include{chapitres/methode}\n\\subfile{chapitres/resultats.tex}\n\\import{annexes/}{a}\n\\input{absent}\n\\end{document}'],
+    ['chapitres/intro.tex', '\\chapter{Introduction}\nUn deux trois.\n\\input{chapitres/detail}'],
+    ['chapitres/detail.tex', '\\section{Détail}\nQuatre cinq.'],
+    ['chapitres/methode.tex', '\\chapter{Méthode}\nSix sept huit neuf.'],
+    ['chapitres/resultats.tex', '\\documentclass[../main.tex]{subfiles}\n\\begin{document}\n\\chapter{Résultats}\nDix.\n\\end{document}'],
+    ['annexes/a.tex', '\\chapter{Annexe}\nOnze douze.'],
+    ['brouillon.tex', '\\chapter{Brouillon}\nNe doit pas apparaître.'],
+    ['notes/autre.tex', '\\documentclass{article}\n\\begin{document}\nUn autre document.\n\\end{document}'],
+  ]);
+  assert.equal(F.texMain(files), 'main.tex', 'le fichier principal : à la racine, pas un sous-fichier');
+  const whole = F.resolveTex('main.tex', files);
+  r = O.parseTextDocument(whole);
+  assert.equal(r.kind, 'latex');
+  assert.deepEqual(plan(r), ['2 Introduction', '3 Détail', '2 Méthode', '2 Résultats', '2 Annexe'], 'les fichiers sont assemblés dans l\'ordre, l\'appel en commentaire est ignoré');
+  assert.deepEqual(r.segments.map(s => s.words), [1 + 3, 1 + 2, 1 + 4, 1 + 1, 1 + 2]);
+  // Les mêmes fichiers déposés en vrac, sans leurs dossiers : retrouvés par leur nom
+  const flat = new Map([...files].map(([k, v]) => [k.split('/').pop(), v]));
+  assert.deepEqual(plan(O.parseTextDocument(F.resolveTex('main.tex', flat))), ['2 Introduction', '3 Détail', '2 Méthode', '2 Résultats', '2 Annexe']);
+  // Un fichier qui s'inclut lui-même ne fait pas tourner en rond
+  assert.ok(F.resolveTex('a.tex', new Map([['a.tex', 'x \\input{b}'], ['b.tex', 'y \\input{a}']])).includes('y'));
+  assert.equal(F.texMain(new Map([['notes.md', '# x']])), '');
+  // Projet Typst
+  assert.match(F.resolveTypst('main.typ', new Map([['main.typ', '#include "chap/un.typ"\n= Fin'], ['chap/un.typ', '= Un\nTexte.']])), /= Un\nTexte\.[\s\S]*= Fin/);
+}
+console.log('formats.js : autres formats OK');

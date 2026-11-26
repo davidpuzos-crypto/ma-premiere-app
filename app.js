@@ -12,6 +12,7 @@
      pdfread.js  la lecture des PDF (PDF.js embarqué, chargé à la demande)
      pdfdoc.js   du texte d'un PDF au plan : signets, titres balisés, mise en forme
      links.js    les liens de partage (Google Docs, Dropbox, lien direct)
+     formats.js  les autres formats (RTF, Typst, Org, AsciiDoc, projets en plusieurs fichiers)
      promo.js    la promo (fiches, classement, fil)
 ============================================================ */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
@@ -44,7 +45,7 @@ import {
   isActiveDay, weeklyChallenge,
 } from './core.js';
 import { buildICS, googleCalendarUrl, byDay } from './ics.js';
-import { parseDocumentFile, parsePasted, analyzePdf } from './docx.js';
+import { parseDocumentFile, parsePasted, analyzePdf, parseProjectFiles } from './docx.js';
 import { parseLink, gdocKey, dispositionName, shortHash } from './links.js';
 import { buildOutline } from './outline.js';
 import {
@@ -74,7 +75,7 @@ window.__jdbVersion = APP_VERSION;
     sessionStorage.setItem('jdb_heal', String(n + 1));
   } catch { return; }
   window.__jdbHealing = true;
-  const files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'zip.js', 'pdfdoc.js', 'pdfread.js', 'links.js', 'ics.js'];
+  const files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'zip.js', 'pdfdoc.js', 'pdfread.js', 'links.js', 'formats.js', 'ics.js'];
   Promise.all(files.map(u => fetch(u, { cache: 'reload' }).catch(() => {}))).then(() => location.reload());
   throw new Error('Mise à jour en cours : la page va se recharger.');
 })();
@@ -698,6 +699,7 @@ function stopSync() {
   _pendingRemote = null;
   _linked = [];
   _pendingReview = null;
+  Object.assign(_syncState, { at: 0, refused: 0, failed: 0, error: '' });
   _figure.shown = false;
   _shelfShown = false;
   promo.reset();
@@ -1292,15 +1294,8 @@ function renderPrimary() {
   if (fabLbl) fabLbl.textContent = label;
   btn.title = linked ? 'Relire mon document et mettre à jour mes pages' : 'Ajouter une page à la partie en cours';
   cap.classList.remove('alert');
-  if (_pendingReview) {
-    cap.textContent = `Du nouveau dans ${trunc(_pendingReview.name, 24)} : vérifier`;
-    cap.classList.add('alert');
-    cap.title = 'Vérifier les nouvelles parties avant de les ajouter';
-  } else if (linked) {
-    const names = _linked.map(l => l.name).concat(linkEntries().filter(([k]) => !_linked.some(l => l.key === k)).map(([, f]) => f.name));
-    cap.textContent = names.length === 1 ? trunc(names[0], 30) : `${names.length} documents liés`;
-    cap.title = 'Gérer mes documents, ou en changer';
-  } else {
+  if (linked) renderSyncCaption();
+  else {
     // « détailler » est souligné : c'est lui qui ouvre la saisie complète (autre partie, plusieurs pages, hier, une note)
     cap.innerHTML = `sur «\u00A0${esc(trunc(leafTitle(leaf), 26))}\u00A0» · <u>détailler</u>`;
     cap.title = 'Autre partie, plusieurs pages, hier, ou une note';
@@ -2298,6 +2293,7 @@ function closeModal(id) {
   m.classList.add('hidden');
   // Fermée d'un clic à côté ou avec Échap, l'annonce de mise à jour est lue quand même
   if (id === 'whatsNewModal') lsSet(WHATSNEW_KEY, WHATSNEW_VER);
+  if (id === 'docxModal') setTimeout(nextQueued, 600);     // d'autres fichiers déposés en même temps attendent leur tour
   const back = _modalReturn[id];
   delete _modalReturn[id];
   if (back && back !== document.body && document.contains(back) && typeof back.focus === 'function') back.focus({ preventScroll: true });
@@ -2947,6 +2943,8 @@ let _linked = [];           // fichiers liés sur cet appareil : [{ key, name, h
 let _pendingReview = null;  // synchro automatique qui demande une vérification
 let _syncing = false;
 let _lastAutoSync = 0;
+// Dernier tour de synchro : heure de la dernière vérification réussie, fichiers à autoriser, liens illisibles
+const _syncState = { at: 0, refused: 0, failed: 0, error: '' };
 const _autoSkip = new Map(); // synchros annulées : ne pas les rejouer automatiquement
 const _forceReview = new Set(); // documents dont on veut revoir le plan à la prochaine lecture
 
@@ -2995,16 +2993,20 @@ async function pickWordFile() {
   if (!requireReady()) return;
   if (canLink()) {
     try {
-      const [handle] = await window.showOpenFilePicker({
+      const handles = await window.showOpenFilePicker({
         types: [{ description: 'Document (Word, LibreOffice, PDF, LaTeX, Markdown, texte)', accept: {
-          'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-          'application/vnd.oasis.opendocument.text': ['.odt'],
+          'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx', '.docm'],
+          'application/vnd.oasis.opendocument.text': ['.odt', '.fodt'],
           'application/pdf': ['.pdf'],
-          'text/plain': ['.txt', '.tex', '.md'],
+          'application/rtf': ['.rtf'],
+          'application/zip': ['.zip'],
+          'text/plain': ['.txt', '.tex', '.md', '.qmd', '.rmd', '.typ', '.org', '.adoc', '.rst'],
         } }],
-        multiple: false,
+        multiple: true,
       });
-      handleDocxFile(await handle.getFile(), handle);
+      const items = [];
+      for (const h of handles) items.push({ file: await h.getFile(), handle: h });
+      handleDocxFiles(items);
       return;
     } catch (e) {
       if (e && e.name === 'AbortError') return; // fenêtre fermée par l'utilisateur
@@ -3049,12 +3051,55 @@ async function handleDocxFile(file, handle = null) {
   try {
     routeDocument(await parseDocumentFile(file, readOptions(file.name, busy)), file, handle);
   } catch (e) {
+    if (e && e.code === 'gdoc-shortcut' && e.link) {
+      // Raccourci de Google Drive pour ordinateur : on lie le document qu'il désigne
+      busy.remove();
+      setDocxBusy(false);
+      linkDocument(e.link);
+      return;
+    }
     console.error('document :', e);
     showDocxFailure(DOC_ERRORS[e && e.code] || 'Lecture impossible de ce fichier.');
   } finally {
     setDocxBusy(false);
     busy.remove();
+    setTimeout(nextQueued, 600);
   }
+}
+
+/* Plusieurs fichiers d'un coup. S'ils forment un projet (LaTeX : fichier principal et chapitres ; Typst ;
+   chapitres Markdown), ils sont assemblés en un seul document. Sinon ce sont des documents distincts
+   (un fichier par chapitre) : ils sont lus l'un après l'autre, chacun avec son aperçu s'il en faut un. */
+let _fileQueue = [];
+
+/** list : FileList, ou [{ file, handle }]. */
+async function handleDocxFiles(list) {
+  const items = [...(list || [])].map(x => (x && x.file ? x : { file: x, handle: null })).filter(x => x.file);
+  if (!items.length || !requireReady()) return;
+  if (items.length === 1) { handleDocxFile(items[0].file, items[0].handle); return; }
+  const input = document.getElementById('docxInput');
+  setDocxError('');
+  let res = null;
+  try { res = await parseProjectFiles(items.map(x => x.file)); }
+  catch (e) { console.error('projet :', e); showDocxFailure(DOC_ERRORS[e && e.code] || 'Lecture impossible de ces fichiers.'); if (input) input.value = ''; return; }
+  if (input) input.value = '';
+  if (res) {
+    routeDocument(res, { name: `${res.project.main} (projet de ${res.project.files} fichiers)`, lastModified: Math.max(...items.map(x => x.file.lastModified || 0)) || null, size: null }, null,
+      { key: fileKeyOf(`projet ${res.project.main}`) });
+    return;
+  }
+  _fileQueue = items.slice(1);
+  toast(`${items.length} fichiers : ils sont lus l'un après l'autre.`, '', { duration: 5000 });
+  handleDocxFile(items[0].file, items[0].handle);
+}
+
+/** Fichier suivant de la file, dès que la fenêtre de synchro est refermée. */
+function nextQueued() {
+  if (!_fileQueue.length || !_loaded || !currentUser) { if (!currentUser) _fileQueue = []; return; }
+  const modal = document.getElementById('docxModal');
+  if (modal && !modal.classList.contains('hidden')) return;
+  const next = _fileQueue.shift();
+  handleDocxFile(next.file, next.handle);
 }
 
 /** Titres du plan actuel : ils aident à situer les parties d'un PDF sans signets. */
@@ -3077,9 +3122,14 @@ const DOC_ERRORS = {
   'pdf-lib': 'Impossible de charger le lecteur de PDF : vérifiez votre connexion internet, puis réessayez.',
   'pdf-fetch': 'Le PDF n\'a pas pu être téléchargé jusqu\'au bout. Réessayez dans un instant.',
   'old-doc': 'Ce fichier est au format .doc (ancien Word). Ouvrez-le dans Word, puis Fichier > Enregistrer sous > Document Word (.docx), et réessayez.',
-  'rtf': 'Ce fichier est au format RTF. Ouvrez-le dans Word ou LibreOffice, enregistrez-le en .docx ou .odt, puis réessayez. Vous pouvez aussi coller votre texte.',
-  'pages': 'Ce fichier vient de Pages. Dans Pages : Fichier > Exporter vers > Word, puis déposez le .docx. Vous pouvez aussi coller votre texte.',
-  'not-docx': 'Format non reconnu. Le Journal lit Word (.docx), LibreOffice (.odt), LaTeX (.tex), Markdown (.md) et le texte simple (.txt). Depuis Google Docs : liez votre document par son lien (« Lier un Google Doc »), ou Fichier > Télécharger > Microsoft Word, ou copiez-collez votre texte.',
+  'pages': 'Ce fichier vient de Pages. Dans Pages : Fichier, Exporter vers, PDF (pages exactes) ou Word, puis déposez le fichier obtenu.',
+  'not-docx': 'Format non reconnu. Le Journal lit Word (.docx), LibreOffice (.odt), PDF, RTF, LaTeX (.tex, ou le projet en .zip), Markdown, Quarto, Typst et le texte simple. Depuis Google Docs : liez votre document par son lien, ou Fichier, Télécharger, Microsoft Word.',
+  'zip-empty': 'Cette archive ne contient pas de document que le Journal sait lire (Word, LibreOffice, PDF, projet LaTeX ou Markdown).',
+  'zip-crypt': 'Cette archive est protégée par un mot de passe : le Journal ne peut pas l\'ouvrir.',
+  'scriv': 'Ce fichier vient de Scrivener. Dans Scrivener : Fichier, Compiler, au format PDF ou Word (.docx), puis déposez le fichier obtenu.',
+  'image': 'Une image ne contient pas de texte lisible. Déposez le fichier de votre manuscrit (Word, LibreOffice, PDF…).',
+  'epub': 'Les livres numériques (EPUB) ne sont pas lus. Exportez votre manuscrit en PDF ou en Word (.docx).',
+  'not-text': 'Ce fichier est un tableur ou une présentation, pas un document texte.',
   'too-big': 'Ce fichier texte est trop volumineux pour être lu ici.',
   'zip-lib': 'Impossible de charger le lecteur de fichiers : vérifiez votre connexion internet.',
   'bad-xml': 'Le document semble endommagé : ouvrez-le et réenregistrez-le.',
@@ -3140,7 +3190,7 @@ function routeDocument(res, file, handle, extra) {
         : `Aucun titre repéré dans « ${file.name} » (${fmtInt(res.totalPages)} pages, ${fmtInt(res.totalWords)} mots) : ce PDF n'a pas de signets, et ses titres ne se distinguent pas du texte. Exportez-le avec ses signets (LaTeX : extension hyperref ; Word : Enregistrer sous, PDF, Options, « Créer des signets à l'aide des titres »), ou déposez le fichier d'origine.`);
       return;
     }
-    const how = res.kind === 'docx' || res.kind === 'odt' || res.kind === 'html'
+    const how = res.kind === 'docx' || res.kind === 'odt' || res.kind === 'html' || res.kind === 'rtf'
       ? 'Appliquez le style « Titre 1 » à vos chapitres et « Titre 2 » à vos sous-parties, puis réessayez.'
       : 'Commencez vos chapitres par « Chapitre 1 », ou utilisez \\chapter{…} (LaTeX) ou « # Titre » (Markdown), puis réessayez.';
     showDocxFailure(`Aucun titre détecté dans « ${file.name} » (${fmtInt(res.totalWords)} mots). ${how}`);
@@ -3530,6 +3580,22 @@ function docxActivityDelta(m) {
   return docxPageDelta(m);
 }
 
+/**
+ * Jour auquel porter ce qui a été écrit. Un fichier garde la date de son dernier enregistrement : écrit mardi
+ * soir et synchronisé mercredi matin, il a été écrit mardi. On s'y fie quand elle tombe entre la synchro
+ * précédente et aujourd'hui ; un document lié par un lien n'a pas de date, ce sera aujourd'hui.
+ */
+function docxDay(m) {
+  const today = todayKey();
+  if (!m.mtime || !m.known || !isDayKey(m.known.at)) return today;
+  const d = dayKey(new Date(m.mtime));
+  if (!isDayKey(d) || d >= today || d < m.known.at || diffDays(d, today) > 366) return today;
+  return d;
+}
+
+/** « d'aujourd'hui », « d'hier », « du mar. 24 nov. » */
+const ofDay = day => (day === todayKey() ? 'd\'aujourd\'hui' : diffDays(day, todayKey()) === 1 ? 'd\'hier' : `du ${relDay(day).toLowerCase()}`);
+
 /** Le décompte de mots de la dernière synchro est-il comparable à celui-ci (même découpage) ? */
 function docxComparable(m) {
   return !!m.known && Number.isFinite(m.known.inclWords) && !m.replace
@@ -3551,6 +3617,7 @@ function applyDocx(m, quick) {
   const before = writtenPages();
   const pageDelta = docxPageDelta(m);
   const act = m.count ? docxActivityDelta(m) : 0;
+  const day = docxDay(m);
   const wordsChanged = !m.known || m.known.inclWords !== m.inclWords;
   const same = quick && pageDelta === 0 && act === 0;
 
@@ -3564,8 +3631,8 @@ function applyDocx(m, quick) {
       if (prev) { ch.review = prev.review; if (prev.reviewDate) ch.reviewDate = prev.reviewDate; }
     }
   } else applyDocxModel(m, state.chapters);
-  if (act) addActivity(act);
-  if (m.count && wordsChanged && docxComparable(m) && pagesOn(state.activity, todayKey()) <= 0) markRevisionDay();
+  if (act) addActivity(act, day);
+  if (m.count && wordsChanged && docxComparable(m) && pagesOn(state.activity, day) <= 0) markRevisionDay(day);
 
   // On retient ce que l'utilisateur a décoché, pour ne plus le lui reproposer
   const ig = new Set(state.docIgnore);
@@ -3597,6 +3664,7 @@ function applyDocx(m, quick) {
   _dx = null;
   if (_pendingReview && _pendingReview.key === m.key) _pendingReview = null;
   const newlyLinked = !!m.handle && canLink() && !_linked.some(l => l.key === m.key);
+  if (m.handle || m.gdoc || m.url) _syncState.at = Date.now();   // document relu à l'instant : l'état affiché le dit
   if (m.handle) linkFile(m.key, m.name, m.handle);
   saveNow();
   closeModal('docxModal');
@@ -3604,8 +3672,10 @@ function applyDocx(m, quick) {
   updateWordButton();
   if (same) return 'same'; // fichier réenregistré sans changement
 
-  const detail = m.recount && pageDelta ? `pages recomptées (${fmtInt(before)} → ${fmtInt(before + pageDelta)})${act ? `, ${act > 0 ? '+' : ''}${fmt1(act)} p. aujourd'hui` : ''}`
-    : act ? `${act > 0 ? '+' : ''}${fmt1(act)} p. aujourd'hui`
+  // Les pages vont au jour où le fichier a été enregistré : on le dit quand ce n'est pas aujourd'hui
+  const when = day === todayKey() ? 'aujourd\'hui' : `${relDay(day).toLowerCase()}, jour où le fichier a été enregistré`;
+  const detail = m.recount && pageDelta ? `pages recomptées (${fmtInt(before)} → ${fmtInt(before + pageDelta)})${act ? `, ${act > 0 ? '+' : ''}${fmt1(act)} p. ${when}` : ''}`
+    : act ? `${act > 0 ? '+' : ''}${fmt1(act)} p. ${when}`
     : pageDelta ? `${pageDelta > 0 ? '+' : ''}${pageDelta} p.` : 'tout est à jour';
   toast(`${trunc(m.name, 28)} synchronisé : ${detail}`, 'success', {
     key: 'docx', undo: true,
@@ -3621,7 +3691,7 @@ function applyDocx(m, quick) {
   } else if ((m.gdoc || m.url) && !m.known) {
     setTimeout(() => toast(`${m.gdoc ? 'Google Doc' : 'Fichier'} lié : vos pages se mettront à jour toutes seules, sur tous vos appareils.`, '', { duration: 7000 }), 1200);
   }
-  if (act > 0) checkDailyGoal();
+  if (act > 0 && day === todayKey()) checkDailyGoal();
   return true;
 }
 
@@ -3779,7 +3849,7 @@ function renderDocxPreview() {
   const delta = m.rows.some(r => r.include) ? docxActivityDelta(m) : 0;
   document.getElementById('docxCountRow').classList.toggle('hidden', delta === 0);
   document.getElementById('docxCount').checked = m.count;
-  setText('docxCountLbl', `Ajouter ${delta > 0 ? '+' : ''}${fmt1(delta)} p. à mon journal d'aujourd'hui`);
+  setText('docxCountLbl', `Ajouter ${delta > 0 ? '+' : ''}${fmt1(delta)} p. à mon journal ${ofDay(docxDay(m))}`);
   setText('docxCountHint', docxComparable(m)
     ? 'C\'est ce qui a changé depuis la dernière synchro de ce document.'
     : 'Première synchro de ce document : laissez décoché, ces pages étaient déjà écrites.');
@@ -4316,12 +4386,52 @@ async function syncAll({ manual, only }) {
   const review = (g && g.review) || (a && a.review) || null;
   if (review && manual) openDocxPreview(review);
   else if (review) _pendingReview = review;
-  if (manual && !review && !((a ? a.applied : 0) + (g ? g.applied : 0))) {
+  const applied = (a ? a.applied : 0) + (g ? g.applied : 0);
+  if (manual && !review && !applied) {
     if (g && g.failed) toast(DOC_ERRORS[g.error] || 'Lecture impossible du document lié.', 'warn', { key: 'docx', duration: 10000 });
     else if (a && a.refused && !a.upToDate) toast('Autorisez la lecture du fichier pour le synchroniser.', 'warn');
     else if (a || g) toast('Déjà à jour : votre document n\'a pas changé.', 'success', { key: 'docx' });
   }
-  renderPrimary();
+  // Ce que ce tour a donné, pour l'état affiché sous le bouton (un tour qui n'a rien tenté ne dit rien)
+  if (a || g) {
+    const checked = (a ? a.applied + a.upToDate : 0) + (g ? g.applied + g.upToDate : 0);
+    const before = `${_syncState.refused}|${_syncState.failed}`;
+    if (a) _syncState.refused = a.refused;
+    if (g) { _syncState.failed = g.failed; _syncState.error = g.error; }
+    if (checked) _syncState.at = Date.now();
+    if (manual || applied || review || before !== `${_syncState.refused}|${_syncState.failed}`) renderPrimary();
+    else renderSyncCaption();
+  } else if (manual) renderPrimary();
+}
+
+/** État de la synchro, sous le bouton : document, heure de la dernière vérification, ou ce qui bloque. */
+function renderSyncCaption() {
+  const cap = document.getElementById('tdCap');
+  if (!cap || !hasAutoDocs()) return;
+  cap.classList.remove('alert');
+  if (_pendingReview) {
+    cap.textContent = `Du nouveau dans ${trunc(_pendingReview.name, 24)} : vérifier`;
+    cap.classList.add('alert');
+    cap.title = 'Vérifier les nouvelles parties avant de les ajouter';
+    return;
+  }
+  const names = _linked.map(l => l.name).concat(linkEntries().filter(([k]) => !_linked.some(l => l.key === k)).map(([, f]) => f.name));
+  const what = names.length === 1 ? trunc(names[0], 26) : `${names.length} documents liés`;
+  if (_syncState.refused) {
+    cap.textContent = `${what} · lecture à autoriser`;
+    cap.classList.add('alert');
+    cap.title = 'Cliquez sur « Synchroniser » : votre navigateur vous demandera d\'autoriser la lecture du fichier';
+    return;
+  }
+  if (_syncState.failed) {
+    cap.textContent = `${what} · lien illisible pour l'instant`;
+    cap.classList.add('alert');
+    cap.title = DOC_ERRORS[_syncState.error] || 'Le document lié n\'a pas pu être lu.';
+    return;
+  }
+  const at = _syncState.at ? new Date(_syncState.at) : null;
+  cap.textContent = at ? `${what} · à jour à ${at.getHours()} h ${String(at.getMinutes()).padStart(2, '0')}` : what;
+  cap.title = 'Vérifié tout seul tant que cette page est ouverte. Cliquez pour gérer vos documents, ou en changer.';
 }
 
 /**
@@ -4336,6 +4446,7 @@ async function syncLinked({ manual, only }) {
   }
   _syncing = true;
   const out = { applied: 0, upToDate: 0, refused: 0, review: null };
+  let retry = false;
   try {
     // 1. Autorisations d'abord, tant que le clic de l'utilisateur est « frais »
     const ready = [];
@@ -4370,6 +4481,8 @@ async function syncLinked({ manual, only }) {
       catch (e) {
         console.warn('Synchro', lf.name, e);
         if (manual) toast(`Lecture impossible de ${trunc(lf.name, 30)}`, 'warn');
+        // Fichier tout juste modifié et illisible : il était sans doute en cours d'écriture (un PDF qui se compile…)
+        else if (Date.now() - file.lastModified < 20000) retry = true;
         continue;
       }
       if (!currentUser || !_loaded) return null;
@@ -4382,6 +4495,7 @@ async function syncLinked({ manual, only }) {
     }
   } finally {
     _syncing = false;
+    if (retry) setTimeout(() => { _lastAutoSync = 0; syncAll({ manual: false }); }, 3000);
   }
   return out;
 }
@@ -4411,14 +4525,15 @@ function initGlobalDrop() {
     depth = 0;
     overlay.classList.remove('show');
     if (!active()) return;
-    const file = e.dataTransfer.files && e.dataTransfer.files[0];
+    const files = [...(e.dataTransfer.files || [])];
+    const file = files[0];
     if (!file) return;
     if (/\.json$/i.test(file.name)) { toast('Pour restaurer une sauvegarde : Menu, puis « Importer une sauvegarde ».', ''); return; }
     // À demander pendant l'évènement : la référence permettra de relire le fichier plus tard
-    const item = e.dataTransfer.items && e.dataTransfer.items[0];
-    const wait = canLink() && item && typeof item.getAsFileSystemHandle === 'function'
-      ? item.getAsFileSystemHandle().catch(() => null) : Promise.resolve(null);
-    wait.then(h => handleDocxFile(file, h && h.kind === 'file' ? h : null));
+    const dti = [...(e.dataTransfer.items || [])].filter(it => it.kind === 'file');
+    const waits = files.map((f, i) => (canLink() && dti[i] && typeof dti[i].getAsFileSystemHandle === 'function'
+      ? dti[i].getAsFileSystemHandle().catch(() => null) : Promise.resolve(null)));
+    Promise.all(waits).then(hs => handleDocxFiles(files.map((f, i) => ({ file: f, handle: hs[i] && hs[i].kind === 'file' ? hs[i] : null }))));
   });
 }
 
@@ -4426,6 +4541,13 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') syncAll({ manual: false });
 });
 window.addEventListener('focus', () => syncAll({ manual: false }));
+// Tant que le Journal est à l'écran, il revérifie les documents liés : un fichier enregistré dans Word est pris
+// en compte ici en quelques secondes, sans changer de fenêtre. Un fichier lié à l'appareil ne coûte qu'un coup
+// d'œil à sa date ; un document lié par un lien est revérifié toutes les trois minutes au plus (LINK_EVERY).
+const WATCH_EVERY = 20000;
+setInterval(() => {
+  if (document.visibilityState === 'visible' && _loaded && currentUser && hasAutoDocs()) syncAll({ manual: false });
+}, WATCH_EVERY);
 
 /* ============================================================
    EXPORT / IMPORT (JSON portability — independent of Firestore)
@@ -5133,7 +5255,7 @@ Object.assign(window, {
   // Synchro Word
   wordAction, openDocxModal, pickWordFile, handleDocxFile, unlinkFile,
   docxToggle, docxMap, docxTarget, docxSetScope, docxSetLevel, docxSetMode, docxSetNewTitle, docxSetPages, docxResetPages, docxSetTotal,
-  handleDocPaste, reviewDocPlan, linkDocument, syncDoc, forgetDoc,
+  handleDocPaste, reviewDocPlan, linkDocument, syncDoc, forgetDoc, handleDocxFiles,
   docxCountChanged, applyDocxImport, docxBack,
   // Titre
   updateDocumentTitle,

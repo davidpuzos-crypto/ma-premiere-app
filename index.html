@@ -53,6 +53,7 @@
   <link rel="modulepreload" href="pdfdoc.js" />
   <link rel="modulepreload" href="pdfread.js" />
   <link rel="modulepreload" href="links.js" />
+  <link rel="modulepreload" href="formats.js" />
   <link rel="modulepreload" href="promo.js" />
   <link rel="modulepreload" href="docx.js" />
   <link rel="modulepreload" href="ics.js" />
@@ -1056,8 +1057,8 @@
 <!-- Zone de dépôt plein écran + sélecteur de fichier de secours -->
 <div id="dropOverlay" aria-hidden="true"><div class="drop-box"><svg class="ic ic-lg" aria-hidden="true"><use href="#i-upload"/></svg><b>Déposez votre document</b><span>pour mettre à jour votre avancement</span></div></div>
 <input type="file" id="docxInput" class="visually-hidden" tabindex="-1" aria-hidden="true"
-       accept=".docx,.odt,.fodt,.pdf,.tex,.md,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text,application/pdf,text/plain"
-       onchange="handleDocxFile(this.files[0])" />
+       accept=".docx,.docm,.odt,.fodt,.pdf,.rtf,.zip,.tex,.md,.qmd,.rmd,.typ,.org,.adoc,.rst,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text,application/pdf,application/rtf,application/zip,text/plain"
+       multiple onchange="handleDocxFiles(this.files)" />
 
 <!-- Messages -->
 <div id="toastBox" aria-live="polite"></div>
@@ -1114,7 +1115,7 @@
       if (n >= 2) return;
       sessionStorage.setItem('jdb_heal', String(n + 1));
     } catch (e) { return; }
-    var files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'zip.js', 'pdfdoc.js', 'pdfread.js', 'links.js', 'ics.js'];
+    var files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'zip.js', 'pdfdoc.js', 'pdfread.js', 'links.js', 'formats.js', 'ics.js'];
     Promise.all(files.map(function (u) { return fetch(u, { cache: 'reload' }).catch(function () {}); }))
       .then(function () { location.reload(); });
   });

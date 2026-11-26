@@ -481,20 +481,39 @@ function parseLines(text) {
   let frontChars = 0;
   let cur = null;
   let fence = false;
+  let chunk = false;
   let md = false;
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (/^(```|~~~)/.test(line)) { fence = !fence; continue; }
+  // En-tête YAML (Quarto, R Markdown, pandoc) : des réglages, pas du texte ; commentaires HTML : pas du texte non plus
+  const src = text.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n(---|\.\.\.)[ \t]*(\r?\n|$)/, '').replace(/<!--[\s\S]*?-->/g, ' ');
+  const lines = src.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (/^(```|~~~)/.test(line)) {
+      // Bloc de calcul (Quarto, R Markdown : « \`\`\`{r} ») : du code exécuté, pas du texte rédigé
+      if (!fence) chunk = /^(```|~~~)\s*\{/.test(line);
+      else if (chunk) chunk = false;
+      fence = !fence;
+      continue;
+    }
+    if (chunk) continue;
+    if (/^:{3,}/.test(line)) continue;                    // bloc Quarto / pandoc (« ::: {.callout} ») : seule la clôture est ignorée
     let head = null;
     if (!fence) {
       const mh = /^(#{1,6})\s+(.+?)\s*#*$/.exec(line);
+      const next = i + 1 < lines.length ? lines[i + 1].trim() : '';
       if (mh) { head = { level: mh[1].length, title: mh[2] }; md = true; }
-      else if (line.length <= 140 && !/[.;,]$/.test(line)) {
+      else if (line && /^(={3,}|-{3,})$/.test(next) && !/^[-*+>|]|^\d+[.)]\s/.test(line) && line.length <= 160 && (i === 0 || !lines[i - 1].trim())) {
+        // Titre souligné (« Titre » puis « ===== » ou « ----- »), à la manière de pandoc
+        head = { level: next[0] === '=' ? 1 : 2, title: line };
+        md = true;
+        i++;
+      } else if (line.length <= 140 && !/[.;,]$/.test(line)) {
         const mp = PLAIN_HEAD.exec(line);
         if (mp) head = { level: mp[1] ? 1 : 2, title: line };
       }
     }
     if (head) {
+      if (md) head.title = head.title.replace(/\s*\{[#.][^}]*\}\s*$/, '');   // identifiant ou classe du titre (pandoc, Quarto)
       cur = { level: head.level, title: head.title.replace(/[*_`]/g, '').slice(0, 200), words: countWords(head.title), chars: signs(head.title) };
       segments.push(cur);
       continue;
