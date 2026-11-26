@@ -3,12 +3,13 @@
    Logique pure, commune à tous les formats (Word, LibreOffice,
    texte collé, LaTeX, Markdown). Testée dans tests/core.test.mjs.
 
-   Entrée : segments = [{ level: 1..9, title, words }]
-            (words = le titre et tout le texte jusqu'au titre suivant)
+   Entrée : segments = [{ level: 1..9, title, words, pages }]
+            (words, pages = le titre et tout le texte jusqu'au titre suivant)
             frontWords = mots placés avant le premier titre
-   Sortie : { chapters: [{ title, level, ownWords, words,
-                           children: [{ title, level, words }] }],
-              front, mode, chapterLevel, subLevel, levels }
+   Sortie : { chapters: [{ title, level, ownWords, words, ownPages, pages,
+                           children: [{ title, level, words, pages }] }],
+              front, frontPages, mode, chapterLevel, subLevel, levels }
+   Les pages suivent partout le même chemin que les mots.
 
    Le suivi a deux étages (chapitres, sous-sections) ; un document
    en a souvent trois ou quatre. Toute la question est de savoir à
@@ -41,7 +42,7 @@ function toTree(segments) {
   const stack = [];
   for (const s of segments) {
     const level = Math.max(1, Math.min(9, Math.round(Number(s.level)) || 1));
-    const node = { title: String(s.title || '').slice(0, 200), level, own: Math.max(0, Number(s.words) || 0), kids: [] };
+    const node = { title: String(s.title || '').slice(0, 200), level, own: Math.max(0, Number(s.words) || 0), ownP: Math.max(0, Number(s.pages) || 0), kids: [] };
     while (stack.length && stack[stack.length - 1].level >= level) stack.pop();
     if (stack.length) stack[stack.length - 1].kids.push(node);
     else roots.push(node);
@@ -51,12 +52,13 @@ function toTree(segments) {
 }
 
 const total = n => n.own + n.kids.reduce((s, k) => s + total(k), 0);
+const totalP = n => n.ownP + n.kids.reduce((s, k) => s + totalP(k), 0);
 const hasLevel = (n, L) => n.kids.some(k => k.level === L || hasLevel(k, L));
 
 function asChapter(n) {
   return {
-    title: n.title, level: n.level, ownWords: n.own, words: total(n),
-    children: n.kids.map(k => ({ title: k.title, level: k.level, words: total(k) })),
+    title: n.title, level: n.level, ownWords: n.own, words: total(n), ownPages: n.ownP, pages: totalP(n),
+    children: n.kids.map(k => ({ title: k.title, level: k.level, words: total(k), pages: totalP(k) })),
   };
 }
 
@@ -83,14 +85,17 @@ function collect(nodes, decide, out, st, top) {
     const kind = decide(node, nodes, top);
     if (!kind) {
       const ch = asChapter(node);
-      if (st.carry) { ch.ownWords += st.carry; ch.words += st.carry; st.carry = 0; }
+      if (st.carry || st.carryP) {
+        ch.ownWords += st.carry; ch.words += st.carry; st.carry = 0;
+        ch.ownPages += st.carryP; ch.pages += st.carryP; st.carryP = 0;
+      }
       out.push(ch);
       continue;
     }
     // Enveloppe : son texte d'ouverture
-    if (kind === 'title') st.front += node.own;                      // résumé, dédicace… avant le premier chapitre
-    else if (node.own >= PART_INTRO_MIN) out.push({ title: node.title, level: node.level, ownWords: node.own, words: node.own, children: [] });
-    else st.carry += node.own;                                       // compté avec le chapitre qui suit
+    if (kind === 'title') { st.front += node.own; st.frontP += node.ownP; }   // résumé, dédicace… avant le premier chapitre
+    else if (node.own >= PART_INTRO_MIN) out.push({ title: node.title, level: node.level, ownWords: node.own, words: node.own, ownPages: node.ownP, pages: node.ownP, children: [] });
+    else { st.carry += node.own; st.carryP += node.ownP; }                    // compté avec le chapitre qui suit
     collect(node.kids, decide, out, st, false);
   }
 }
@@ -106,35 +111,41 @@ function mostFrequent(values) {
 }
 
 /** Ancien découpage (avant la v3.1) : le niveau le plus haut = chapitres, le suivant = sous-parties. */
-function legacyOutline(segments, frontWords) {
+function legacyOutline(segments, frontWords, frontPages) {
   const levels = [...new Set(segments.map(s => s.level))].sort((a, b) => a - b);
   const top = levels.length ? levels[0] : null;
   const second = levels.length > 1 ? levels[1] : null;
   const chapters = [];
   let front = frontWords;
+  let frontP = frontPages;
   let ch = null;
   let sub = null;
   for (const s of segments) {
+    const p = Math.max(0, Number(s.pages) || 0);
     if (s.level === top) {
-      ch = { title: s.title, level: s.level, ownWords: s.words, words: 0, children: [] };
+      ch = { title: s.title, level: s.level, ownWords: s.words, words: 0, ownPages: p, pages: 0, children: [] };
       chapters.push(ch);
       sub = null;
     } else if (second !== null && s.level === second) {
-      if (!ch) { front += s.words; continue; }
-      sub = { title: s.title, level: s.level, words: s.words };
+      if (!ch) { front += s.words; frontP += p; continue; }
+      sub = { title: s.title, level: s.level, words: s.words, pages: p };
       ch.children.push(sub);
-    } else if (sub) sub.words += s.words;
-    else if (ch) ch.ownWords += s.words;
-    else front += s.words;
+    } else if (sub) { sub.words += s.words; sub.pages += p; }
+    else if (ch) { ch.ownWords += s.words; ch.ownPages += p; }
+    else { front += s.words; frontP += p; }
   }
-  for (const c of chapters) c.words = c.ownWords + c.children.reduce((a, x) => a + x.words, 0);
-  return { chapters, front };
+  for (const c of chapters) {
+    c.words = c.ownWords + c.children.reduce((a, x) => a + x.words, 0);
+    c.pages = c.ownPages + c.children.reduce((a, x) => a + x.pages, 0);
+  }
+  return { chapters, front, frontP };
 }
 
 /**
  * Construit le plan à deux étages.
  * mode : 'auto' (recommandé), un nombre (niveau de titre des chapitres) ou 'legacy'.
  * opts.single : le document est un seul chapitre ; on renvoie ses sections au premier étage.
+ * opts.frontPages : pages placées avant le premier titre.
  */
 export function buildOutline(segments, frontWords = 0, mode = 'auto', opts = {}) {
   const segs = (segments || []).filter(s => s && String(s.title || '').trim());
@@ -148,17 +159,22 @@ export function buildOutline(segments, frontWords = 0, mode = 'auto', opts = {})
 
   let chapters;
   let front = Math.max(0, Number(frontWords) || 0);
+  let frontPages = Math.max(0, Number(opts.frontPages) || 0);
   if (mode === 'legacy') {
-    ({ chapters, front } = legacyOutline(segs, front));
+    const r = legacyOutline(segs, front, frontPages);
+    chapters = r.chapters;
+    front = r.front;
+    frontPages = r.frontP;
   } else {
     const roots = toTree(segs);
-    const st = { front, carry: 0 };
+    const st = { front, frontP: frontPages, carry: 0, carryP: 0 };
     chapters = [];
     if (opts.single) {
       // Un fichier = un chapitre : s'il est coiffé d'un seul titre, ce sont ses sections qui nous intéressent
       const body = roots.filter(r => !MATTER_RE.test(norm(r.title)));
       if (body.length === 1 && body[0].kids.length) {
         st.front += body[0].own;
+        st.frontP += body[0].ownP;
         for (const r of roots) {
           if (r === body[0]) r.kids.forEach(k => chapters.push(asChapter(k)));
           else chapters.push(asChapter(r));
@@ -171,19 +187,22 @@ export function buildOutline(segments, frontWords = 0, mode = 'auto', opts = {})
       const single = roots.filter(r => !MATTER_RE.test(norm(r.title))).length === 1;
       collect(roots, (node, siblings, top) => (node.level < L && hasLevel(node, L) ? (top && single ? 'title' : 'part') : ''), chapters, st, true);
     }
-    if (st.carry) st.front += st.carry; // texte d'ouverture sans chapitre après lui
+    if (st.carry || st.carryP) { st.front += st.carry; st.frontP += st.carryP; } // texte d'ouverture sans chapitre après lui
     front = st.front;
+    frontPages = st.frontP;
   }
 
   const body = chapters.filter(c => !MATTER_RE.test(norm(c.title)));
   const chapterLevel = mostFrequent((body.length ? body : chapters).map(c => c.level));
   const subLevel = mostFrequent(chapters.flatMap(c => c.children.map(k => k.level)));
-  return { chapters, front, mode, chapterLevel, subLevel, levels };
+  return { chapters, front, frontPages, mode, chapterLevel, subLevel, levels };
 }
 
 /* ------------------------------------------------------------
    TEXTE BRUT — LaTeX, Markdown, ou texte simple
-   Renvoie { segments, frontWords, totalWords, kind }
+   Renvoie { segments, frontWords, frontChars, totalWords, kind }
+   (chars = signes, espaces comprises : sans mise en page, c'est la
+   mesure la plus sûre de la longueur d'un texte)
 ------------------------------------------------------------ */
 const TEX_LEVELS = { part: 1, chapter: 2, section: 3, subsection: 4, subsubsection: 5 };
 const TEX_HEAD = /\\(part|chapter|section|subsection|subsubsection)\*?\s*(?:\[[^\]]*\])?\s*\{/g;
@@ -229,19 +248,25 @@ function parseTex(text) {
     TEX_HEAD.lastIndex = g.end;
   }
   const segments = [];
-  const frontWords = countWords(texToText(src.slice(0, heads.length ? heads[0].at : src.length)));
+  const frontText = texToText(src.slice(0, heads.length ? heads[0].at : src.length));
   heads.forEach((h, i) => {
-    const body = src.slice(h.end, i + 1 < heads.length ? heads[i + 1].at : src.length);
-    if (h.title) segments.push({ level: h.level, title: h.title.slice(0, 200), words: countWords(h.title) + countWords(texToText(body)) });
+    const body = texToText(src.slice(h.end, i + 1 < heads.length ? heads[i + 1].at : src.length));
+    if (h.title) segments.push({ level: h.level, title: h.title.slice(0, 200), words: countWords(h.title) + countWords(body), chars: signs(h.title) + signs(body) });
   });
-  return { segments, frontWords, kind: 'latex' };
+  return { segments, frontWords: countWords(frontText), frontChars: signs(frontText), kind: 'latex' };
 }
 
 const PLAIN_HEAD = /^(?:(partie|part)\s+([ivx]+|\d+|un|une|deux|trois)\b|(chapitre|chapter)\s+([ivxlc]+|\d+|un|premier)\b|(introduction|conclusion)(\s+g[ée]n[ée]rale)?\s*$|(bibliographie|r[ée]f[ée]rences|annexes?)\s*$)/i;
 
+/** Nombre de signes d'un texte (espaces comprises, blancs répétés comptés une fois). */
+export function signs(text) {
+  return String(text || '').replace(/\s+/g, ' ').trim().length;
+}
+
 function parseLines(text) {
   const segments = [];
   let frontWords = 0;
+  let frontChars = 0;
   let cur = null;
   let fence = false;
   let md = false;
@@ -258,15 +283,17 @@ function parseLines(text) {
       }
     }
     if (head) {
-      cur = { level: head.level, title: head.title.replace(/[*_`]/g, '').slice(0, 200), words: countWords(head.title) };
+      cur = { level: head.level, title: head.title.replace(/[*_`]/g, '').slice(0, 200), words: countWords(head.title), chars: signs(head.title) };
       segments.push(cur);
       continue;
     }
-    const n = countWords(line.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`>#|]/g, ' '));
-    if (cur) cur.words += n;
-    else frontWords += n;
+    const clean = line.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`>#|]/g, ' ');
+    const n = countWords(clean);
+    const c = n ? signs(clean) + 1 : 0;
+    if (cur) { cur.words += n; cur.chars += c; }
+    else { frontWords += n; frontChars += c; }
   }
-  return { segments, frontWords, kind: md ? 'markdown' : 'text' };
+  return { segments, frontWords, frontChars, kind: md ? 'markdown' : 'text' };
 }
 
 export function parseTextDocument(text) {
