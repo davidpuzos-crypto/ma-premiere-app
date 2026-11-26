@@ -824,3 +824,53 @@ console.log('outline.js : titres sans styles OK');
   assert.deepEqual([r.totalPages, r.segments.length], [0, 0]);
 }
 console.log('pdfdoc.js : PDF OK');
+
+// -----------------------------------------------------------
+// links.js : les liens de partage que le navigateur peut lire
+// -----------------------------------------------------------
+{
+  const K = await import('../links.js');
+  // Google Docs : lien de la page, lien « partager », identifiant nu
+  const ID = '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd';
+  for (const l of [`https://docs.google.com/document/d/${ID}/edit?usp=sharing`, `docs.google.com/document/u/0/d/${ID}/edit#heading=h.x`, ID, `Voici le lien : https://docs.google.com/document/d/${ID}/edit.`]) {
+    assert.deepEqual(K.parseLink(l), { kind: 'gdoc', id: ID, key: 'g_1abcdefghijklmnopqrstuvwxyz0123456789__abcd' }, l);
+  }
+  assert.equal(K.gdocKey(ID), 'g_1abcdefghijklmnopqrstuvwxyz0123456789__abcd');
+  // Dropbox : le même fichier, servi par l'hôte de téléchargement ; la clé du lien est gardée, le reste écarté
+  let r = K.parseLink('https://www.dropbox.com/scl/fi/m9glhahs4vqurgqr3tp7o/Ma%20th%C3%A8se.docx?rlkey=jeiam6bpfmw4ky2g5ndwbc6js&st=abcd1234&dl=0');
+  assert.deepEqual([r.kind, r.url, r.host, r.name], ['file', 'https://dl.dropboxusercontent.com/scl/fi/m9glhahs4vqurgqr3tp7o/Ma%20th%C3%A8se.docx?rlkey=jeiam6bpfmw4ky2g5ndwbc6js&dl=1', 'Dropbox', 'Ma thèse.docx']);
+  assert.match(r.key, /^u_[a-z0-9]+$/);
+  const again = K.parseLink('https://www.dropbox.com/scl/fi/m9glhahs4vqurgqr3tp7o/Ma%20th%C3%A8se.docx?rlkey=jeiam6bpfmw4ky2g5ndwbc6js&st=zzzz9999&dl=1');
+  assert.equal(again.key, r.key, 'le même fichier garde la même clé, quel que soit le lien copié');
+  assert.equal(K.parseLink(r.url).key, r.key, 'relire l\'adresse enregistrée redonne la même clé');
+  r = K.parseLink('https://www.dropbox.com/s/09ctqeg1hd9soi2/these.pdf?dl=0');
+  assert.deepEqual([r.url, r.name], ['https://dl.dropboxusercontent.com/s/09ctqeg1hd9soi2/these.pdf?dl=1', 'these.pdf']);
+  // GitHub : l'adresse « raw » du fichier
+  r = K.parseLink('https://github.com/camille/these/blob/main/chapitres/intro.tex');
+  assert.deepEqual([r.kind, r.url, r.host, r.name], ['file', 'https://raw.githubusercontent.com/camille/these/main/chapitres/intro.tex', 'GitHub', 'intro.tex']);
+  // Un lien direct quelconque
+  r = K.parseLink('https://exemple.fr/docs/memoire.odt#page=2');
+  assert.deepEqual([r.kind, r.url, r.name], ['file', 'https://exemple.fr/docs/memoire.odt', 'memoire.odt']);
+  // Ce qui ne peut pas être lu depuis un navigateur est reconnu, pour l'expliquer
+  const err = l => K.parseLink(l).error;
+  assert.equal(err('https://www.dropbox.com/scl/fo/6y7hlsyisit2rb0bjepzh/AKOfmeyr?rlkey=x&dl=0'), 'link-folder');
+  assert.equal(err('https://www.dropbox.com/sh/gw3itlpyonzkbau/AAA1-8vaAN?dl=0'), 'link-folder');
+  assert.equal(err('https://www.dropbox.com/home/These'), 'link-dropbox');
+  assert.equal(err('https://1drv.ms/w/s!AbCdEf'), 'link-onedrive');
+  assert.equal(err('https://univ-my.sharepoint.com/:w:/g/personal/x/EabC'), 'link-onedrive');
+  assert.equal(err('https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/view?usp=sharing'), 'link-drive');
+  assert.equal(err('https://drive.google.com/drive/folders/1AbCdEf'), 'link-folder');
+  assert.equal(err('https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/edit'), 'link-gother');
+  assert.equal(err('https://www.overleaf.com/read/abcdefgh'), 'link-overleaf');
+  assert.equal(err('http://exemple.fr/these.docx'), 'link-http');
+  assert.equal(err('ceci n\'est pas un lien'), 'link-bad');
+  assert.equal(err(''), 'link-bad');
+  assert.equal(err('javascript:alert(1)'), 'link-bad');
+  // Nom du fichier donné par le serveur
+  assert.equal(K.dispositionName('attachment; filename="these.docx"; filename*=UTF-8\'\'Ma%20th%C3%A8se.docx'), 'Ma thèse.docx');
+  assert.equal(K.dispositionName('attachment; filename=these.pdf'), 'these.pdf');
+  assert.equal(K.dispositionName(null), '');
+  assert.equal(K.shortHash('abc'), K.shortHash('abc'));
+  assert.notEqual(K.shortHash('abc'), K.shortHash('abd'));
+}
+console.log('links.js : liens de partage OK');

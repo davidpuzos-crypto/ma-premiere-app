@@ -11,6 +11,7 @@
      zip.js      l'ouverture des archives (docx, odt, projets zippés), sans bibliothèque
      pdfread.js  la lecture des PDF (PDF.js embarqué, chargé à la demande)
      pdfdoc.js   du texte d'un PDF au plan : signets, titres balisés, mise en forme
+     links.js    les liens de partage (Google Docs, Dropbox, lien direct)
      promo.js    la promo (fiches, classement, fil)
 ============================================================ */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
@@ -43,7 +44,8 @@ import {
   isActiveDay, weeklyChallenge,
 } from './core.js';
 import { buildICS, googleCalendarUrl, byDay } from './ics.js';
-import { parseDocumentFile, parsePasted } from './docx.js';
+import { parseDocumentFile, parsePasted, analyzePdf } from './docx.js';
+import { parseLink, gdocKey, dispositionName, shortHash } from './links.js';
 import { buildOutline } from './outline.js';
 import {
   getFunnyCaption, plain, typo, footnoteOfDay, randomFootnote, gradeFor, GRADES, todayLine,
@@ -72,7 +74,7 @@ window.__jdbVersion = APP_VERSION;
     sessionStorage.setItem('jdb_heal', String(n + 1));
   } catch { return; }
   window.__jdbHealing = true;
-  const files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'zip.js', 'pdfdoc.js', 'pdfread.js', 'ics.js'];
+  const files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'zip.js', 'pdfdoc.js', 'pdfread.js', 'links.js', 'ics.js'];
   Promise.all(files.map(u => fetch(u, { cache: 'reload' }).catch(() => {}))).then(() => location.reload());
   throw new Error('Mise à jour en cours : la page va se recharger.');
 })();
@@ -341,6 +343,8 @@ function normalizeState(d) {
     k: Number.isFinite(f.k) && f.k >= 0.2 && f.k <= 5 ? f.k : null,
     // Google Docs lié : identifiant du document et signature de son texte à la dernière synchro
     gdoc: typeof f.gdoc === 'string' && /^[A-Za-z0-9_-]{20,100}$/.test(f.gdoc) ? f.gdoc : null,
+    // Fichier lié par son adresse (Dropbox, lien direct) : toujours en https
+    url: typeof f.url === 'string' && /^https:\/\/[^\s<>"']{4,800}$/.test(f.url) ? f.url : null,
     sig: typeof f.sig === 'string' && /^[a-z0-9.]{1,40}$/.test(f.sig) ? f.sig : null,
   });
   if (isObj(d.docFiles)) {
@@ -1293,7 +1297,7 @@ function renderPrimary() {
     cap.classList.add('alert');
     cap.title = 'Vérifier les nouvelles parties avant de les ajouter';
   } else if (linked) {
-    const names = _linked.map(l => l.name).concat(gdocEntries().filter(([k]) => !_linked.some(l => l.key === k)).map(([, f]) => f.name));
+    const names = _linked.map(l => l.name).concat(linkEntries().filter(([k]) => !_linked.some(l => l.key === k)).map(([, f]) => f.name));
     cap.textContent = names.length === 1 ? trunc(names[0], 30) : `${names.length} documents liés`;
     cap.title = 'Gérer mes documents, ou en changer';
   } else {
@@ -2954,9 +2958,10 @@ const NEW_CHAPTER = '+';    // portée « ce document est un chapitre de plus »
 const canLink = () => typeof window.showOpenFilePicker === 'function' && 'indexedDB' in window;
 const hasDocFiles = () => Object.keys(state.docFiles).length > 0;
 /** Google Docs liés : [[clé, fiche]]. */
-const gdocEntries = () => Object.entries(state.docFiles).filter(([, f]) => f.gdoc);
-/** Un document que le Journal sait relire seul : fichier lié sur cet appareil, ou Google Doc. */
-const hasAutoDocs = () => _linked.length > 0 || gdocEntries().length > 0;
+/** Documents liés par un lien (Google Docs, Dropbox, lien direct) : relus sur tous les appareils. */
+const linkEntries = () => Object.entries(state.docFiles).filter(([, f]) => f.gdoc || f.url);
+/** Un document que le Journal sait relire seul : fichier lié sur cet appareil, ou document lié par un lien. */
+const hasAutoDocs = () => _linked.length > 0 || linkEntries().length > 0;
 
 /* ---------- Points d'entrée ---------- */
 
@@ -3084,6 +3089,20 @@ const DOC_ERRORS = {
   'gdoc-busy': 'Google Docs ne répond pas pour le moment. Réessayez dans quelques minutes.',
   'gdoc-slow': 'Google Docs met trop de temps à préparer ce document. Réessayez, ou téléchargez-le (Fichier, Télécharger, Microsoft Word) et déposez le fichier ici.',
   'gdoc-offline': 'Pas de connexion internet : impossible de lire le document Google Docs pour le moment.',
+  'link-bad': 'Ce n\'est pas un lien que le Journal sait lire. Collez le lien de partage de votre document Google Docs, ou celui d\'un fichier Dropbox (Partager, puis Copier le lien).',
+  'link-http': 'Ce lien commence par « http:// ». Le Journal ne peut lire que des adresses sécurisées (https).',
+  'link-folder': 'Ce lien mène à un dossier. Collez plutôt le lien du fichier lui-même : ouvrez le dossier, puis Partager et Copier le lien sur le fichier de votre manuscrit.',
+  'link-dropbox': 'Ce lien Dropbox n\'est pas un lien de partage. Dans Dropbox : sur votre fichier, Partager, puis Copier le lien, et collez-le ici.',
+  'link-onedrive': 'OneDrive et SharePoint ne laissent pas un site lire un fichier partagé. Sur Chrome ou Edge (ordinateur), choisissez plutôt le fichier dans votre dossier OneDrive : il restera lié et se mettra à jour tout seul. Sinon, déposez-le ici.',
+  'link-drive': 'Ce lien mène à un fichier stocké dans Google Drive, pas à un document Google Docs : le Journal ne peut pas le lire directement. Ouvrez-le avec Google Docs (puis collez le lien de ce document), ou téléchargez-le et déposez-le ici.',
+  'link-gother': 'Ce lien Google n\'est pas celui d\'un document texte (Google Docs). Ouvrez votre manuscrit dans Google Docs et collez son adresse.',
+  'link-overleaf': 'Overleaf ne laisse pas lire un projet par son lien. Dans Overleaf : téléchargez le PDF (pages exactes) et déposez-le ici.',
+  'link-private': 'Le Journal n\'a pas pu lire ce lien. Vérifiez qu\'il s\'agit bien d\'un lien de partage ouvert à « toute personne disposant du lien », et que le fichier existe toujours. Certains hébergeurs n\'autorisent pas la lecture depuis un site : dans ce cas, déposez le fichier.',
+  'link-404': 'Fichier introuvable à cette adresse : le lien a peut-être été désactivé, ou le fichier déplacé. Copiez de nouveau son lien de partage.',
+  'link-busy': 'L\'hébergeur du fichier ne répond pas pour le moment. Réessayez dans quelques minutes.',
+  'link-slow': 'Le téléchargement du fichier prend trop de temps. Réessayez, ou déposez le fichier ici.',
+  'link-offline': 'Pas de connexion internet : impossible de lire le fichier lié pour le moment.',
+  'link-format': 'Ce lien ouvre une page web, pas le fichier lui-même. Collez le lien de partage du fichier (dans Dropbox : Partager, puis Copier le lien).',
 };
 
 /** Texte collé (Google Docs, Word, LibreOffice, LaTeX…) : le presse-papiers garde les titres. */
@@ -3226,7 +3245,7 @@ function buildDocxModel(res, file, handle, extra = {}) {
   const known = state.docFiles[key] || null;
   const m = {
     key, name: file.name, res, handle: handle || null, known,
-    gdoc: extra.gdoc || (known && known.gdoc) || null, sig: extra.sig || null,
+    gdoc: extra.gdoc || (known && known.gdoc) || null, url: extra.url || (known && known.url) || null, sig: extra.sig || null,
     mtime: Number.isFinite(file.lastModified) ? file.lastModified : null,
     size: Number.isFinite(file.size) ? file.size : null,
     k: 1,              // correction du nombre de pages (« ce document fait N pages »)
@@ -3572,7 +3591,7 @@ function applyDocx(m, quick) {
     level: m.level === 'legacy' ? null : m.level, mtime: m.mtime, size: m.size,
     pv: 2, src: m.res.pageSource, pages: Math.round(m.res.totalPages * m.k * 10) / 10,
     k: Math.abs(m.k - 1) > 0.001 ? Math.round(m.k * 10000) / 10000 : null,
-    gdoc: m.gdoc || null, sig: m.sig || null,
+    gdoc: m.gdoc || null, url: m.url || null, sig: m.sig || null,
   };
   if (!state.trackedSince) state.trackedSince = todayKey();
   _dx = null;
@@ -3599,8 +3618,8 @@ function applyDocx(m, quick) {
   });
   if (newlyLinked) {
     setTimeout(() => toast('Fichier lié : vos pages se mettront à jour toutes seules quand vous reviendrez ici.', '', { duration: 6000 }), 1200);
-  } else if (m.gdoc && !m.known) {
-    setTimeout(() => toast('Google Doc lié : vos pages se mettront à jour toutes seules, sur tous vos appareils.', '', { duration: 7000 }), 1200);
+  } else if ((m.gdoc || m.url) && !m.known) {
+    setTimeout(() => toast(`${m.gdoc ? 'Google Doc' : 'Fichier'} lié : vos pages se mettront à jour toutes seules, sur tous vos appareils.`, '', { duration: 7000 }), 1200);
   }
   if (act > 0) checkDailyGoal();
   return true;
@@ -3958,24 +3977,45 @@ function renderLinkedList() {
   box.classList.toggle('hidden', all.length === 0);
   const rows = all.map(([k, f]) => {
     const linked = linkedKeys.has(k);
-    const kind = f.gdoc ? 'Google Docs' : linked ? 'fichier lié à cet appareil' : f.name === PASTE_NAME ? 'texte collé' : 'fichier';
+    const remote = !!(f.gdoc || f.url);
+    const host = f.url ? linkHost(f.url) : '';
+    const kind = f.gdoc ? 'Google Docs' : f.url ? `lié par son lien (${host})` : linked ? 'fichier lié à cet appareil' : f.name === PASTE_NAME ? 'texte collé' : 'fichier';
+    // Où ouvrir le document : la page Google Docs, ou la page de partage du fichier
+    const open = f.gdoc ? `https://docs.google.com/document/d/${f.gdoc}/edit` : f.url ? linkPage(f.url) : '';
     const when = f.at ? `synchro : ${relDay(f.at).toLowerCase()}` : 'pas encore synchronisé';
     const pages = f.pages ? ` · ${fmtInt(Math.round(f.pages))} p.` : '';
     return `<div class="lk-item">
-      <span class="lk-ico">${icon(f.gdoc ? 'link' : 'doc')}</span>
+      <span class="lk-ico">${icon(remote ? 'link' : 'doc')}</span>
       <span class="lk-main"><span class="lk-name">${esc(trunc(f.name, 44))}</span><span class="lk-meta">${kind} · ${when}${pages}</span></span>
       <span class="lk-acts">
-        ${f.gdoc || linked ? `<button type="button" class="lk-btn strong" onclick="syncDoc('${k}')">Synchroniser</button>` : ''}
+        ${remote || linked ? `<button type="button" class="lk-btn strong" onclick="syncDoc('${k}')">Synchroniser</button>` : ''}
         <button type="button" class="lk-btn" onclick="reviewDocPlan('${k}')" title="Rouvrir l'aperçu : ce que contient le document, niveau de titre des chapitres, parties ignorées, nombre de pages">Revoir</button>
-        ${f.gdoc ? `<a class="lk-btn" href="https://docs.google.com/document/d/${f.gdoc}/edit" target="_blank" rel="noopener">Ouvrir</a>` : ''}
-        <button type="button" class="lk-btn" onclick="forgetDoc('${k}')" title="Le Journal oublie ce document. Vos pages et votre plan restent tels quels.">${f.gdoc || linked ? 'Délier' : 'Oublier'}</button>
+        ${open ? `<a class="lk-btn" href="${esc(open)}" target="_blank" rel="noopener noreferrer">Ouvrir</a>` : ''}
+        <button type="button" class="lk-btn" onclick="forgetDoc('${k}')" title="Le Journal oublie ce document. Vos pages et votre plan restent tels quels.">${remote || linked ? 'Délier' : 'Oublier'}</button>
       </span></div>`;
   });
   setHTML('linkedList', rows.join(''));
   setText('linkedHint', hasAutoDocs()
     ? 'Les documents liés se mettent à jour tout seuls quand vous revenez sur cet onglet.'
-    : 'Pour mettre à jour : déposez le fichier dans la page, collez votre texte, ou liez un Google Doc.');
+    : 'Pour mettre à jour : déposez le fichier dans la page, collez votre texte, ou liez votre document par son lien (Google Docs, Dropbox).');
   setText('docxAddTitle', all.length ? 'Ajouter un document, ou en changer' : 'Choisir mon document');
+}
+
+/** Hébergeur d'un fichier lié, pour l'affichage. */
+function linkHost(url) {
+  try {
+    const h = new URL(url).hostname.replace(/^www\./, '');
+    return /dropbox/.test(h) ? 'Dropbox' : /githubusercontent|github/.test(h) ? 'GitHub' : h;
+  } catch { return 'lien'; }
+}
+
+/** Page où ouvrir un fichier lié : pour Dropbox, la page de partage plutôt que le téléchargement. */
+function linkPage(url) {
+  try {
+    const u = new URL(url);
+    if (u.hostname === 'dl.dropboxusercontent.com') { u.hostname = 'www.dropbox.com'; u.searchParams.set('dl', '0'); }
+    return u.toString();
+  } catch { return ''; }
 }
 
 /** Le Journal oublie un document : le plan et les pages ne bougent pas, mais ils ne sont plus rattachés à lui. */
@@ -4024,6 +4064,7 @@ async function reviewDocPlan(key) {
   _forceReview.add(key);
   const f = state.docFiles[key];
   if (f && f.gdoc) { loadGoogleDoc(f.gdoc, f.name); return; }
+  if (f && f.url) { loadLinkedFile(f.url, f.name, key); return; }
   const lf = _linked.find(l => l.key === key);
   if (lf) {
     try {
@@ -4043,26 +4084,19 @@ async function reviewDocPlan(key) {
   pickWordFile();
 }
 
-/* ---------- Google Docs : un document lié par son lien de partage ----------
-   Un document partagé « à tous les utilisateurs disposant du lien » peut être
-   téléchargé par le navigateur, sans compte ni serveur intermédiaire :
+/* ---------- Documents liés par un lien de partage ----------
+   Google Docs : un document partagé « à tous les utilisateurs disposant du lien » peut
+   être téléchargé par le navigateur, sans compte ni serveur intermédiaire :
      • en .docx, pour le plan, le texte et la mise en page ;
      • en PDF, dont les signets donnent la page exacte de chaque titre.
-   On ne garde que l'identifiant du document (dans les données du compte, donc
-   sur tous les appareils) et une signature de son texte, pour savoir s'il a
-   changé sans tout relire. */
-const GDOC_LINK = /docs\.google\.com\/document\/(?:u\/\d+\/)?d\/([A-Za-z0-9_-]{20,100})/;
+   Dropbox (et tout lien direct lisible depuis une page web) : le fichier lui-même
+   (Word, LibreOffice, PDF, LaTeX…), relu tel quel.
+   On garde dans les données du compte (donc sur tous les appareils) de quoi relire le
+   document (identifiant Google, ou adresse du fichier) et une signature légère, pour
+   savoir s'il a changé sans tout relire. Voir links.js. */
 let _gsyncing = false;
-const _gdocChecked = new Map(); // identifiant → heure de la dernière vérification automatique
-
-function gdocIdOf(input) {
-  const s = String(input || '').trim();
-  const m = GDOC_LINK.exec(s);
-  if (m) return m[1];
-  return /^[A-Za-z0-9_-]{25,100}$/.test(s) ? s : '';
-}
-
-const gdocKey = id => `g_${id.toLowerCase().replace(/[^a-z0-9]/g, '_')}`.slice(0, 100);
+const _linkChecked = new Map(); // document → heure de la dernière vérification automatique
+const LINK_EVERY = 3 * 60000;   // au plus une vérification automatique toutes les trois minutes par document
 
 function gdocError(code) {
   const e = new Error(code);
@@ -4090,24 +4124,12 @@ async function gdocFetch(id, format, ms) {
 
 /** Signature courte d'un texte (longueur + empreinte) : dit si le document a changé depuis la dernière fois. */
 function textSignature(text) {
-  let h = 2166136261;
-  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
-  return `${text.length.toString(36)}.${(h >>> 0).toString(36)}`;
+  return `${text.length.toString(36)}.${shortHash(text)}`;
 }
 
 async function gdocSignature(id) {
   const r = await gdocFetch(id, 'txt', 45000);
   return textSignature(await r.text());
-}
-
-/** Titre du document, donné par Google dans l'en-tête du téléchargement. */
-function gdocTitle(res) {
-  const cd = res.headers.get('content-disposition') || '';
-  let name = '';
-  const star = /filename\*\s*=\s*(?:UTF-8'')?([^;]+)/i.exec(cd);
-  try { if (star) name = decodeURIComponent(star[1].trim().replace(/^"|"$/g, '')); } catch { /* nom mal encodé */ }
-  if (!name) { const plain = /filename\s*=\s*"?([^";]+)"?/i.exec(cd); if (plain) name = plain[1]; }
-  return name.replace(/\.docx$/i, '').trim().slice(0, 150);
 }
 
 /** Lit un Google Doc : renvoie l'analyse, de quoi nommer le document, et la signature de son texte. */
@@ -4117,20 +4139,85 @@ async function readGoogleDoc(id, knownName, knownSig) {
     gdocFetch(id, 'pdf', 150000).then(r => r.arrayBuffer()).catch(e => { console.warn('PDF Google Docs :', e); return null; }),
     knownSig ? Promise.resolve(knownSig) : gdocSignature(id).catch(() => null),
   ]);
-  const name = gdocTitle(docx) || knownName || 'Google Doc';
+  const name = dispositionName(docx.headers.get('content-disposition')).replace(/\.docx$/i, '') || knownName || 'Google Doc';
   const buf = await docx.arrayBuffer();
   // Sans le PDF (document très lourd, délai dépassé), la pagination est simulée d'après la mise en page
-  const res = await parseDocumentFile(new File([buf], `${name}.docx`), pdf ? { pdf: new Uint8Array(pdf) } : {});
+  const res = await parseDocumentFile(new File([buf], `${name}.docx`), pdf ? { pdf: new Uint8Array(pdf), planTitles: planTitles() } : { planTitles: planTitles() });
   return { res, file: { name, lastModified: null, size: buf.byteLength }, sig };
 }
 
-/** Lie (ou relit) un Google Doc à partir de son lien. */
-async function linkGoogleDoc(input) {
+/** Requête vers un fichier lié (Dropbox, lien direct). Les refus du navigateur (lien privé, hôte qui n'autorise pas la lecture) donnent « link-private ». */
+async function linkFetch(url, method, ms) {
+  const ctl = new window.AbortController();
+  const timer = setTimeout(() => ctl.abort(), ms);
+  try {
+    const r = await fetch(url, { method, credentials: 'omit', cache: 'no-store', signal: ctl.signal });
+    if (r.status === 404 || r.status === 410) throw gdocError('link-404');
+    if (r.status === 429 || r.status >= 500) throw gdocError('link-busy');
+    if (!r.ok) throw gdocError('link-private');
+    return r;
+  } catch (e) {
+    if (e && e.code) throw e;
+    throw gdocError(e && e.name === 'AbortError' ? 'link-slow' : navigator.onLine === false ? 'link-offline' : 'link-private');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Signature légère d'un fichier lié : sa taille, et sa date si le serveur la donne. Elle dit si le fichier
+ * a changé sans le télécharger. null quand le serveur ne dit rien (il faudra alors le lire pour le savoir).
+ */
+async function linkSignature(url) {
+  let r;
+  try { r = await linkFetch(url, 'HEAD', 30000); }
+  catch (e) {
+    if (e && (e.code === 'link-404' || e.code === 'link-offline')) throw e;
+    return null;                      // certains hôtes refusent HEAD : on lira le fichier
+  }
+  const len = r.headers.get('content-length');
+  const stamp = (r.headers.get('last-modified') || '') + (r.headers.get('etag') || '');
+  if (!len && !stamp) return null;
+  return `${len || '?'}.${shortHash(stamp)}`;
+}
+
+/** Empreinte du contenu d'un fichier téléchargé (quand le serveur ne donne ni taille ni date). */
+function bytesSignature(buf) {
+  const u8 = new Uint8Array(buf);
+  let h = 2166136261;
+  for (let i = 0; i < u8.length; i++) { h ^= u8[i]; h = Math.imul(h, 16777619); }
+  return `b${u8.length.toString(36)}.${(h >>> 0).toString(36)}`;
+}
+
+/** Lit un fichier lié par son adresse. Un PDF est lu par morceaux (seul le texte est téléchargé, pas les images). */
+async function readLinkedFile(url, knownName, knownSig, busy) {
+  const guess = parseLink(url);
+  const urlName = (guess.kind === 'file' && guess.name) || '';
+  let sig = knownSig || await linkSignature(url);
+  const opts = readOptions(knownName || urlName || 'votre document', busy);
+  if (/\.pdf$/i.test(urlName)) {
+    const res = await analyzePdf({ url }, opts);
+    const size = sig ? parseInt(sig, 10) : null;
+    return { res, file: { name: knownName || urlName, lastModified: null, size: Number.isFinite(size) ? size : null }, sig };
+  }
+  const r = await linkFetch(url, 'GET', 180000);
+  const name = dispositionName(r.headers.get('content-disposition')) || knownName || urlName || 'document';
+  const type = r.headers.get('content-type') || '';
+  const buf = await r.arrayBuffer();
+  // Une page web à la place du fichier : lien de consultation, ou partage qui demande de se connecter
+  if (/text\/html/i.test(type) && !/\.html?$/i.test(name)) throw gdocError('link-format');
+  if (!sig) sig = bytesSignature(buf);
+  const res = await parseDocumentFile(new File([buf], name, { type }), opts);
+  return { res, file: { name, lastModified: null, size: buf.byteLength }, sig };
+}
+
+/** Lie (ou relit) un document à partir du lien collé : Google Docs, Dropbox, lien direct. */
+async function linkDocument(input) {
   if (!requireReady()) return;
   const el = document.getElementById('gdocUrl');
-  const id = gdocIdOf(typeof input === 'string' ? input : (el ? el.value : ''));
-  if (!id) { setDocxError(DOC_ERRORS['gdoc-link']); return; }
-  const ok = await loadGoogleDoc(id);
+  const link = parseLink(typeof input === 'string' ? input : (el ? el.value : ''));
+  if (link.error) { setDocxError(DOC_ERRORS[link.error] || DOC_ERRORS['link-bad']); return; }
+  const ok = link.kind === 'gdoc' ? await loadGoogleDoc(link.id) : await loadLinkedFile(link.url, link.name, link.key);
   if (ok && el) el.value = '';
 }
 
@@ -4153,12 +4240,32 @@ async function loadGoogleDoc(id, name) {
   }
 }
 
+async function loadLinkedFile(url, name, key) {
+  setDocxError('');
+  setDocxBusy(true);
+  const busy = toast(`Lecture de ${trunc(name || 'votre document', 36)}…`, '', { key: 'docx', duration: 300000 });
+  try {
+    const { res, file, sig } = await readLinkedFile(url, name, null, busy);
+    if (!currentUser || !_loaded) return false;
+    routeDocument(res, file, null, { key, url, sig });
+    return true;
+  } catch (e) {
+    console.error('Lien :', e);
+    showDocxFailure(DOC_ERRORS[e && e.code] || 'Lecture impossible de ce document.');
+    return false;
+  } finally {
+    setDocxBusy(false);
+    busy.remove();
+  }
+}
+
 /**
- * Relit les Google Docs liés. On commence par leur texte seul (léger) : s'il n'a pas changé
- * depuis la dernière synchro, on s'arrête là. Renvoie le bilan, ou null si rien n'a été tenté.
+ * Relit les documents liés par un lien. On commence par une vérification légère (texte seul pour Google Docs,
+ * taille du fichier sinon) : si rien n'a changé depuis la dernière synchro, on s'arrête là.
+ * Renvoie le bilan, ou null si rien n'a été tenté.
  */
-async function syncGoogleDocs({ manual, only }) {
-  const docs = gdocEntries().filter(([k]) => !only || k === only);
+async function syncRemoteDocs({ manual, only }) {
+  const docs = linkEntries().filter(([k]) => !only || k === only);
   if (!docs.length || _gsyncing || !_loaded || !currentUser) return null;
   if (!manual && (isBusy() || navigator.onLine === false)) return null;
   _gsyncing = true;
@@ -4167,17 +4274,20 @@ async function syncGoogleDocs({ manual, only }) {
   try {
     for (const [key, f] of docs) {
       const now = Date.now();
-      if (!manual && now - (_gdocChecked.get(f.gdoc) || 0) < 5 * 60000) continue; // au plus une vérification automatique toutes les cinq minutes
-      _gdocChecked.set(f.gdoc, now);
+      if (!manual && now - (_linkChecked.get(key) || 0) < LINK_EVERY) continue;
+      _linkChecked.set(key, now);
       try {
-        const sig = await gdocSignature(f.gdoc);
+        // Un fichier lié relu à la demande l'est toujours en entier : sa taille seule ne dit pas tout
+        const sig = f.gdoc ? await gdocSignature(f.gdoc) : await linkSignature(f.url);
         if (!currentUser || !_loaded) return null;
-        if (!_forceReview.has(key) && f.pv === 2 && f.sig && sig === f.sig) { out.upToDate++; continue; }
-        if (!manual && _autoSkip.get(key) === sig) continue;                      // synchro annulée par l'utilisateur
-        if (manual && !busy) busy = toast(`Lecture de ${trunc(f.name, 30)}…`, '', { key: 'docx', duration: 150000 });
-        const { res, file } = await readGoogleDoc(f.gdoc, f.name, sig);
+        const light = f.gdoc || !manual;
+        if (light && sig && !_forceReview.has(key) && f.pv === 2 && f.sig && sig === f.sig) { out.upToDate++; continue; }
+        if (!manual && sig && _autoSkip.get(key) === sig) continue;                // synchro annulée par l'utilisateur
+        if (manual && !busy) busy = toast(`Lecture de ${trunc(f.name, 30)}…`, '', { key: 'docx', duration: 300000 });
+        const { res, file, sig: read } = f.gdoc ? await readGoogleDoc(f.gdoc, f.name, sig) : await readLinkedFile(f.url, f.name, sig, busy);
         if (!currentUser || !_loaded) return null;
-        const m = buildDocxModel(res, file, null, { key, gdoc: f.gdoc, sig });
+        if (!f.gdoc && !sig && read && f.pv === 2 && read === f.sig && !_forceReview.has(key)) { out.upToDate++; continue; }
+        const m = buildDocxModel(res, file, null, { key, gdoc: f.gdoc || null, url: f.url || null, sig: read || sig });
         if (_forceReview.delete(key)) { m.review = true; m.clean = false; }
         if (!m.clean) out.review = m;
         else {
@@ -4186,9 +4296,9 @@ async function syncGoogleDocs({ manual, only }) {
           else if (r) out.applied++;
         }
       } catch (e) {
-        console.warn('Synchro Google Docs', f.name, e);
+        console.warn('Synchro du document lié', f.name, e);
         out.failed++;
-        out.error = (e && e.code) || 'gdoc-busy';
+        out.error = (e && e.code) || (f.gdoc ? 'gdoc-busy' : 'link-busy');
       }
     }
   } finally {
@@ -4202,12 +4312,12 @@ async function syncGoogleDocs({ manual, only }) {
 async function syncAll({ manual, only }) {
   if (!_loaded || !currentUser) return;
   const a = _linked.length ? await syncLinked({ manual, only }) : null;
-  const g = await syncGoogleDocs({ manual, only });
+  const g = await syncRemoteDocs({ manual, only });
   const review = (g && g.review) || (a && a.review) || null;
   if (review && manual) openDocxPreview(review);
   else if (review) _pendingReview = review;
   if (manual && !review && !((a ? a.applied : 0) + (g ? g.applied : 0))) {
-    if (g && g.failed) toast(DOC_ERRORS[g.error] || 'Lecture impossible du document Google Docs.', 'warn', { key: 'docx', duration: 10000 });
+    if (g && g.failed) toast(DOC_ERRORS[g.error] || 'Lecture impossible du document lié.', 'warn', { key: 'docx', duration: 10000 });
     else if (a && a.refused && !a.upToDate) toast('Autorisez la lecture du fichier pour le synchroniser.', 'warn');
     else if (a || g) toast('Déjà à jour : votre document n\'a pas changé.', 'success', { key: 'docx' });
   }
@@ -5023,7 +5133,7 @@ Object.assign(window, {
   // Synchro Word
   wordAction, openDocxModal, pickWordFile, handleDocxFile, unlinkFile,
   docxToggle, docxMap, docxTarget, docxSetScope, docxSetLevel, docxSetMode, docxSetNewTitle, docxSetPages, docxResetPages, docxSetTotal,
-  handleDocPaste, reviewDocPlan, linkGoogleDoc, syncDoc, forgetDoc,
+  handleDocPaste, reviewDocPlan, linkDocument, syncDoc, forgetDoc,
   docxCountChanged, applyDocxImport, docxBack,
   // Titre
   updateDocumentTitle,

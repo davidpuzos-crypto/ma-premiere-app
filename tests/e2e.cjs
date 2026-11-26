@@ -803,10 +803,13 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.evaluate(() => window.openDocxModal());
     await page.waitForSelector('#gdocUrl');
     assert.equal(await page.textContent('#docxAddTitle'), 'Choisir mon document');
-    // Un lien qui n'est pas un Google Doc : on dit quoi coller
-    await page.fill('#gdocUrl', 'https://www.example.com/mon-document');
+    // Ce qui n'est pas un lien, ou pas un document texte : on dit quoi coller
+    await page.fill('#gdocUrl', 'mon document');
     await page.click('#gdocBox button');
-    assert.match(await page.textContent('#docxError'), /n'est pas celui d'un document Google Docs/);
+    assert.match(await page.textContent('#docxError'), /Ce n'est pas un lien que le Journal sait lire/);
+    await page.fill('#gdocUrl', 'https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/edit');
+    await page.click('#gdocBox button');
+    assert.match(await page.textContent('#docxError'), /n'est pas celui d'un document texte \(Google Docs\)/);
     // Document pas encore partagé : on explique le réglage à changer
     remote.shared = false;
     await page.fill('#gdocUrl', `https://docs.google.com/document/d/${ID}/edit`);
@@ -892,6 +895,110 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await other.page.click('.toast .toast-act'); // Annuler
     await other.page.waitForFunction(() => document.getElementById('tdPrimary').textContent.includes('Synchroniser'));
     await other.ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('Dropbox : fichier lié par son lien de partage, relu tout seul, sur tous les appareils ; liens refusés avec une explication', async () => {
+    const uid = 'u_dbx';
+    const SHARE = 'https://www.dropbox.com/scl/fi/m9glhahs4vqurgqr3tp7o/Ma%20th%C3%A8se.docx?rlkey=jeiam6bpfmw4ky2g5ndwbc6js&st=abcd1234&dl=0';
+    const DL = 'https://dl.dropboxusercontent.com/scl/fi/m9glhahs4vqurgqr3tp7o/Ma%20th%C3%A8se.docx?rlkey=jeiam6bpfmw4ky2g5ndwbc6js&dl=1';
+    const PDF_DL = 'https://dl.dropboxusercontent.com/s/09ctqeg1hd9soi2/memoire.pdf?dl=1';
+    const remote = { file: 'these.docx', up: true };
+    const hits = { HEAD: 0, GET: 0 };
+    const serve = ctx => ctx.route(u => u.hostname === 'dl.dropboxusercontent.com' || u.hostname === 'www.dropbox.com', route => {
+      const req = route.request();
+      const url = req.url();
+      // www.dropbox.com redirige sans autoriser la lecture : le Journal ne doit jamais s'y adresser
+      if (!remote.up || (url !== DL && url !== PDF_DL)) return route.abort('failed');
+      const pdf = url === PDF_DL;
+      if (!pdf) hits[req.method()]++;
+      const body = fs.readFileSync(FIX(pdf ? 'memoire.pdf' : remote.file));
+      const name = pdf ? 'memoire.pdf' : 'Ma%20th%C3%A8se.docx';
+      const headers = { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'Accept-Ranges, Content-Disposition, Content-Encoding, Content-Length, Content-Range',
+        'content-disposition': `attachment; filename="document"; filename*=UTF-8''${name}`, 'cache-control': 'max-age=60' };
+      if (req.method() === 'HEAD') return route.fulfill({ status: 200, headers: { ...headers, 'content-length': String(body.length) }, contentType: pdf ? 'application/pdf' : 'application/binary', body: '' });
+      return route.fulfill({ status: 200, headers, contentType: pdf ? 'application/pdf' : 'application/binary', body });
+    });
+    let { ctx, page } = await newPage(browser, { user: { uid, email: 'dbx@example.com' } });
+    await serve(ctx);
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+    await page.evaluate(() => window.openDocxModal());
+    await page.waitForSelector('#gdocUrl');
+    // Ce qu'un navigateur ne peut pas lire est refusé avec la marche à suivre
+    for (const [link, msg] of [
+      ['https://www.dropbox.com/scl/fo/6y7hlsyisit2rb0bjepzh/AKOfmeyr?rlkey=x&dl=0', /mène à un dossier/],
+      ['https://1drv.ms/w/s!AbCdEfGh', /OneDrive et SharePoint ne laissent pas un site lire/],
+      ['https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/view?usp=sharing', /fichier stocké dans Google Drive, pas à un document Google Docs/],
+      ['https://www.overleaf.com/read/abcdefgh', /téléchargez le PDF/],
+    ]) {
+      await page.fill('#gdocUrl', link);
+      await page.click('#gdocBox button');
+      assert.match(await page.textContent('#docxError'), msg, link);
+    }
+    // Le lien de partage Dropbox, tel qu'on le copie
+    await page.fill('#gdocUrl', SHARE);
+    await page.press('#gdocUrl', 'Enter');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 20000 });
+    assert.match(await page.textContent('#docxSummary'), /^Ma thèse\.docx : 5\s270 mots, ≈ 12 pages\. 5 parties détectées, 4 sous-sections/, 'le nom du fichier vient de Dropbox');
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Fichier lié/.test(t.textContent)), null, { timeout: 8000 });
+    assert.match((await toasts(page)).join('|'), /Fichier lié : vos pages se mettront à jour toutes seules, sur tous vos appareils/);
+    await flush(page);
+    let d = await docOf(page, uid);
+    const key = Object.keys(d.docFiles)[0];
+    assert.match(key, /^u_[a-z0-9]+$/);
+    let f = d.docFiles[key];
+    assert.deepEqual([f.name, f.url, f.src, f.pv, f.gdoc], ['Ma thèse.docx', DL, 'layout', 2, null], 'on garde l\'adresse lisible du fichier, pas le lien d\'origine');
+    assert.match(f.sig, /^\d+\.[a-z0-9]+$/, 'signature légère : la taille du fichier');
+    assert.deepEqual(hits, { HEAD: 1, GET: 1 });
+    const pages1 = written(d);
+    assert.equal(await page.textContent('#wordBtn'), 'Synchroniser mon document');
+    await page.evaluate(() => window.openDocxModal());
+    assert.match(await page.textContent('#linkedList .lk-meta'), /lié par son lien \(Dropbox\) · synchro : aujourd'hui · 12 p\./);
+    assert.equal(await page.getAttribute('#linkedList a.lk-btn', 'href'), 'https://www.dropbox.com/scl/fi/m9glhahs4vqurgqr3tp7o/Ma%20th%C3%A8se.docx?rlkey=jeiam6bpfmw4ky2g5ndwbc6js&dl=0', '« Ouvrir » mène à la page Dropbox du fichier');
+    await page.click('#docxModal >> text=Fermer');
+    // À la demande, le fichier est relu en entier : rien n'a changé
+    await page.click('#wordBtn');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Déjà à jour/.test(t.textContent)), null, { timeout: 15000 });
+    assert.deepEqual(hits, { HEAD: 2, GET: 2 });
+    // On a écrit (le fichier a grossi) : au retour dans le Journal, une vérification légère puis la mise à jour, sans rien demander
+    remote.file = 'these_v2.docx';
+    await page.reload();
+    await page.waitForSelector('.chapter-card');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Ma thèse\.docx synchronisé/.test(t.textContent)), null, { timeout: 20000 });
+    assert.match((await toasts(page)).join('|'), /Ma thèse\.docx synchronisé : \+1,\d p\. aujourd'hui/);
+    await flush(page);
+    d = await docOf(page, uid);
+    assert.equal(written(d), pages1 + 1, 'une page de plus');
+    assert.notEqual(d.docFiles[key].sig, f.sig);
+    assert.deepEqual(hits, { HEAD: 3, GET: 3 });
+    await ctx.close();
+
+    // Un autre appareil (téléphone) : le document est déjà lié, rien n'a changé, une seule requête légère
+    ({ ctx, page } = await newPage(browser, { user: { uid, email: 'dbx@example.com' }, store: { [`users/${uid}/thesis/main`]: d }, viewport: { width: 390, height: 844 } }));
+    await serve(ctx);
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    await page.waitForTimeout(1500);
+    assert.deepEqual(hits, { HEAD: 4, GET: 3 }, 'fichier inchangé : pas de nouveau téléchargement');
+    // Lien coupé (partage désactivé) : on le dit, les pages ne bougent pas
+    remote.up = false;
+    await page.evaluate(() => window.wordAction());
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Le Journal n'a pas pu lire ce lien/.test(t.textContent)), null, { timeout: 15000 });
+    assert.equal(written(await docOf(page, uid)), pages1 + 1);
+    remote.up = true;
+    // Un PDF sur Dropbox : pages exactes, lu directement depuis son lien
+    await page.evaluate(() => window.openDocxModal());
+    await page.fill('#gdocUrl', 'https://www.dropbox.com/s/09ctqeg1hd9soi2/memoire.pdf?dl=0');
+    await page.click('#gdocBox button');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 30000 });
+    assert.match(await page.textContent('#docxSummary'), /^memoire\.pdf : 3\s517 mots, 13 pages/);
+    assert.match(await page.textContent('#docxPagesHint'), /pagination du PDF, exacte · plan lu dans ses signets/);
+    assert.deepEqual(page._errors.filter(e => !/Lien :|Failed to fetch|net::ERR/.test(e)), []);
+    await ctx.close();
   });
 
   /* ------------------------------------------------------------ */

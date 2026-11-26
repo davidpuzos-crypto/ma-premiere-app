@@ -33,6 +33,7 @@ const ASSETS_TO_CACHE = [
   './zip.js',
   './pdfdoc.js',
   './pdfread.js',
+  './links.js',
   './promo.js',
   './docx.js',
   './ics.js',

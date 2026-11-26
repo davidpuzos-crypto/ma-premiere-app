@@ -52,6 +52,7 @@
   <link rel="modulepreload" href="zip.js" />
   <link rel="modulepreload" href="pdfdoc.js" />
   <link rel="modulepreload" href="pdfread.js" />
+  <link rel="modulepreload" href="links.js" />
   <link rel="modulepreload" href="promo.js" />
   <link rel="modulepreload" href="docx.js" />
   <link rel="modulepreload" href="ics.js" />
@@ -780,21 +781,28 @@
           <span class="dz-sub">Word (.docx), LibreOffice (.odt), PDF, LaTeX (.tex), Markdown, texte. Ou le déposer n'importe où dans la page.</span>
         </button>
         <div class="gdoc-box" id="gdocBox">
-          <label class="gdoc-title" for="gdocUrl"><svg class="ic" aria-hidden="true"><use href="#i-link"/></svg>Lier un Google Doc</label>
+          <label class="gdoc-title" for="gdocUrl"><svg class="ic" aria-hidden="true"><use href="#i-link"/></svg>Lier par un lien</label>
           <div class="gdoc-row">
             <input type="url" id="gdocUrl" class="form-control" inputmode="url" autocomplete="off" spellcheck="false"
-                   placeholder="Collez le lien de votre document" onkeydown="if (event.key === 'Enter') { event.preventDefault(); linkGoogleDoc(); }" />
-            <button type="button" class="btn btn-primary btn-sm" onclick="linkGoogleDoc()">Lier</button>
+                   placeholder="Lien Google Docs ou Dropbox" onkeydown="if (event.key === 'Enter') { event.preventDefault(); linkDocument(); }" />
+            <button type="button" class="btn btn-primary btn-sm" onclick="linkDocument()">Lier</button>
           </div>
-          <p class="form-hint">Pages exactes, mises à jour toutes seules, sur tous vos appareils.</p>
+          <p class="form-hint">Google Docs ou fichier Dropbox (Word, LibreOffice, PDF…)&nbsp;: mis à jour tout seul, sur tous vos appareils.</p>
           <details class="gdoc-how">
             <summary>Comment faire, et ce que cela implique</summary>
+            <p><b>Google Docs</b></p>
             <ol>
               <li>Dans Google Docs, cliquez sur <b>Partager</b>.</li>
               <li>Sous «&nbsp;Accès général&nbsp;», choisissez <b>Tous les utilisateurs disposant du lien</b> (le rôle «&nbsp;Lecteur&nbsp;» suffit).</li>
               <li>Cliquez sur <b>Copier le lien</b>, puis collez-le ici.</li>
             </ol>
-            <p>Avec ce réglage, toute personne à qui vous donnez le lien peut lire le document&nbsp;: ne le diffusez pas. Le Journal le lit depuis votre navigateur, il ne passe par aucun serveur du Journal, et seul l'identifiant du document est enregistré dans votre compte. Vous préférez ne pas le partager&nbsp;? Téléchargez-le (Fichier, Télécharger, Microsoft Word) et déposez le fichier&nbsp;: la mise en page est lue de la même façon.</p>
+            <p><b>Dropbox</b></p>
+            <ol>
+              <li>Dans Dropbox, sur le fichier de votre manuscrit, cliquez sur <b>Partager</b>, puis <b>Copier le lien</b>.</li>
+              <li>Collez ce lien ici. Le fichier reste où il est&nbsp;: continuez d'y travailler comme d'habitude.</li>
+            </ol>
+            <p>Avec un lien de partage, toute personne à qui vous donnez ce lien peut lire le document&nbsp;: ne le diffusez pas. Le Journal le lit depuis votre navigateur, il ne passe par aucun serveur du Journal. Ce qui est enregistré dans votre compte, pour le relire depuis vos autres appareils&nbsp;: l'identifiant du document Google, ou le lien du fichier Dropbox. Vous préférez ne rien partager&nbsp;? Déposez le fichier (depuis Google Docs&nbsp;: Fichier, Télécharger, Microsoft Word)&nbsp;: il est lu de la même façon.</p>
+            <p>OneDrive, SharePoint et Overleaf ne permettent pas cette lecture par lien. Sur Chrome ou Edge (ordinateur), choisissez le fichier dans votre dossier OneDrive&nbsp;: il restera lié à cet appareil et se mettra à jour tout seul. Depuis Overleaf, déposez le PDF.</p>
           </details>
         </div>
       </div>
@@ -1106,7 +1114,7 @@
       if (n >= 2) return;
       sessionStorage.setItem('jdb_heal', String(n + 1));
     } catch (e) { return; }
-    var files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'zip.js', 'pdfdoc.js', 'pdfread.js', 'ics.js'];
+    var files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'zip.js', 'pdfdoc.js', 'pdfread.js', 'links.js', 'ics.js'];
     Promise.all(files.map(function (u) { return fetch(u, { cache: 'reload' }).catch(function () {}); }))
       .then(function () { location.reload(); });
   });
