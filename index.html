@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr" data-app-version="4.1.0">
+<html lang="fr" data-app-version="5.0.0">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -162,11 +162,11 @@
 
       <ul class="lp-points">
         <li><span class="lp-ico"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg></span>
-          <span><b>Vos pages, comptées toutes seules.</b> Déposez votre document (Word, LibreOffice, LaTeX) ou liez votre Google Doc&nbsp;: le Journal retrouve vos chapitres et compte vos pages comme votre traitement de texte.</span></li>
+          <span><b>Vos pages, comptées toutes seules.</b> Déposez votre document (Word, LibreOffice, PDF, LaTeX) ou liez-le (Google Docs, Dropbox)&nbsp;: le Journal retrouve vos chapitres et compte vos pages comme votre traitement de texte.</span></li>
         <li><span class="lp-ico"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg></span>
           <span><b>Une page, un geste.</b> Un bouton «&nbsp;+1 page&nbsp;». Rien à calculer.</span></li>
         <li><span class="lp-ico"><svg class="ic" aria-hidden="true"><use href="#i-flag"/></svg></span>
-          <span><b>Dans les temps&nbsp;?</b> Le Journal vous dit si vous tiendrez votre dépôt, quel rythme tenir, et met vos séances dans votre agenda.</span></li>
+          <span><b>Fini quand&nbsp;?</b> À votre rythme, le Journal vous donne la date de votre dernière page, vous dit si vous tiendrez votre dépôt, et met vos séances dans votre agenda.</span></li>
         <li><span class="lp-ico"><svg class="ic" aria-hidden="true"><use href="#i-grid"/></svg></span>
           <span><b>Entre doctorant·es.</b> Le bingo de la semaine et la note de bas de page du jour, les mêmes pour tout le monde.</span></li>
       </ul>
@@ -386,10 +386,10 @@
               </div>
               <div class="word-tools">
                 <button type="button" class="btn btn-neutral btn-sm word-btn" onclick="wordAction()"
-                        title="Mettre à jour mon plan et mes pages depuis mon document : Word, LibreOffice, Google Docs, LaTeX, ou texte collé (vous pouvez aussi le déposer ou le coller n'importe où dans la page)">
+                        title="Mettre à jour mon plan et mes pages depuis mon document : Word, LibreOffice, PDF, LaTeX, Google Docs, Dropbox, ou texte collé (vous pouvez aussi le déposer ou le coller n'importe où dans la page)">
                   <svg class="ic ic-sm" aria-hidden="true"><use href="#i-sync"/></svg><span id="wordBtn">Importer mon document</span></button>
                 <button type="button" class="linklike word-change hidden" id="wordChange" onclick="openDocxModal()"
-                        title="Choisir un autre fichier, lier un Google Doc, ajouter un chapitre, oublier un document">Changer de document</button>
+                        title="Choisir un autre fichier, lier un document par son lien, ajouter un chapitre, voir ce que les dernières synchros ont changé">Changer de document</button>
               </div>
             </div>
 
@@ -790,6 +790,14 @@
         <h3 class="box-title">Mes documents</h3>
         <div id="linkedList"></div>
         <p class="form-hint" id="linkedHint"></p>
+        <!-- Ce que la dernière synchro a changé (annulable), et les précédentes -->
+        <div class="sync-log hidden" id="syncLogBox">
+          <p class="sl-last" id="syncLogLast"></p>
+          <details class="sl-more hidden" id="syncLogMore">
+            <summary id="syncLogCount">Synchros précédentes</summary>
+            <ol id="syncLogList"></ol>
+          </details>
+        </div>
       </div>
 
       <h3 class="box-title" id="docxAddTitle">Choisir mon document</h3>
@@ -832,14 +840,17 @@
       <p class="docx-error hidden" id="docxError" role="alert"></p>
       <p class="privacy-note"><svg class="ic ic-sm" aria-hidden="true"><use href="#i-lock"/></svg>Votre document est lu sur votre appareil et n'est envoyé nulle part. Seuls les titres et les nombres de pages sont enregistrés.</p>
       <details class="docx-tips">
-        <summary>Pour un résultat parfait</summary>
+        <summary>Pour un résultat parfait, selon votre outil</summary>
         <ul>
-          <li><b>Word, LibreOffice, Google Docs</b>&nbsp;: donnez à vos titres les styles «&nbsp;Titre 1&nbsp;», «&nbsp;Titre 2&nbsp;»… (c'est aussi ce qui génère votre table des matières). Peu importe à quel niveau sont vos chapitres&nbsp;: le Journal le repère, et vous pouvez le corriger.</li>
-          <li><b>Les pages</b> sont celles de votre document&nbsp;: la pagination enregistrée par Word, celle de Google Docs quand il est lié, sinon un calcul d'après la mise en page du fichier (police, interligne, marges, notes, images, tableaux). Pour un texte collé, le Journal ne voit pas la mise en page&nbsp;: indiquez-lui le nombre de pages, il s'en souviendra.</li>
-          <li><b>Un fichier par chapitre</b>&nbsp;: à chaque nouveau fichier, choisissez «&nbsp;Ajouter un chapitre&nbsp;».</li>
-          <li><b>LaTeX</b>&nbsp;: déposez votre fichier .tex (ou un fichier par chapitre), ou collez-le&nbsp;: \chapter, \section sont reconnus.</li>
-          <li><b>Ancien Word (.doc), Pages, PDF</b>&nbsp;: enregistrez d'abord en .docx, ou collez votre texte.</li>
-          <li>Sur Chrome ou Edge (ordinateur), le fichier reste lié&nbsp;: vos pages se mettent à jour toutes seules.</li>
+          <li><b>Word</b>&nbsp;: déposez votre .docx tel quel. Les pages sont celles que Word a enregistrées, et vos chapitres sont repérés par les styles «&nbsp;Titre 1&nbsp;», «&nbsp;Titre 2&nbsp;» (ceux qui font votre table des matières). Sans styles, le Journal reconnaît vos titres à leur mise en forme et vous les fait vérifier.</li>
+          <li><b>LibreOffice</b>&nbsp;: déposez votre .odt, enregistré depuis LibreOffice&nbsp;: sa pagination est lue comme celle de Word.</li>
+          <li><b>Google Docs</b>&nbsp;: liez le document par son lien. Pages exactes, mises à jour toutes seules.</li>
+          <li><b>LaTeX, Overleaf, Typst, Pages</b>&nbsp;: déposez le PDF de votre manuscrit, ses pages sont exactes et son plan est lu dans ses signets. Vous pouvez aussi déposer le .tex, plusieurs fichiers d'un coup, ou le .zip du projet (Overleaf&nbsp;: «&nbsp;Menu&nbsp;», «&nbsp;Source&nbsp;»).</li>
+          <li><b>Dropbox</b>&nbsp;: collez le lien de partage du fichier, quel que soit son format.</li>
+          <li><b>Un fichier par chapitre</b>&nbsp;: déposez-les ensemble, ou l'un après l'autre en choisissant «&nbsp;Ajouter un chapitre&nbsp;».</li>
+          <li><b>Texte collé</b>&nbsp;: le Journal ne voit pas la mise en page. Indiquez-lui le nombre de pages, il s'en souviendra.</li>
+          <li><b>Ancien Word (.doc), Scrivener</b>&nbsp;: exportez en .docx ou en PDF.</li>
+          <li><b>Pour que tout se mette à jour seul</b>&nbsp;: un lien (Google Docs, Dropbox), ou, sur Chrome et Edge (ordinateur), le fichier choisi une fois, qui reste lié. Application installée&nbsp;: «&nbsp;Partager&nbsp;» vers le Journal depuis votre téléphone, «&nbsp;Ouvrir avec&nbsp;» sur ordinateur.</li>
         </ul>
       </details>
       <div class="modal-actions">
@@ -976,7 +987,7 @@
       <div><dt>Où</dt>
         <dd>Le site est hébergé par GitHub Pages. Vos données sont chez Firebase, un service de Google, dans un espace rattaché à votre compte&nbsp;: votre journal ne se lit que depuis ce compte.</dd></div>
       <div><dt>Votre document</dt>
-        <dd>Fichier ou texte collé, il est lu sur votre appareil et n'est envoyé nulle part. Seuls son nom, vos titres et vos nombres de mots et de pages sont gardés. Si vous liez un Google Doc, votre navigateur le télécharge directement chez Google, grâce au lien de partage que vous avez créé&nbsp;: il ne passe par aucun serveur du Journal, et seul l'identifiant du document est gardé avec votre compte. Vous pouvez le délier à tout moment.</dd></div>
+        <dd>Fichier ou texte collé, il est lu sur votre appareil et n'est envoyé nulle part&nbsp;; un fichier reçu par le menu «&nbsp;Partager&nbsp;» est gardé sur l'appareil le temps d'être lu, puis effacé. Seuls son nom, vos titres, vos nombres de mots et de pages, et ce que vos dernières synchros ont changé sont gardés. Si vous liez un Google Doc ou un fichier Dropbox, votre navigateur le télécharge directement chez Google ou Dropbox, grâce au lien de partage que vous avez créé&nbsp;: il ne passe par aucun serveur du Journal. Ce lien (pour Google Docs, l'identifiant du document) est gardé avec votre compte, pour relire le document depuis vos autres appareils. Vous pouvez le délier à tout moment.</dd></div>
       <div><dt>La promo</dt>
         <dd>Elle est facultative. Si vous la rejoignez, les autres voient votre pseudonyme, votre discipline et votre année si vous les indiquez, votre pourcentage d'avancement, vos pages de la semaine, votre série, votre calendrier de régularité et les notes que vous choisissez de partager. Jamais votre nom, votre adresse, votre titre, votre plan ni vos notes privées. Votre fiche se consulte par son lien, même sans compte. Vous pouvez quitter la promo à tout moment&nbsp;: la fiche est alors supprimée.</dd></div>
       <div><dt>Sur votre appareil</dt>
@@ -1002,13 +1013,14 @@
 <!-- Quoi de neuf (affiché une fois après chaque mise à jour) -->
 <div class="modal-overlay hidden" id="whatsNewModal" role="dialog" aria-modal="true" aria-labelledby="wnTitle">
   <div class="modal modal-wide">
-    <p class="kicker">Mise à jour · le Journal a appris à compter</p>
-    <h2 id="wnTitle">Vos vraies pages, enfin</h2>
+    <p class="kicker">Mise à jour · le Journal voit plus loin</p>
+    <h2 id="wnTitle">Votre date de fin, en grand</h2>
     <ol class="wn-list">
-      <li><b>Les pages de votre document, pas une moyenne.</b> Le Journal lit la pagination de Word et la mise en page de votre fichier (police, interligne, marges, notes, images). À la prochaine synchro, vos pages sont recomptées&nbsp;; votre journal ne bouge pas.</li>
-      <li><b>Google Docs, par un simple lien.</b> Liez votre document&nbsp;: pages exactes, mises à jour toutes seules, sur tous vos appareils. Et l'on peut changer de document, ou ajouter un chapitre à la fois.</li>
-      <li><b>Un agenda qui vous ressemble.</b> Un horaire par jour si vous voulez, un clic pour Google Agenda, et la prochaine séance annoncée sur votre tableau de bord.</li>
-      <li><b>Une thèse, ce n'est pas que des pages.</b> Terrain, lectures, colloque&nbsp;: ces journées comptent dans votre journal. Avec un joker par semaine, des périodes sans rédaction et, si le cœur vous en dit, un défi.</li>
+      <li><b>«&nbsp;À ce rythme, dernière page le…&nbsp;»</b> La date s'affiche en haut de votre tableau de bord, avec votre vélocité (pages par semaine), sa tendance, et ce que rapporte une page écrite aujourd'hui. Elle avance chaque fois que vous écrivez.</li>
+      <li><b>Presque tous les documents.</b> Un PDF (LaTeX, Overleaf, Pages) donne ses pages exactes, LibreOffice devient aussi précis que Word, les projets LaTeX en .zip, le RTF, Typst ou Markdown sont lus, et vos titres sont reconnus même sans styles.</li>
+      <li><b>Dropbox, par un simple lien.</b> Comme pour Google Docs&nbsp;: collez le lien de partage, vos pages se mettent à jour toutes seules, sur tous vos appareils.</li>
+      <li><b>Une synchro qui dit ce qu'elle fait.</b> Vos pages vont au jour où vous les avez écrites, et l'historique montre ce qui a changé, chapitre par chapitre, avec de quoi annuler.</li>
+      <li><b>Depuis le menu «&nbsp;Partager&nbsp;».</b> Application installée&nbsp;: envoyez votre document au Journal depuis votre téléphone, ou choisissez «&nbsp;Ouvrir avec&nbsp;» sur ordinateur.</li>
       <li class="hidden" id="wnPromo"><b>La promo.</b> Voyez où en sont les autres doctorant·es, sous pseudonyme, et encouragez-vous. Elle a sa place dans le menu.</li>
     </ol>
     <p class="form-hint wn-more">Vos chapitres, vos notes et vos dates sont exactement là où vous les avez laissés.</p>

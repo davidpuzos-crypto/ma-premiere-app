@@ -955,6 +955,16 @@ button.book:focus-visible { outline-offset: 1px; }
 .box-title { font-family: var(--sans); font-size: .78rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3); margin: 16px 0 8px; }
 .linked-box { margin-top: 4px; padding: 0 14px 8px; border-radius: 14px; background: var(--paper); border: 1px solid var(--line); }
 .linked-box .box-title { margin-top: 12px; margin-bottom: 2px; }
+/* L'historique des synchros : la dernière en clair, les précédentes dépliables */
+.sync-log { margin: 8px 0 4px; padding-top: 9px; border-top: 1px dashed var(--line-2); font-size: .86rem; line-height: 1.45; color: var(--ink-2); }
+.sl-last { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.sl-last > span { flex: 1 1 280px; min-width: 0; }
+.sl-last b, .sl-more li b { color: var(--ink); font-weight: 700; }
+.sl-parts { display: block; margin-top: 1px; font-size: .8rem; color: var(--ink-3); }
+.sl-more { margin-top: 5px; }
+.sl-more summary { display: inline-block; cursor: pointer; font-size: .8rem; font-weight: 600; color: var(--ink-3); text-decoration: underline; text-underline-offset: 3px; }
+.sl-more summary:hover { color: var(--ink); }
+.sl-more ol { list-style: none; margin: 6px 0 2px; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 220px; overflow-y: auto; }
 .lk-item { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); font-size: .92rem; }
 .lk-ico { flex: none; color: var(--teal-600); display: flex; }
 .lk-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
@@ -1305,6 +1315,7 @@ body.signed-out #toastBox { left: 50%; max-width: calc(100vw - 28px); }
 }
 @media (max-width: 380px) {
   .hero-figure { font-size: 3.8rem; }
+  .prog-date { font-size: 2.2rem; }
   .today-goal { gap: 12px; }
   .ring { width: 92px; height: 92px; }
 }

@@ -59,7 +59,7 @@ import {
 import { createPromo } from './promo.js';
 
 /* Version de l'application : la même que VERSION dans sw.js et que data-app-version dans index.html */
-const APP_VERSION = '4.1.0';
+const APP_VERSION = '5.0.0';
 const APP_URL = 'https://lejournaldebord.org/';
 
 /* Garde-fou de mise à jour (son jumeau est dans index.html) : ce script et la page doivent être de la même
@@ -169,7 +169,9 @@ const WD_NAMES   = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi
 const WD_ORDER   = [1, 2, 3, 4, 5, 6, 0];
 const MONTHS_SHORT = ['janv.', 'févr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'août', 'sept.', 'oct.', 'nov.', 'déc.'];
 const WHATSNEW_KEY = 'jdb_whatsnew';
-const WHATSNEW_VER = '5'; // à augmenter pour annoncer une mise à jour à la connexion
+const SYNC_KEEP = 20;   // synchros gardées dans l'historique
+const SYNC_PARTS = 6;   // parties détaillées pour chacune
+const WHATSNEW_VER = '6'; // à augmenter pour annoncer une mise à jour à la connexion
 
 /** Une icône du jeu défini en tête de index.html (<symbol id="i-…">). */
 function icon(name, cls = '') {
@@ -198,7 +200,7 @@ function defaultState() {
     introLast: true,         // rétroplanning : intro et conclusion à la fin
     sessionTime: '09:00',    // séances d'écriture (agenda)
     sessionMinutes: 90,
-    slots: [],               // horaire propre à un jour : [[jour, 'HH:MM', minutes]] ; les autres jours suivent sessionTime
+    slots: [],               // horaire propre à un jour : [[jour, 'HH:MM', minutes]] en mémoire, [{ d, t, m }] dans la base ; les autres jours suivent sessionTime
     alarmMin: 10,            // rappel avant la séance, en minutes (0 = aucun)
     meetWeeks: 0,            // rappel « envoyer mes pages à ma direction » toutes les n semaines (0 = non)
     pauses: [],              // périodes hors rédaction : [{ from, to, kind }]
@@ -210,6 +212,7 @@ function defaultState() {
     // Synchro Word
     docFiles: {},            // { cléFichier: { name, at, inclWords, wpp, scope, level, mtime, size, pv, src, pages, k, gdoc, sig } }
     docIgnore: [],           // parties du document que l'utilisateur a choisi d'ignorer
+    syncLog: [],             // dernières synchros : [{ t, k, n, d, a, p, w, c: [{ n: partie, d: pages }], x }] (voir logSync)
   };
 }
 
@@ -310,7 +313,9 @@ function normalizeState(d) {
   }
   s.trackedSince = isDayKey(d.trackedSince) ? d.trackedSince : null;
   if (Array.isArray(d.slots)) {
-    s.slots = d.slots.filter(x => Array.isArray(x) && Number.isInteger(x[0]) && x[0] >= 0 && x[0] <= 6 && /^\d{2}:\d{2}$/.test(x[1]) && Number.isFinite(x[2]))
+    // Enregistrés sous la forme { d, t, m } ; l'ancienne forme [jour, heure, minutes] (copie locale d'avant la 5.0) est lue aussi
+    s.slots = d.slots.map(x => (Array.isArray(x) ? x : isObj(x) ? [x.d, x.t, x.m] : null))
+      .filter(x => x && Number.isInteger(x[0]) && x[0] >= 0 && x[0] <= 6 && /^\d{2}:\d{2}$/.test(x[1]) && Number.isFinite(x[2]))
       .map(x => [x[0], x[1], clamp(Math.round(x[2]), 15, 480)]).slice(0, 7);
   }
   if (Number.isFinite(d.alarmMin)) s.alarmMin = clamp(Math.round(d.alarmMin), 0, 1440);
@@ -359,6 +364,20 @@ function normalizeState(d) {
   if (Array.isArray(d.docIgnore)) {
     s.docIgnore = [...new Set(d.docIgnore.filter(x => typeof x === 'string' && x).map(x => x.slice(0, 400)))].slice(0, 300);
   }
+  if (Array.isArray(d.syncLog)) {
+    const num = v => (Number.isFinite(v) ? Math.round(v * 100) / 100 : 0);
+    s.syncLog = d.syncLog.filter(e => isObj(e) && typeof e.t === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(e.t)).map(e => ({
+      t: e.t,
+      k: typeof e.k === 'string' && /^[a-z0-9_]{1,100}$/.test(e.k) ? e.k : '',
+      n: String(e.n || '').slice(0, 80),
+      d: isDayKey(e.d) ? e.d : e.t.slice(0, 10),
+      a: num(e.a),
+      p: num(e.p),
+      w: Number.isFinite(e.w) ? Math.round(e.w) : null,
+      c: (Array.isArray(e.c) ? e.c : []).filter(x => isObj(x) && typeof x.n === 'string' && Number.isFinite(x.d)).slice(0, SYNC_PARTS).map(x => ({ n: x.n.slice(0, 60), d: num(x.d) })),
+      x: ['new', 'plan'].includes(e.x) ? e.x : '',
+    })).slice(-SYNC_KEEP);
+  }
   return s;
 }
 
@@ -377,7 +396,7 @@ function serializeState() {
     introLast:      state.introLast,
     sessionTime:    state.sessionTime,
     sessionMinutes: state.sessionMinutes,
-    slots:          state.slots,
+    slots:          state.slots.map(x => ({ d: x[0], t: x[1], m: x[2] })),   // jamais de tableau dans un tableau : Firestore le refuse
     alarmMin:       state.alarmMin,
     meetWeeks:      state.meetWeeks,
     pauses:         state.pauses,
@@ -387,6 +406,7 @@ function serializeState() {
     trackedSince:   state.trackedSince,
     docFiles:       state.docFiles,
     docIgnore:      state.docIgnore,
+    syncLog:        state.syncLog,
   };
 }
 
@@ -625,13 +645,15 @@ const stampOf = d => `${(d && d.updatedAt) || ''}|${(d && d.clientId) || ''}`;
    entier sans les champs v2. Chaque appareil garde donc une copie
    locale de ces champs et les restaure si besoin. */
 const V2_FIELDS = ['deadline', 'deadlineMonth', 'marginDays', 'writingDays', 'dailyGoal', 'introLast', 'sessionTime',
-  'sessionMinutes', 'activity', 'journal', 'trackedSince', 'docFiles', 'docIgnore', 'slots', 'alarmMin', 'meetWeeks', 'pauses', 'defis'];
+  'sessionMinutes', 'activity', 'journal', 'trackedSince', 'docFiles', 'docIgnore', 'syncLog', 'slots', 'alarmMin', 'meetWeeks', 'pauses', 'defis'];
 const backupKey = () => 'jdb_v2_' + (currentUser && currentUser.uid);
 
 function backupV2() {
   if (!currentUser) return;
+  if (!_slotsChecked && lostSlotsBackup()) return;   // copie d'avant la 5.0 à reprendre d'abord : voir recoverLostSlots
   const b = {};
   for (const f of V2_FIELDS) b[f] = state[f];
+  b.slots = state.slots.map(x => ({ d: x[0], t: x[1], m: x[2] }));
   lsSet(backupKey(), JSON.stringify(b));
 }
 
@@ -649,6 +671,35 @@ function withV2Backup(data) {
   if (isObj(b.journal) && isObj(data.journal)) merged.journal = { ...b.journal, ...data.journal };
   const restored = V2_FIELDS.some(f => merged[f] !== data[f]);
   return { data: merged, restored };
+}
+
+/* Réparation. En 4.1.0, donner un horaire propre à un jour faisait refuser tous les enregistrements suivants : la
+   base n'accepte pas un tableau placé dans un tableau, et l'horaire était envoyé sous cette forme. La copie locale,
+   elle, a continué d'être tenue, avec l'horaire sous cette même forme : c'est à cela qu'on la reconnaît (depuis la
+   5.0, la copie locale l'écrit en objets). Quand le serveur confirme qu'il n'a pas reçu cet horaire, on le reprend,
+   avec les journées du journal notées depuis, sans rien écraser de ce que le serveur connaît. */
+let _slotsChecked = false;   // la copie locale a été examinée face aux données du serveur (une fois par ouverture)
+function lostSlotsBackup() {
+  let b = null;
+  try { b = JSON.parse(lsGet(backupKey()) || 'null'); } catch { b = null; }
+  return isObj(b) && Array.isArray(b.slots) && b.slots.some(Array.isArray) ? b : null;
+}
+function recoverLostSlots(server) {
+  if (_slotsChecked || !currentUser) return;
+  _slotsChecked = true;
+  const b = lostSlotsBackup();
+  if (!b) return;
+  if (!server || !(server.version >= 2) || (Array.isArray(server.slots) && server.slots.length)) { backupV2(); return; }
+  const cur = serializeState();
+  state = normalizeState({
+    ...cur,
+    slots: b.slots,
+    activity: { ...(isObj(b.activity) ? b.activity : {}), ...cur.activity },
+    journal: { ...(isObj(b.journal) ? b.journal : {}), ...cur.journal },
+  });
+  saveNow();
+  render();
+  toast('Votre horaire par jour et les journées notées depuis ont été retrouvés sur cet appareil et enregistrés. Vérifiez vos pages par chapitre.', 'success', { duration: 12000 });
 }
 
 async function _doFirestoreSave(replace = false) {
@@ -680,6 +731,7 @@ async function _doFirestoreSave(replace = false) {
    modification suivante : au-delà, ils effaceraient aussi ce qui a été fait depuis. */
 function dropStaleUndo() {
   document.querySelectorAll('#toastBox .toast[data-undo]').forEach(t => t.remove());
+  if (_syncUndo) { _syncUndo = null; renderSyncLog(); }
 }
 
 function saveNow(replace = false) { dropStaleUndo(); clearTimeout(_saveTimer); _saveTimer = null; _doFirestoreSave(replace); }
@@ -700,6 +752,7 @@ function stopSync() {
   _linked = [];
   _pendingReview = null;
   Object.assign(_syncState, { at: 0, refused: 0, failed: 0, error: '' });
+  _slotsChecked = false;
   _figure.shown = false;
   _shelfShown = false;
   promo.reset();
@@ -746,6 +799,7 @@ function startSync() {
     if (fromServer && !_serverSynced && _loaded) {
       _serverSynced = true;
       onServerSynced();
+      recoverLostSlots(data);
     }
   }, err => {
     console.error('Firestore listen error:', err);
@@ -823,6 +877,7 @@ function onFirstLoad(isNew) {
   syncTitleInput();
   handleUrlAction();
   initLinkedFiles();
+  handleIncoming();
   // Nouveau compte : aucune fenêtre. Compte existant : l'annonce de la mise à jour, une seule fois,
   // affichée quand on sait si la promo est ouverte (elle y est mentionnée seulement dans ce cas).
   const fresh = isNew || (state.chapters.length === 0 && !state.startDate);
@@ -3835,6 +3890,7 @@ function applyDocx(m, quick) {
   if (!m.rows.some(r => r.include)) { toast('Sélectionnez au moins une partie', 'warn'); return false; }
   const snap = snapshotState();
   const before = writtenPages();
+  const parts = partPages();
   const pageDelta = docxPageDelta(m);
   const act = m.count ? docxActivityDelta(m) : 0;
   const day = docxDay(m);
@@ -3886,7 +3942,17 @@ function applyDocx(m, quick) {
   const newlyLinked = !!m.handle && canLink() && !_linked.some(l => l.key === m.key);
   if (m.handle || m.gdoc || m.url) _syncState.at = Date.now();   // document relu à l'instant : l'état affiché le dit
   if (m.handle) linkFile(m.key, m.name, m.handle);
+  const undo = () => {
+    if (m.mtime) _autoSkip.set(m.key, m.mtime);
+    else if (m.sig) _autoSkip.set(m.key, m.sig);
+    restoreSnapshot(snap, 'Synchronisation annulée');
+    updateWordButton();
+  };
+  // L'historique : ce que cette synchro a changé, partie par partie (rien quand le fichier n'a pas bougé)
+  const changes = same ? [] : partChanges(parts);
+  const logged = same ? null : logSync(m, { day, act, pageDelta, changes });
   saveNow();
+  _syncUndo = logged ? { t: logged.t, fn: undo } : null;   // après l'enregistrement, qui périme les annulations précédentes
   closeModal('docxModal');
   render();
   updateWordButton();
@@ -3897,14 +3963,10 @@ function applyDocx(m, quick) {
   const detail = m.recount && pageDelta ? `pages recomptées (${fmtInt(before)} → ${fmtInt(before + pageDelta)})${act ? `, ${act > 0 ? '+' : ''}${fmt1(act)} p. ${when}` : ''}`
     : act ? `${act > 0 ? '+' : ''}${fmt1(act)} p. ${when}`
     : pageDelta ? `${pageDelta > 0 ? '+' : ''}${pageDelta} p.` : 'tout est à jour';
-  toast(`${trunc(m.name, 28)} synchronisé : ${detail}`, 'success', {
-    key: 'docx', undo: true,
-    action: { label: 'Annuler', fn: () => {
-      if (m.mtime) _autoSkip.set(m.key, m.mtime);
-      else if (m.sig) _autoSkip.set(m.key, m.sig);
-      restoreSnapshot(snap, 'Synchronisation annulée');
-      updateWordButton();
-    } },
+  // Où : la partie qui a bougé, ou leur nombre (le détail est dans l'historique des synchros)
+  const where = m.replace || !m.known ? '' : changes.length === 1 ? ` · ${trunc(changes[0][0], 30)}` : changes.length > 1 ? ` · ${changes.length} parties` : '';
+  toast(`${trunc(m.name, 28)} synchronisé : ${detail}${where}`, 'success', {
+    key: 'docx', undo: true, action: { label: 'Annuler', fn: undo },
   });
   if (newlyLinked) {
     setTimeout(() => toast('Fichier lié : vos pages se mettront à jour toutes seules quand vous reviendrez ici.', '', { duration: 6000 }), 1200);
@@ -3913,6 +3975,90 @@ function applyDocx(m, quick) {
   }
   if (act > 0 && day === todayKey()) checkDailyGoal();
   return true;
+}
+
+/* ---------- L'historique des synchros : ce que chacune a changé ---------- */
+let _syncUndo = null;   // { t, fn } : annulation de la dernière synchro, tant que rien d'autre n'a été modifié
+
+/** Pages rédigées de chaque partie du plan : Map(id → { title, pages }). */
+function partPages() {
+  const out = new Map();
+  for (const ch of state.chapters) {
+    const pages = ch.subsections.length ? ch.subsections.reduce((a, x) => a + (x.writtenPages || 0), 0) : (ch.writtenPages || 0);
+    out.set(ch.id, { title: ch.title, pages });
+  }
+  return out;
+}
+
+/** Ce qui a changé depuis « before » : [[titre, pages en plus ou en moins]], les plus gros écarts d'abord. */
+function partChanges(before) {
+  const out = [];
+  for (const [id, now] of partPages()) {
+    const was = before.get(id);
+    const d = Math.round((now.pages - (was ? was.pages : 0)) * 100) / 100;
+    if (d) out.push([now.title, d]);
+  }
+  return out.sort((x, y) => Math.abs(y[1]) - Math.abs(x[1]));
+}
+
+/** Inscrit une synchro dans l'historique (les SYNC_KEEP dernières sont gardées). */
+function logSync(m, { day, act, pageDelta, changes }) {
+  const entry = {
+    t: `${todayKey()}T${nowHHMM()}`,
+    k: m.key,
+    n: m.name.slice(0, 80),
+    d: day,
+    a: Math.round(act * 100) / 100,
+    p: Math.round(pageDelta * 100) / 100,
+    w: docxComparable(m) ? Math.round(m.inclWords - m.known.inclWords) : null,
+    c: changes.slice(0, SYNC_PARTS).map(c => ({ n: String(c[0]).slice(0, 60), d: c[1] })),
+    x: m.replace ? 'plan' : !m.known ? 'new' : '',
+  };
+  state.syncLog = [...state.syncLog, entry].slice(-SYNC_KEEP);
+  return entry;
+}
+
+/** « +2,5 p. », « −1 p. » */
+const signedPages = n => `${n > 0 ? '+' : '−'}${fmt1(Math.abs(n))}\u00A0p.`;
+
+/** L'historique, dans la fenêtre « Mon document » : la dernière synchro en clair (annulable), les précédentes dépliables. */
+function renderSyncLog() {
+  const box = document.getElementById('syncLogBox');
+  if (!box) return;
+  const log = state.syncLog.slice().reverse();
+  box.classList.toggle('hidden', !log.length);
+  if (!log.length) { setHTML('syncLogLast', ''); setHTML('syncLogList', ''); return; }
+  const when = e => {
+    const day = e.t.slice(0, 10);
+    return `${day === todayKey() ? 'aujourd\'hui' : relDay(day).toLowerCase()} à ${e.t.slice(11).replace(':', '\u00A0h\u00A0')}`;
+  };
+  const what = e => {
+    const bits = [];
+    if (e.x === 'plan') bits.push('plan refait');
+    else if (e.x === 'new') bits.push('première synchro');
+    if (e.a) bits.push(`${signedPages(e.a)} au journal ${ofDay(e.d)}`);
+    else if (e.p) bits.push(`${signedPages(e.p)} sans toucher au journal`);
+    if (e.w) bits.push(`${e.w > 0 ? '+' : '−'}${fmtInt(Math.abs(e.w))}\u00A0mots`);
+    return bits.join(', ') || 'pages recomptées';
+  };
+  const parts = e => (e.c.length ? `<span class="sl-parts">${e.c.map(c => `${esc(trunc(c.n, 34))}\u00A0: ${signedPages(c.d)}`).join(' ; ')}</span>` : '');
+  const line = e => `<b>${esc(trunc(e.n, 34))}</b>, ${when(e)} : ${what(e)}.${parts(e)}`;
+  const last = log[0];
+  const canUndo = _syncUndo && _syncUndo.t === last.t;
+  setHTML('syncLogLast', `<span>${typo(line(last))}</span>${canUndo
+    ? '<button type="button" class="lk-btn" onclick="undoLastSync()" title="Revenir à l\'état d\'avant cette synchro">Annuler cette synchro</button>' : ''}`);
+  const older = log.slice(1);
+  document.getElementById('syncLogMore').classList.toggle('hidden', !older.length);
+  setText('syncLogCount', `Synchros précédentes (${older.length})`);
+  setHTML('syncLogList', older.map(e => `<li>${typo(line(e))}</li>`).join(''));
+}
+
+function undoLastSync() {
+  const u = _syncUndo;
+  if (!u) return;
+  _syncUndo = null;
+  u.fn();
+  renderSyncLog();
 }
 
 /* ---------- Aperçu (première synchro d'un fichier, ou nouveautés) ---------- */
@@ -4289,6 +4435,7 @@ function renderLinkedList() {
     ? 'Les documents liés se mettent à jour tout seuls quand vous revenez sur cet onglet.'
     : 'Pour mettre à jour : déposez le fichier dans la page, collez votre texte, ou liez votre document par son lien (Google Docs, Dropbox).');
   setText('docxAddTitle', all.length ? 'Ajouter un document, ou en changer' : 'Choisir mon document');
+  renderSyncLog();
 }
 
 /** Hébergeur d'un fichier lié, pour l'affichage. */
@@ -5369,15 +5516,90 @@ function handleUrlAction() {
   const params = new URLSearchParams(location.search);
   const action = params.get('action');
   const fellow = cleanId(params.get('p'));
-  if (!action && !fellow) return;
+  const incoming = params.has('shared') || params.has('open');   // document partagé ou ouvert avec l'application : voir handleIncoming
+  if (!action && !fellow && !incoming) return;
+  if (incoming) _urlIntent = true;
   params.delete('action');
   params.delete('p');
+  params.delete('shared');
+  params.delete('open');
   const qs = params.toString();
   history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + location.hash);
   if (action === 'log') { _urlIntent = true; setTimeout(openLogModal, 300); }
   if (action === 'sync') { _urlIntent = true; setTimeout(openDocxModal, 300); } // point d'étape de l'agenda
   // Lien de fiche ouvert en étant connecté·e : la fiche s'affiche dès que la promo répond
   if (fellow) { _urlIntent = true; promo.whenReady().then(ok => { if (ok) promo.openFellow(fellow); }); }
+}
+
+/* ============================================================
+   DOCUMENT REÇU D'AILLEURS — application installée
+   « Partager » (téléphone) : le service worker met le fichier, ou
+   le lien, de côté ; la page le reprend ici.
+   « Ouvrir avec » (ordinateur, Chrome ou Edge) : le système remet
+   le fichier lui-même, qui reste lié comme s'il avait été choisi.
+   Dans les deux cas, rien ne quitte l'appareil.
+============================================================ */
+const SHARE_CACHE = 'journal-de-bord-partage';   // même nom que dans sw.js
+let _launch = null;       // fichiers remis par « Ouvrir avec », en attente du chargement du journal
+let _incoming = false;    // une réception est déjà en cours
+
+/** Ce que le service worker a mis de côté : { files, text }, ou null. Lu une seule fois. */
+async function takeShared() {
+  if (!('caches' in window)) return null;
+  try {
+    if (!(await caches.has(SHARE_CACHE))) return null;
+    const cache = await caches.open(SHARE_CACHE);
+    const files = [];
+    let text = '';
+    for (const req of await cache.keys()) {
+      const res = await cache.match(req);
+      if (!res) continue;
+      if (/\/texte$/.test(new URL(req.url).pathname)) { text = await res.text(); continue; }
+      const blob = await res.blob();
+      let name = '';
+      try { name = decodeURIComponent(res.headers.get('X-Nom') || ''); } catch { /* nom mal encodé */ }
+      files.push(new File([blob], name || 'document', { type: blob.type, lastModified: Number(res.headers.get('X-Date')) || Date.now() }));
+    }
+    await caches.delete(SHARE_CACHE);
+    return files.length || text.trim() ? { files, text: text.trim() } : null;
+  } catch { return null; }
+}
+
+async function handleIncoming() {
+  if (!_loaded || !currentUser || _incoming) return;
+  _incoming = true;
+  try {
+    // « Ouvrir avec »
+    const handles = _launch;
+    _launch = null;
+    if (handles && handles.length) {
+      _urlIntent = true;
+      await handleDocxFiles(await Promise.all(handles.map(async h => ({ file: await h.getFile(), handle: h }))));
+      return;
+    }
+    // « Partager »
+    const shared = await takeShared();
+    if (!shared) return;
+    _urlIntent = true;
+    if (shared.files.length) { await handleDocxFiles(shared.files); return; }
+    // Un lien (Google Docs, Dropbox…) : on le lie ; un texte : on le lit comme un texte collé
+    const link = parseLink(shared.text);
+    if (!link.error || shared.text.length < 400) { openDocxModal(); await linkDocument(shared.text); }
+    else importPasted('', shared.text);
+  } catch (e) {
+    console.error('Document reçu :', e);
+    toast('Ce document n\'a pas pu être ouvert. Choisissez-le depuis « Synchro du document ».', 'warn');
+  } finally {
+    _incoming = false;
+  }
+}
+
+if ('launchQueue' in window && window.launchQueue && typeof window.launchQueue.setConsumer === 'function') {
+  window.launchQueue.setConsumer(params => {
+    if (!params || !params.files || !params.files.length) return;
+    _launch = [...params.files];
+    handleIncoming();
+  });
 }
 
 /* ============================================================
@@ -5475,7 +5697,7 @@ Object.assign(window, {
   // Synchro Word
   wordAction, openDocxModal, pickWordFile, handleDocxFile, unlinkFile,
   docxToggle, docxMap, docxTarget, docxSetScope, docxSetLevel, docxSetMode, docxSetNewTitle, docxSetPages, docxResetPages, docxSetTotal,
-  handleDocPaste, reviewDocPlan, linkDocument, syncDoc, forgetDoc, handleDocxFiles,
+  handleDocPaste, reviewDocPlan, linkDocument, syncDoc, forgetDoc, handleDocxFiles, undoLastSync,
   docxCountChanged, applyDocxImport, docxBack,
   // Titre
   updateDocumentTitle,

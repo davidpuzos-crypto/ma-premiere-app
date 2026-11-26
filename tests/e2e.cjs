@@ -73,7 +73,7 @@ async function newPage(browser, { viewport = { width: 1280, height: 900 }, user 
     localStorage.clear();
     if (user) localStorage.setItem('__fbuser', JSON.stringify(user));
     if (store) localStorage.setItem('__fbstore', JSON.stringify(store));
-    if (seenNews) localStorage.setItem('jdb_whatsnew', '5');
+    if (seenNews) localStorage.setItem('jdb_whatsnew', '6');
   }, { user, store, config, seenNews });
   const page = await ctx.newPage();
   page._errors = [];
@@ -557,6 +557,16 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.deepEqual([d.docFiles.these.pv, d.docFiles.these.src, d.docFiles.these.pages, d.docFiles.these.k], [2, 'layout', 12, null]);
     assert.equal(d.chapters[1].docFile, 'these');
     assert.equal(await page.textContent('#wordBtn'), 'Synchroniser mon document');
+    // L'historique des synchros : la première y est, avec ce qu'elle a changé
+    const logText = async () => (await page.textContent('#syncLogLast')).split(String.fromCharCode(160)).join(' ');
+    assert.equal(d.syncLog.length, 1);
+    assert.deepEqual([d.syncLog[0].k, d.syncLog[0].n, d.syncLog[0].x, d.syncLog[0].a, d.syncLog[0].p, d.syncLog[0].d], ['these', 'these.docx', 'new', 0, 10, TODAY]);
+    await page.evaluate(() => window.openDocxModal());
+    await page.waitForSelector('#docxModal:not(.hidden)');
+    assert.match(await logText(), /^these\.docx, aujourd'hui à \d{2} h \d{2} : première synchro, \+10 p\. sans toucher au journal\./);
+    assert.match(await logText(), /Chapitre 1 : État de l’art : \+5 p\./, 'le détail par partie');
+    assert.equal(await page.isVisible('#syncLogMore'), false, 'une seule synchro : pas de liste à déplier');
+    await page.click('#docxModal >> text=Fermer');
 
     // Le lendemain : le même fichier, enrichi. Un geste, pas d'aperçu.
     await page.waitForTimeout(400);
@@ -570,6 +580,9 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(d.docFiles.these.inclWords, 5245);
     assert.equal(d.docFiles.these.pages, 13);
     assert.match(await page.textContent('#tdVal'), /^1,3 \//);
+    assert.match((await toasts(page)).join('|'), /synchronisé : \+1,3 p\. aujourd'hui · Chapitre 2 : Méthodologie/, 'le message dit où');
+    assert.equal(d.syncLog.length, 2);
+    assert.deepEqual([d.syncLog[1].x, d.syncLog[1].a, d.syncLog[1].p, d.syncLog[1].w, d.syncLog[1].c], ['', 1.3, 1, 600, [{ n: 'Chapitre 2 : Méthodologie', d: 1 }]]);
     // Annuler
     await page.click('.toast .toast-act');
     await page.waitForTimeout(200);
@@ -577,14 +590,47 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(written(d), 10);
     assert.ok(!d.activity || !d.activity[TODAY], 'activité annulée : ' + JSON.stringify(d.activity));
     assert.equal(d.docFiles.these.inclWords, 4645);
-    // On recommence, puis le même fichier une 2e fois : « déjà à jour »
+    assert.equal(d.syncLog.length, 1, 'la synchro annulée quitte l\'historique');
+    // La même, annulée cette fois depuis la fenêtre « Mon document » (le message a disparu depuis longtemps)
     await sendDocx(page, 'these_v2.docx', 'these.docx');
     await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /synchronisé/.test(t.textContent)));
+    await page.evaluate(() => document.querySelectorAll('.toast').forEach(x => x.remove()));
+    await page.evaluate(() => window.openDocxModal());
+    await page.waitForSelector('#docxModal:not(.hidden)');
+    assert.match(await logText(), /^these\.docx, aujourd'hui à \d{2} h \d{2} : \+1,3 p\. au journal d'aujourd'hui, \+600 mots\.Chapitre 2 : Méthodologie : \+1 p\./);
+    assert.equal(await page.isVisible('#syncLogMore'), true);
+    assert.equal(await page.textContent('#syncLogCount'), 'Synchros précédentes (1)');
+    await page.click('#syncLogCount');
+    assert.match(await page.textContent('#syncLogList'), /première synchro/);
+    await page.click('#syncLogLast >> text=Annuler cette synchro');
+    await page.waitForTimeout(200);
+    d = await docOf(page, uid);
+    assert.deepEqual([written(d), d.docFiles.these.inclWords, d.syncLog.length, !!(d.activity && d.activity[TODAY])], [10, 4645, 1, false], 'synchro annulée depuis l\'historique');
+    assert.equal(await page.locator('#syncLogLast button').count(), 0);
+    await page.click('#docxModal >> text=Fermer');
+    // Dès qu'on a modifié autre chose, l'annulation n'est plus proposée (elle effacerait ce qui a suivi)
+    await sendDocx(page, 'these_v2.docx', 'these.docx');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /synchronisé/.test(t.textContent)));
+    await page.evaluate(() => window.openDocxModal());
+    await page.waitForSelector('#docxModal:not(.hidden)');
+    assert.equal(await page.locator('#syncLogLast button').count(), 1);
+    await page.click('#docxModal >> text=Fermer');
+    await page.fill('#document-title', 'Ma thèse, titre provisoire');
+    await page.locator('#document-title').blur();
+    await page.evaluate(() => window.openDocxModal());
+    await page.waitForSelector('#docxModal:not(.hidden)');
+    assert.match(await logText(), /\+1,3 p\. au journal d'aujourd'hui/);
+    assert.equal(await page.locator('#syncLogLast button').count(), 0, 'plus d\'annulation après une autre modification');
+    await page.click('#docxModal >> text=Fermer');
+    d = await docOf(page, uid);
+    assert.equal(written(d), 11);
+    // Le même fichier une 2e fois : « déjà à jour », et rien de plus dans l'historique
     await page.waitForTimeout(300);
     await sendDocx(page, 'these_v2.docx', 'these.docx');
     await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Déjà à jour/.test(t.textContent)));
     d = await docOf(page, uid);
     assert.equal(d.activity[TODAY], 1.3, 'pas de double comptage');
+    assert.equal(d.syncLog.length, 2);
 
     // Une nouvelle sous-partie apparaît dans le document : là, on demande
     await sendDocx(page, 'these_v3.docx', 'these.docx');
@@ -888,6 +934,92 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.match(await p2.textContent('#docxCountLbl'), /à mon journal d'aujourd'hui/);
     assert.deepEqual(p2._errors, []);
     await second.ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('Application installée : « Ouvrir avec » (ordinateur) et « Partager » (téléphone) amènent le document au Journal', async () => {
+    // --- « Ouvrir avec » : le système remet le fichier à l'application (launchQueue) ; il reste lié, comme s'il avait été choisi
+    const uid = 'u_open';
+    let { ctx, page } = await newPage(browser, { user: { uid, email: 'open@example.com' } });
+    await ctx.addInitScript(() => { Object.defineProperty(window, 'launchQueue', { configurable: true, value: { setConsumer(fn) { window.__launch = fn; } } }); });
+    await page.goto(BASE + '?open=1');
+    await page.waitForSelector('.onboarding');
+    assert.equal(new URL(page.url()).search, '', 'l\'adresse est nettoyée');
+    assert.equal(await page.evaluate(() => typeof window.__launch), 'function', 'l\'application écoute les fichiers remis par le système');
+    await page.evaluate(async b64 => {
+      const root = await navigator.storage.getDirectory();
+      const fh = await root.getFileHandle('these.docx', { create: true });
+      const w = await fh.createWritable();
+      await w.write(Uint8Array.from(atob(b64), c => c.charCodeAt(0)));
+      await w.close();
+      window.__launch({ files: [fh] });
+    }, fs.readFileSync(FIX('these.docx')).toString('base64'));
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.match(await page.textContent('#docxSummary'), /these\.docx/);
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    await page.waitForFunction(() => document.getElementById('tdPrimary').textContent.includes('Synchroniser'), null, { timeout: 15000 });
+    assert.match(await page.textContent('#tdCap'), /these\.docx/, 'le fichier ouvert reste lié à l\'application');
+    assert.equal(written(await docOf(page, uid)), 10);
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+
+    // --- « Partager » : le service worker reçoit le fichier, le met de côté, et la page le reprend
+    const user = { uid: 'u_share', email: 'share@example.com' };
+    ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'allow', locale: 'fr-FR', timezoneId: 'Europe/Paris' });
+    for (const n of ['app', 'auth', 'firestore']) {
+      await ctx.route(`https://www.gstatic.com/firebasejs/10.8.1/firebase-${n}.js`, r => r.fulfill({ contentType: 'application/javascript', body: STUB(`firebase-${n}.js`) }));
+    }
+    await ctx.addInitScript(({ user }) => {
+      if (sessionStorage.getItem('__init')) return;
+      sessionStorage.setItem('__init', '1');
+      localStorage.clear();
+      localStorage.setItem('__fbuser', JSON.stringify(user));
+      localStorage.setItem('jdb_whatsnew', '6');
+    }, { user });
+    page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    await page.waitForFunction(async () => { const r = await navigator.serviceWorker.getRegistration(); return !!(r && r.active && r.active.state === 'activated'); }, null, { timeout: 20000 });
+    await page.reload();
+    await page.waitForSelector('.onboarding');
+    assert.equal(await page.evaluate(() => !!navigator.serviceWorker.controller), true, 'la page est servie par le service worker');
+    const manifest = JSON.parse(fs.readFileSync(path.join(DIR, '..', 'manifest.json'), 'utf8'));
+    assert.deepEqual([manifest.share_target.action, manifest.share_target.method, manifest.share_target.enctype, manifest.share_target.params.files[0].name], ['./?share=1', 'POST', 'multipart/form-data', 'doc']);
+    assert.ok(manifest.file_handlers[0].accept['application/pdf'].includes('.pdf'));
+    // Le système envoie le fichier, comme le décrit le manifeste : un formulaire en POST vers ./?share=1
+    const share = async fill => {
+      await page.evaluate(({ action }) => {
+        const f = document.createElement('form');
+        f.method = 'post'; f.enctype = 'multipart/form-data'; f.action = action; f.id = '__share';
+        f.innerHTML = '<input type="file" name="doc" id="__shareFile"><input name="title"><input name="text"><input name="url">';
+        document.body.appendChild(f);
+      }, { action: manifest.share_target.action });
+      await fill();
+      await Promise.all([page.waitForNavigation(), page.evaluate(() => document.getElementById('__share').submit())]);
+    };
+    await share(() => page.setInputFiles('#__shareFile', { name: 'these.docx', mimeType: DOCX, buffer: fs.readFileSync(FIX('these.docx')) }));
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 20000 });
+    assert.match(await page.textContent('#docxSummary'), /these\.docx.+12 pages/);
+    assert.equal(new URL(page.url()).search, '', 'l\'adresse est nettoyée : un rechargement ne rejoue rien');
+    assert.equal(await page.evaluate(() => caches.has('journal-de-bord-partage')), false, 'le fichier mis de côté est effacé dès qu\'il est repris');
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    assert.equal(written(await docOf(page, user.uid)), 10);
+    // Le même fichier partagé de nouveau, enrichi : un geste, pas d'aperçu
+    await page.waitForTimeout(400);
+    await share(() => page.setInputFiles('#__shareFile', { name: 'these.docx', mimeType: DOCX, buffer: fs.readFileSync(FIX('these_v2.docx')) }));
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /these\.docx synchronisé/.test(t.textContent)), null, { timeout: 20000 });
+    assert.equal(written(await docOf(page, user.uid)), 11);
+    // Un lien partagé (depuis Google Drive, Dropbox…) : il est reconnu ; ici un dossier, refusé avec son explication
+    await share(() => page.fill('#__share input[name="text"]', 'Ma thèse https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz012345'));
+    await page.waitForSelector('#docxModal:not(.hidden)', { timeout: 20000 });
+    await page.waitForFunction(() => { const e = document.getElementById('docxError'); return e && !e.classList.contains('hidden') && e.textContent.length > 10; });
+    assert.match(await page.textContent('#docxError'), /dossier/i);
+    assert.deepEqual(errors, []);
+    await ctx.close();
   });
 
   /* ------------------------------------------------------------ */
@@ -1547,7 +1679,8 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(await page.textContent('#calGoogle'), 'Ajouté');
     await flush(page);
     let d = await docOf(page, uid);
-    assert.deepEqual([d.sessionTime, d.sessionMinutes, d.slots, d.alarmMin, d.meetWeeks], ['09:00', 90, [[5, '14:00', 120]], 30, 6]);
+    assert.deepEqual([d.sessionTime, d.sessionMinutes, d.slots, d.alarmMin, d.meetWeeks], ['09:00', 90, [{ d: 5, t: '14:00', m: 120 }], 30, 6],
+      'l\'horaire propre à un jour est enregistré en objets : la base refuse un tableau dans un tableau');
     // Le fichier .ics contient la même chose, rappels compris
     const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#calendarModal >> text=fichier agenda (.ics)')]);
     const ics = fs.readFileSync(await dl.path(), 'utf8').replace(/\r\n /g, '');
@@ -1573,6 +1706,47 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.deepEqual([d.sessionTime, d.slots], ['08:30', []]);
     assert.match((await page.textContent('#tdNextTxt')).replace(/[  ]/g, ' '), /à 8 h 30 \(1 h 30\)$/);
     assert.deepEqual(page._errors, []);
+    // Réparation : en 4.1.0, l'horaire propre à un jour faisait refuser tous les enregistrements suivants. Le serveur n'a
+    // donc ni cet horaire ni les journées notées depuis ; la copie tenue sur l'appareil, si. À l'ouverture, on les reprend.
+    const lost = { uid: 'u_lost', email: 'lost@example.com' };
+    const server = Object.assign(clone(V1_DOC), { version: 2, trackedSince: addDays(TODAY, -30), sessionTime: '09:00', sessionMinutes: 90, writingDays: [1, 2, 3, 4, 5],
+      activity: { [addDays(TODAY, -6)]: 2 }, journal: { [addDays(TODAY, -6)]: [{ p: 2, s: 'c1', n: 'Avant', m: 0, t: '10:00' }] }, docFiles: {}, docIgnore: [] });
+    const local = { slots: [[5, '14:00', 120]], sessionTime: '09:00', writingDays: [1, 2, 3, 4, 5],
+      activity: { [addDays(TODAY, -6)]: 5, [addDays(TODAY, -2)]: 3 },
+      journal: { [addDays(TODAY, -2)]: [{ p: 3, s: 'c1', n: 'Jamais arrivé au serveur', m: 0, t: '18:00' }] } };
+    const rec = await newPage(browser, { user: lost, store: { [`users/${lost.uid}/thesis/main`]: server } });
+    await rec.ctx.addInitScript(({ k, v }) => { if (!localStorage.getItem(k)) localStorage.setItem(k, v); }, { k: `jdb_v2_${lost.uid}`, v: JSON.stringify(local) });
+    await rec.page.goto(BASE);
+    await rec.page.waitForSelector('.chapter-card');
+    await rec.page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(x => /retrouvés sur cet appareil/.test(x.textContent)), null, { timeout: 8000 });
+    await flush(rec.page);
+    d = await docOf(rec.page, lost.uid);
+    assert.deepEqual(d.slots, [{ d: 5, t: '14:00', m: 120 }], 'l\'horaire retrouvé est enregistré, sous une forme que la base accepte');
+    assert.equal(d.activity[addDays(TODAY, -2)], 3, 'la journée que le serveur n\'avait jamais reçue');
+    assert.equal(d.activity[addDays(TODAY, -6)], 2, 'ce que le serveur connaît n\'est pas écrasé');
+    assert.equal(d.journal[addDays(TODAY, -2)][0].n, 'Jamais arrivé au serveur');
+    assert.equal(d.journal[addDays(TODAY, -6)][0].n, 'Avant');
+    assert.deepEqual(JSON.parse(await rec.page.evaluate(k => localStorage.getItem(k), `jdb_v2_${lost.uid}`)).slots, [{ d: 5, t: '14:00', m: 120 }], 'la copie locale est réécrite sous la nouvelle forme');
+    // Rechargement : plus rien à réparer, pas de message
+    await rec.page.reload();
+    await rec.page.waitForSelector('.chapter-card');
+    await rec.page.waitForTimeout(2200);
+    assert.equal((await toasts(rec.page)).filter(x => /retrouvés/.test(x)).length, 0);
+    assert.deepEqual(rec.page._errors, []);
+    await rec.ctx.close();
+    // Pas de fausse réparation : depuis la 5.0, la copie locale garde l'horaire en objets. Un horaire effacé depuis un autre
+    // appareil (le serveur n'en a plus) ne revient donc pas, et aucune journée supprimée ailleurs ne ressuscite.
+    const calm = { uid: 'u_calm', email: 'calm@example.com' };
+    const local5 = { slots: [{ d: 5, t: '14:00', m: 120 }], activity: { [addDays(TODAY, -2)]: 3 }, journal: {} };
+    const sane = await newPage(browser, { user: calm, store: { [`users/${calm.uid}/thesis/main`]: server } });
+    await sane.ctx.addInitScript(({ k, v }) => { if (!localStorage.getItem(k)) localStorage.setItem(k, v); }, { k: `jdb_v2_${calm.uid}`, v: JSON.stringify(local5) });
+    await sane.page.goto(BASE);
+    await sane.page.waitForSelector('.chapter-card');
+    await sane.page.waitForTimeout(2500);
+    d = await docOf(sane.page, calm.uid);
+    assert.deepEqual([d.slots || [], d.activity[addDays(TODAY, -2)]], [[], undefined], 'rien n\'est repris d\'une copie locale saine');
+    assert.equal((await toasts(sane.page)).filter(x => /retrouvés/.test(x)).length, 0);
+    await sane.ctx.close();
     await ctx.close();
   });
 
@@ -1762,7 +1936,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     const a = await newPage(browser, { user: { uid, email: 'maj@example.com' }, store: { [`users/${uid}/thesis/main`]: V1_DOC }, seenNews: false });
     await a.page.goto(BASE);
     await a.page.waitForSelector('#whatsNewModal:not(.hidden)');
-    assert.match(await a.page.textContent('#wnTitle'), /Vos vraies pages/);
+    assert.match(await a.page.textContent('#wnTitle'), /Votre date de fin/);
     assert.equal(await a.page.isVisible('#wnPromo'), false, 'la promo n\'est pas annoncée tant qu\'elle est fermée');
     assert.equal(await a.page.textContent('#sWritten'), '38', 'les données sont intactes derrière l\'annonce');
     await a.page.click('#whatsNewModal >> text=C\'est parti');
@@ -2209,7 +2383,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.ok(await page.evaluate(() => document.querySelector('#whatsNewModal .modal').contains(document.activeElement)), 'le focus est dans la fenêtre');
     await page.keyboard.press('Escape');
     await page.waitForSelector('#whatsNewModal.hidden', { state: 'attached' });
-    assert.equal(await page.evaluate(() => localStorage.getItem('jdb_whatsnew')), '5');
+    assert.equal(await page.evaluate(() => localStorage.getItem('jdb_whatsnew')), '6');
     // Anciens marqueurs supprimés, réglages conservés
     assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter(k => /^jdb_(goal|streak|bingo)_/.test(k))), []);
     assert.equal(await page.evaluate(() => localStorage.getItem('jdb_lastSection_u_fin')), 's2');
