@@ -9,12 +9,13 @@ Parti pris : peu de fonctions, mais soignées, et toutes sous les yeux. Le burea
 **Ma thèse**
 
 - **Le bandeau** : avancement en pourcentage, pages rédigées, grade du moment et pages restantes avant le suivant ; le dépôt en éphéméride (une date précise ou seulement un mois visé) avec son compte à rebours, le verdict (dans les temps ou en retard), le rythme actuel, le rythme à tenir, la fin estimée.
-- **Aujourd'hui** : objectif du jour calculé d'après le dépôt, bouton « +1 page », pages de la semaine jour par jour, série de jours d'écriture.
+- **Aujourd'hui** : objectif du jour calculé d'après le dépôt, bouton « +1 page » (ou « Synchroniser » quand un document est lié), pages de la semaine jour par jour, série de jours d'écriture, prochaine séance prévue.
 - **La thèse en rayon** : un livre par chapitre, d'autant plus épais que le chapitre est long, surligné à hauteur de ce qui est écrit. La plante pousse avec la série ; après dix jours sans une page, une araignée s'installe.
 - **Le plan** : chapitres et sous-sections, boutons − et + sur chaque partie, échéance proposée par chapitre, statut de relecture (chez la direction, à corriger, validé) avec mail de relance.
-- **Synchro avec le document** : Word (`.docx`), LibreOffice (`.odt`), LaTeX (`.tex`), Markdown, texte simple, ou texte collé (le presse-papiers garde les titres de Google Docs et de Word). Tout est lu sur l'appareil, rien n'est envoyé. Le Journal repère à quel niveau de titre sont les chapitres (titre de thèse en « Titre 1 », thèse en parties…), propose le plan, et retient les choix faits pour ce document : les fois suivantes, un geste suffit. Un fichier pour tout le manuscrit ou un fichier par chapitre. Sur Chrome et Edge, le fichier reste lié et se relit tout seul ; ailleurs, un rappel discret apparaît quand la dernière synchro a plus d'une semaine.
-- **Journal** : calendrier de régularité, notes du jour.
-- **Agenda** : fichier `.ics` et liens Google Agenda. Séances d'écriture récurrentes, point d'étape hebdomadaire, dépôt (ou période visée, sur tout le mois), échéances des chapitres.
+- **Synchro avec le document** : Word (`.docx`), LibreOffice (`.odt`), Google Docs (par son lien de partage), LaTeX (`.tex`), Markdown, texte simple, ou texte collé. Tout est lu sur l'appareil, rien n'est envoyé. Le Journal repère à quel niveau de titre sont les chapitres (titre de thèse en « Titre 1 », thèse en parties…), propose le plan, et retient les choix faits pour ce document : les fois suivantes, un geste suffit. Les pages sont celles du document (voir « Compter les pages »). Un document pour tout le manuscrit, ou un par chapitre (« Ajouter un chapitre ») ; on peut à tout moment en changer, refaire le plan à partir de lui, ou l'oublier. Sur Chrome et Edge, un fichier reste lié et se relit tout seul ; un Google Doc lié se relit tout seul partout, téléphone compris.
+- **Journal** : calendrier de régularité, notes du jour, et les journées de thèse sans pages (terrain, lectures, colloque, formation…), qui comptent dans la série. Un joker par semaine pour souffler sans la casser. Un défi de la semaine, vérifié tout seul, que l'on peut refuser d'une croix.
+- **Périodes sans rédaction** (terrain, colloque, congés…) : pendant ces périodes, le rythme à tenir se recalcule sur les autres jours, la fin estimée recule d'autant, et la série ne casse pas.
+- **Agenda** : les créneaux d'écriture (un horaire commun, ou un par jour), avec rappel, envoyés vers Google Agenda (un lien prérempli par événement) ou dans un fichier `.ics` (Apple, Outlook). S'y ajoutent au choix le bilan de la semaine, un rappel pour envoyer ses pages à sa direction, le dépôt (ou la période visée, sur tout le mois) et les échéances des chapitres.
 - **Bilan imprimable** pour le comité de suivi (CSI) ou la direction.
 - **Hors ligne et multi-appareils** : cache local, synchronisation en temps réel.
 
@@ -38,7 +39,8 @@ Parti pris : peu de fonctions, mais soignées, et toutes sous les yeux. Le burea
 | `humour.js` | Textes : notes du jour, dictionnaire du doctorant, grades, bingo, pseudonymes |
 | `visuals.js` | Dessins générés à partir des données : étagère, plante, barres de la semaine (pur et testé) |
 | `promo.js` | La promo : fiches, classement, fil, encouragements |
-| `docx.js` | Lecture des documents dans le navigateur : Word, LibreOffice, HTML du presse-papiers, texte |
+| `docx.js` | Lecture des documents dans le navigateur : Word (texte, titres et mise en page), LibreOffice, HTML du presse-papiers, texte |
+| `pages.js` | La pagination d'un document : chasse des polices, découpe en lignes, remplissage des pages, repères de Word, PDF de Google Docs (pur et testé) |
 | `ics.js` | Génération des fichiers agenda |
 | `sw.js` | Service worker (réseau d'abord, cache en secours) |
 | `fonts/` | Polices Fraunces (titres, citations) et DM Sans (interface, chiffres), hébergées ici (licence OFL, voir `fonts/OFL.txt`) |
@@ -57,15 +59,36 @@ Les icônes sont dessinées dans `index.html` (`<symbol id="i-…">`) et s'emplo
 
 ## Formats de document
 
-| Source | Comment | Ce qui est reconnu |
-| --- | --- | --- |
-| Word | fichier `.docx` | styles Titre 1 à 9, niveaux hiérarchiques, notes, tableaux, pagination de Word |
-| LibreOffice | fichier `.odt` | titres (y compris ceux d'un document converti depuis Word), notes, tableaux, pagination |
-| Google Docs, Word en ligne | copier-coller, ou téléchargement en `.docx` | titres du presse-papiers (h1 à h6), listes, tableaux |
-| LaTeX | fichier `.tex` ou texte collé | `\part`, `\chapter`, `\section`… ; commentaires, formules et citations non comptés |
-| Markdown, texte | fichier `.md`, `.txt` ou texte collé | titres `#`, lignes « Chapitre 1 », « Partie II », « Introduction », « Conclusion » |
+| Source | Comment | Ce qui est reconnu | D'où viennent les pages |
+| --- | --- | --- | --- |
+| Word | fichier `.docx` | styles Titre 1 à 9, niveaux hiérarchiques, notes, tableaux, images | pagination enregistrée par Word (exacte) |
+| Google Docs | lien de partage, ou téléchargement en `.docx` | titres, notes, tableaux, images | PDF de Google Docs (exacte) si le document est lié ; mise en page simulée s'il est téléchargé |
+| LibreOffice | fichier `.odt`, ou `.docx` | titres (y compris ceux d'un document converti depuis Word), notes, tableaux | nombre de pages du fichier ; mise en page simulée pour un `.docx` |
+| Word en ligne, Notion… | copier-coller | titres du presse-papiers (h1 à h6), listes, tableaux | densité courante, à corriger une fois |
+| LaTeX | fichier `.tex` ou texte collé | `\part`, `\chapter`, `\section`… ; commentaires, formules et citations non comptés | densité courante, à corriger une fois |
+| Markdown, texte | fichier `.md`, `.txt` ou texte collé | titres `#`, lignes « Chapitre 1 », « Partie II », « Introduction », « Conclusion » | densité courante, à corriger une fois |
 
-Non lus, avec un message qui dit quoi faire : ancien Word `.doc`, RTF, Pages, PDF (enregistrer en `.docx`, ou coller le texte). Une connexion directe à Google Docs demanderait une autorisation Google propre à l'application : le copier-coller la remplace.
+Non lus, avec un message qui dit quoi faire : ancien Word `.doc`, RTF, Pages, PDF (enregistrer en `.docx`, ou coller le texte).
+
+### Compter les pages
+
+Le nombre de pages n'est pas dans le texte : il dépend de la mise en page. Une moyenne de « mots par page » se trompe facilement de 30 à 50 % (un document en Arial 11 à interligne 1,15 contient presque deux fois plus de texte par page qu'un autre en Times 12 à interligne double). Le Journal prend donc les pages à la meilleure source disponible (`pages.js`) :
+
+1. **La pagination réelle.** Word laisse dans le fichier un repère à chaque début de page tel qu'il l'a affiché : on les compte, et l'on sait sur quelle page tombe chaque titre. Pour un Google Doc lié, le navigateur télécharge aussi le document en PDF : ses signets donnent la page et la hauteur exactes de chaque titre.
+2. **Sinon, une simulation de la mise en page**, lue dans le fichier : format et marges, en-têtes, police et corps de chaque passage (avec la chasse réelle des caractères des polices courantes), interligne, espacements, retraits, lignes veuves et orphelines, titres solidaires, sauts de page, notes de bas de page, images, tableaux, colonnes. Les règles propres à chaque logiciel sont suivies (Google Docs calcule ses interlignes autrement pour les documents créés avant fin 2020).
+3. **Sans mise en page à lire** (texte collé, LaTeX, Markdown) : 2 700 signes par page, ce que contient une page de thèse en Times 12, interligne 1,5, marges de 2,5 cm.
+
+Dans tous les cas l'aperçu dit d'où vient le nombre, et un champ « Ce document fait N pages » permet de le corriger : la correction est retenue pour ce document. Les pages de chaque partie sont l'écart entre les positions de deux titres ; elles sont arrondies ensemble, de sorte que leur somme reste le nombre de pages du document.
+
+Le journal du jour, lui, suit les mots : changer d'interligne ou insérer un saut de page déplace la pagination sans que rien n'ait été écrit.
+
+Mesuré sur trente-deux documents dont la vraie pagination est connue (cinq Google Docs et leur PDF, vingt-cinq documents rendus par LibreOffice en Times, Arial, Calibri, Cambria et Courier, de l'interligne simple au double, avec notes, tableaux et images, et deux fichiers Word réels) : nombre de pages exact pour trente, 2 % d'écart pour les deux autres (les plus chargés en images).
+
+Limite connue : un Google Doc créé avant fin 2020 et simplement téléchargé en `.docx` peut être compté avec un écart (4 % en Arial, jusqu'à 15 % avec une police haute comme Open Sans), parce que le fichier ne dit pas laquelle des deux règles d'interligne de Google s'applique. Le lier par son lien donne la pagination exacte ; sinon, corriger le nombre de pages une fois suffit.
+
+### Lier un Google Doc
+
+Un document partagé en « Tous les utilisateurs disposant du lien » peut être téléchargé par le navigateur sans compte ni serveur intermédiaire (`https://docs.google.com/document/d/…/export?format=docx`, `pdf` ou `txt`). Le Journal garde l'identifiant du document avec le compte (le lien suit donc la personne sur tous ses appareils) et une signature de son texte : à chaque synchro, il télécharge d'abord le texte seul, et ne relit le fichier et le PDF que si quelque chose a changé. Un document non partagé donne un message qui explique le réglage à changer ; qui préfère ne pas partager son document le télécharge en `.docx` et le dépose.
 
 ## Activer « La promo » (une fois, deux minutes)
 
@@ -99,9 +122,11 @@ Jamais : le nom, l'adresse email, le titre de la thèse, le plan, les notes priv
 | `reports/{id}` | Un signalement | personne (console seulement) | personnes connectées |
 | `banned/{uid}` | Exclusion de la promo | personne (console seulement) | personne (console seulement) |
 
-Champs du journal : `chapters`, `startDate`, `milestones`, `documentTitle`, `updatedAt` (historiques), puis `version`, `deadline`, `deadlineMonth` (seul le mois est visé), `marginDays`, `writingDays`, `dailyGoal`, `introLast`, `sessionTime`, `sessionMinutes`, `activity` (pages par jour), `journal` (notes par jour), `trackedSince`, `docFiles`, `docIgnore`, `lastSeenAt`, `appVersion`, `clientId`.
+Champs du journal : `chapters`, `startDate`, `milestones`, `documentTitle`, `updatedAt` (historiques), puis `version`, `deadline`, `deadlineMonth` (seul le mois est visé), `marginDays`, `writingDays`, `dailyGoal`, `introLast`, `sessionTime`, `sessionMinutes`, `slots` (horaire propre à un jour), `alarmMin`, `meetWeeks`, `pauses` (périodes sans rédaction), `defis`, `activity` (pages par jour), `journal` (entrées par jour : pages, note, et genre `k` pour une journée de terrain, de lectures… ou un joker ; ce genre est aussi écrit dans `s`, précédé d'un tilde, parce que les versions d'avant la 4.1 gardent `s` mais effacent `k` quand elles réenregistrent le journal), `trackedSince`, `docFiles`, `docIgnore`, `lastSeenAt`, `appVersion`, `clientId`.
 
-Les écritures du journal se font en mode `merge` : l'historique d'un appareil n'efface jamais celui d'un autre.
+Une fiche de `docFiles` décrit un document synchronisé : nom, date, mots suivis, mots par page de ce document, portée (tout le manuscrit ou un chapitre), niveau de titre des chapitres, et depuis la 4.1 la source de ses pages (`src`), son nombre de pages, la correction éventuelle (`k`), l'identifiant du Google Doc lié (`gdoc`) et la signature de son texte (`sig`). Jamais le texte.
+
+Les écritures du journal se font en mode `merge` : l'historique d'un appareil n'efface jamais celui d'un autre. Les rares gestes qui retirent une entrée (oublier un document, annuler) réécrivent le journal en entier.
 
 Sur l'appareil (stockage local du navigateur) : quelques réglages (dernière partie travaillée, grille de bingo cochée, annonces déjà vues), une copie de secours du journal et, sur Chrome et Edge, le lien vers les fichiers Word. « Supprimer mon compte » efface le tout.
 
@@ -111,13 +136,15 @@ Sur l'appareil (stockage local du navigateur) : quelques réglages (dernière pa
 node tests/core.test.mjs
 ```
 
-Logique pure (dates, série, rythme, plan collé, découpage d'un document en chapitres, dessins de l'étagère et de la semaine). Aucune dépendance.
+Logique pure (dates, série, rythme, périodes sans rédaction, joker, défi de la semaine, plan collé, découpage d'un document en chapitres, pagination, lecture d'un PDF, dessins de l'étagère et de la semaine). Aucune dépendance.
 
 ```bash
 node tests/e2e.cjs
 ```
 
-Vingt-huit scénarios dans un vrai navigateur (Playwright) : inscription, plan, « +1 page », étagère, synchro du document (niveaux de titre, plan refait, LibreOffice, LaTeX, copier-coller), période visée et agenda, téléphone (onglets, menu), sécurité des données, annonce de mise à jour, promo fermée puis ouverte, lien de fiche, bingo, suppression de compte, accessibilité de base (dont le contraste de tous les textes visibles), mise à jour à cheval sur deux versions. Firebase y est remplacé par des bouchons (`tests/stubs`) : aucun compte créé, aucune donnée réelle touchée. Pour un seul scénario : `ONLY="Promo ouverte" node tests/e2e.cjs`.
+Trente-deux scénarios dans un vrai navigateur (Playwright) : inscription, plan, « +1 page », étagère, synchro du document (pages lues dans le fichier, niveaux de titre, plan refait, chapitre ajouté, nombre de pages corrigé, document oublié, LibreOffice, LaTeX, copier-coller), Google Doc lié (les adresses de Google y sont simulées), journée de terrain, joker, période sans rédaction, défi de la semaine, agenda (créneaux par jour, Google Agenda, fichier `.ics`), période visée, téléphone (onglets, menu), sécurité des données, annonce de mise à jour, promo fermée puis ouverte, lien de fiche, bingo, suppression de compte, accessibilité de base (dont le contraste de tous les textes visibles), mise à jour à cheval sur deux versions. Firebase y est remplacé par des bouchons (`tests/stubs`) : aucun compte créé, aucune donnée réelle touchée. Pour un seul scénario : `ONLY="Promo ouverte" node tests/e2e.cjs`.
+
+Les documents de `tests/fixtures` ont une mise en page de thèse (Times New Roman 12, interligne 1,5) ; le nombre de pages attendu dans les tests est celui que LibreOffice leur donne.
 
 ```bash
 cd tests && npm install && npm run rules

@@ -73,7 +73,7 @@ async function newPage(browser, { viewport = { width: 1280, height: 900 }, user 
     localStorage.clear();
     if (user) localStorage.setItem('__fbuser', JSON.stringify(user));
     if (store) localStorage.setItem('__fbstore', JSON.stringify(store));
-    if (seenNews) localStorage.setItem('jdb_whatsnew', '4');
+    if (seenNews) localStorage.setItem('jdb_whatsnew', '5');
   }, { user, store, config, seenNews });
   const page = await ctx.newPage();
   page._errors = [];
@@ -343,18 +343,26 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.evaluate(() => { window.showOpenFilePicker = undefined; }); // comme Firefox / Safari
     await sendDocx(page, 'these.docx');
     await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
-    assert.match(await page.textContent('#docxSummary'), /5 parties détectées, 4 sous-sections/);
+    assert.match(await page.textContent('#docxSummary'), /5\s270 mots, ≈ 12 pages\. 5 parties détectées, 4 sous-sections/, 'douze pages, comme dans le traitement de texte');
+    assert.equal(await page.inputValue('#docxPages'), '12');
+    assert.match(await page.textContent('#docxPagesHint'), /mise en page \(Times New Roman 12, interligne 1,5, A4\)/, 'le nombre de pages vient de la mise en page du fichier');
     assert.equal(await page.isVisible('#docxScopeRow'), false, 'plan vide : pas de question superflue');
+    assert.deepEqual(await page.$$eval('#docxModes input', os => os.map(o => [o.value, o.checked])), [['match', true], ['add', false]], 'tout le manuscrit, ou un seul chapitre');
+    assert.equal(await page.isVisible('#docxRecount'), false);
     await page.fill('#docxTotal', '120');
     await page.screenshot({ path: path.join(SHOTS, '21-06-word-apercu.png') });
     await page.click('#docxApply');
     await page.waitForSelector('.chapter-card');
     let d = await docOf(page, uid);
     assert.deepEqual(d.chapters.map(c => c.title), ['Introduction générale', 'Chapitre 1 : État de l’art', 'Chapitre 2 : Méthodologie', 'Conclusion générale']);
-    assert.equal(written(d), 12);
+    // Dix pages suivies sur douze : les pages liminaires et la bibliographie ne comptent pas
+    assert.equal(written(d), 10);
+    assert.deepEqual(d.chapters.map(c => (c.subsections.length ? c.subsections.map(s => s.writtenPages) : c.writtenPages)), [2, [2, 3], [1, 1], 1],
+      'chaque partie reçoit l\'entier le plus proche de sa longueur, et le total est respecté');
     assert.ok(!d.activity || !d.activity[TODAY], 'première synchro non comptée');
     assert.equal(d.docFiles.these.inclWords, 4645);
-    assert.equal(d.docFiles.these.wpp, 380);
+    assert.ok(d.docFiles.these.wpp >= 450 && d.docFiles.these.wpp <= 475, 'mots par page de CE document : ' + d.docFiles.these.wpp);
+    assert.deepEqual([d.docFiles.these.pv, d.docFiles.these.src, d.docFiles.these.pages, d.docFiles.these.k], [2, 'layout', 12, null]);
     assert.equal(d.chapters[1].docFile, 'these');
     assert.equal(await page.textContent('#wordBtn'), 'Synchroniser mon document');
 
@@ -363,17 +371,18 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await sendDocx(page, 'these_v2.docx', 'these.docx');
     await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /synchronisé/.test(t.textContent)), null, { timeout: 15000 });
     assert.equal(await page.isVisible('#docxModal'), false, 'pas d\'aperçu pour un fichier connu');
-    assert.match((await toasts(page)).join('|'), /these\.docx synchronisé : \+1,6 p\. aujourd'hui/);
+    assert.match((await toasts(page)).join('|'), /these\.docx synchronisé : \+1,3 p\. aujourd'hui/);
     d = await docOf(page, uid);
-    assert.equal(d.activity[TODAY], 1.58, 'activité au mot près (600 mots)');
-    assert.equal(written(d), 14);
+    assert.equal(d.activity[TODAY], 1.3, 'activité au mot près : 600 mots, à 460 mots par page dans ce document');
+    assert.equal(written(d), 11);
     assert.equal(d.docFiles.these.inclWords, 5245);
-    assert.match(await page.textContent('#tdVal'), /^1,6 \//);
+    assert.equal(d.docFiles.these.pages, 13);
+    assert.match(await page.textContent('#tdVal'), /^1,3 \//);
     // Annuler
     await page.click('.toast .toast-act');
     await page.waitForTimeout(200);
     d = await docOf(page, uid);
-    assert.equal(written(d), 12);
+    assert.equal(written(d), 10);
     assert.ok(!d.activity || !d.activity[TODAY], 'activité annulée : ' + JSON.stringify(d.activity));
     assert.equal(d.docFiles.these.inclWords, 4645);
     // On recommence, puis le même fichier une 2e fois : « déjà à jour »
@@ -383,7 +392,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await sendDocx(page, 'these_v2.docx', 'these.docx');
     await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Déjà à jour/.test(t.textContent)));
     d = await docOf(page, uid);
-    assert.equal(d.activity[TODAY], 1.58, 'pas de double comptage');
+    assert.equal(d.activity[TODAY], 1.3, 'pas de double comptage');
 
     // Une nouvelle sous-partie apparaît dans le document : là, on demande
     await sendDocx(page, 'these_v3.docx', 'these.docx');
@@ -396,7 +405,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.waitForSelector('#docxModal.hidden', { state: 'attached' });
     d = await docOf(page, uid);
     assert.equal(d.chapters[2].subsections.length, 3);
-    assert.equal(d.activity[TODAY], 2.91, '+504 mots (titre compris) de la nouvelle partie : ' + d.activity[TODAY]);
+    assert.equal(d.activity[TODAY], 2.39, '+504 mots (titre compris) de la nouvelle partie : ' + d.activity[TODAY]);
 
     // Décocher une partie : mémorisé, la synchro suivante reste en un geste
     await sendDocx(page, 'these_v3.docx', 'these.docx');
@@ -429,11 +438,29 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.waitForSelector('.chapter-card');
     assert.equal(await page.textContent('#tdStreak'), '1');
     await sendDocx(page, 'these_v4.docx', 'these.docx'); // 50 mots de moins
+    // Ce document était suivi avec l'ancien calcul (380 mots par page) : l'aperçu revient une fois, pour expliquer le nouveau
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.ok(await page.isVisible('#docxRecount'), 'le nouveau comptage des pages est expliqué');
+    assert.match(await page.textContent('#docxSummary'), /≈ 13 pages/);
+    assert.equal(await page.isChecked('#docxCount'), true);
+    assert.match(await page.textContent('#docxCountLbl'), /Ajouter -0,1\sp\./, 'le journal suit les mots, pas le recomptage');
+    assert.match(await page.textContent('#docxRows'), /3 → 2 p\./, 'chaque partie montre son ancien et son nouveau nombre de pages');
+    await page.click('#docxApply');
     await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /synchronisé/.test(t.textContent)), null, { timeout: 15000 });
-    const d = await docOf(page, uid);
-    assert.equal(d.activity[TODAY], -0.13);
+    assert.match((await toasts(page)).join('|'), /these\.docx synchronisé : pages recomptées \(14 → 11\), -0,1 p\. aujourd'hui/);
+    let d = await docOf(page, uid);
+    assert.equal(written(d), 11, 'treize pages dans le document, onze hors pages liminaires et bibliographie');
+    assert.equal(d.activity[TODAY], -0.11, '50 mots de moins, à 463 mots par page');
     assert.equal(d.journal[TODAY][0].n, 'Relecture et corrections (synchro Word)');
     assert.equal(await page.textContent('#tdStreak'), '2', 'la série continue');
+    assert.deepEqual([d.docFiles.these.pv, d.docFiles.these.src, d.docFiles.these.pages], [2, 'layout', 13]);
+    // Ensuite, tout redevient un geste
+    await page.waitForTimeout(400);
+    await sendDocx(page, 'these_v4.docx', 'these.docx');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Déjà à jour/.test(t.textContent)), null, { timeout: 15000 });
+    assert.equal(await page.isVisible('#docxModal'), false);
+    d = await docOf(page, uid);
+    assert.equal(d.activity[TODAY], -0.11);
     assert.deepEqual(page._errors, []);
     await ctx.close();
   });
@@ -462,7 +489,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.waitForSelector('#docxModal.hidden', { state: 'attached' });
     let d = await docOf(page, uid);
     const meth = d.chapters.find(c => c.id === 'c3');
-    assert.deepEqual(meth.subsections.map(s => s.writtenPages), [3, 2], 'Terrain = 190 + 760 mots, Entretiens = 570 mots');
+    assert.deepEqual(meth.subsections.map(s => s.writtenPages), [2, 1], 'trois pages suivies (la quatrième est la bibliographie) : Terrain 2, Entretiens 1,2');
     assert.equal(meth.subsections.length, 2, 'bibliographie du chapitre ignorée');
     assert.equal(d.docFiles.chapitre_methodo.scope, 'c3');
     assert.equal(d.chapters.find(c => c.id === 'c1').writtenPages, 6, 'les autres chapitres ne bougent pas');
@@ -514,16 +541,16 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.match(await page.textContent('#tdCap'), /these\.docx/);
     await page.screenshot({ path: path.join(SHOTS, '21-08-fichier-lie.png') });
     let d = await docOf(page, uid);
-    assert.equal(written(d), 12);
+    assert.equal(written(d), 10);
 
     // On écrit dans Word, on enregistre, on revient sur l'onglet : rien à faire
     await page.waitForTimeout(1100);
     await page.evaluate(async b => { await window.__writeDocx(b); }, b64('these_v2.docx'));
     await page.evaluate(() => window.dispatchEvent(new Event('focus')));
-    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /synchronisé\s:\s\+1,6\sp\./.test(t.textContent)), null, { timeout: 15000 });
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /synchronisé\s:\s\+1,3\sp\./.test(t.textContent)), null, { timeout: 15000 });
     d = await docOf(page, uid);
-    assert.equal(written(d), 14);
-    assert.equal(d.activity[TODAY], 1.58);
+    assert.equal(written(d), 11);
+    assert.equal(d.activity[TODAY], 1.3);
 
     // Rechargement : le lien est toujours là, sans rien redemander
     await page.reload();
@@ -576,13 +603,466 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(await drop('these.docx', 'these.docx', DOCX), true, 'zone de dépôt affichée');
     await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
     assert.equal(await page.evaluate(() => document.getElementById('dropOverlay').classList.contains('show')), false);
-    await page.click('#docxModal >> text=Retour');
+    // Plan déjà là, document inconnu : on choisit ce qu'on en fait, et l'on peut changer de document
+    assert.deepEqual(await page.$$eval('#docxModes input', os => os.map(o => o.value)), ['match', 'replace', 'add', 'chapter']);
+    await page.click('#docxModal >> text=Changer de document');
+    await page.waitForSelector('#docxStep1:not(.hidden)');
     await page.click('#docxModal >> text=Fermer');
     // Un PDF : message clair, pas d'erreur
     await drop('faux.pdf', 'these.pdf', 'application/pdf');
     await page.waitForSelector('#docxError:not(.hidden)');
     assert.match(await page.textContent('#docxError'), /PDF/);
     assert.deepEqual(page._errors.filter(e => !/document :/.test(e)), []);
+    await ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  // Un PDF minimal, comme celui de Google Docs : des pages A4 et un signet par titre (page, hauteur depuis le haut)
+  const fakePdf = (pages, marks) => {
+    const hex = t => 'FEFF' + [...t].map(c => c.charCodeAt(0).toString(16).padStart(4, '0')).join('').toUpperCase();
+    const objs = ['', ''];
+    const first = 3;                                 // objets 3 … : les pages
+    const out0 = first + pages;                      // racine des signets
+    objs[0] = `<< /Type /Catalog /Pages 2 0 R /Outlines ${out0} 0 R >>`;
+    objs[1] = `<< /Type /Pages /Count ${pages} /MediaBox [0 0 595.3 841.9] /Kids [${Array.from({ length: pages }, (_, i) => `${first + i} 0 R`).join(' ')}] >>`;
+    for (let i = 0; i < pages; i++) objs.push('<< /Type /Page /Parent 2 0 R >>');
+    objs.push(`<< /Type /Outlines /First ${out0 + 1} 0 R /Last ${out0 + marks.length} 0 R /Count ${marks.length} >>`);
+    marks.forEach((m, i) => objs.push(`<< /Title <${hex(m[0])}> /Parent ${out0} 0 R${i + 1 < marks.length ? ` /Next ${out0 + i + 2} 0 R` : ''} /Dest [${first + m[1]} 0 R /XYZ 72 ${(841.9 - m[2]).toFixed(2)} 0] >>`));
+    let s = '%PDF-1.4\n';
+    const offs = [];
+    objs.forEach((o, i) => { offs.push(s.length); s += `${i + 1} 0 obj\n${o}\nendobj\n`; });
+    const xref = s.length;
+    s += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + offs.map(o => String(o).padStart(10, '0') + ' 00000 n \n').join('');
+    s += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+    return Buffer.from(s, 'latin1');
+  };
+
+  await test('Google Docs : document lié par son lien, pages exactes, mise à jour en un geste, sur tous les appareils', async () => {
+    const uid = 'u_gdoc';
+    const ID = '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd';
+    const KEY = 'g_' + ID.toLowerCase().replace(/[^a-z0-9]/g, '_');
+    const TOP = 72;
+    const MID = 72 + 697.9 / 2;
+    // Position de chaque titre dans le « vrai » document : quinze pages, puis seize après une séance d'écriture
+    const marksOf = shift => [['Ma thèse de test', 0, TOP], ['Introduction générale', 1, TOP], ['Chapitre 1 : État de l’art', 3 + shift, TOP], ['1.1 Contexte général', 3 + shift, MID],
+      ['1.2 Travaux existants', 6 + shift, TOP], ['1.2.1 Un sous-sous-titre', 8 + shift, TOP], ['Chapitre 2 : Méthodologie', 9 + shift, TOP], ['2.1 Terrain', 9 + shift, TOP + 69.79],
+      ['2.2 Entretiens', 11 + shift, TOP], ['Conclusion générale', 12 + shift, TOP], ['Bibliographie', 13 + shift, TOP]];
+    const remote = { file: 'these.docx', pages: 15, shift: 0, shared: true, pdf: true };
+    const hits = { docx: 0, pdf: 0, txt: 0 };
+    const serve = async ctx => ctx.route(u => u.hostname === 'docs.google.com', route => {
+      const u = new URL(route.request().url());
+      const fmt = u.searchParams.get('format');
+      if (!remote.shared || !u.pathname.includes(`/document/d/${ID}/export`)) return route.abort('failed'); // non partagé : Google renvoie vers sa page de connexion
+      hits[fmt]++;
+      const headers = { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'Content-Disposition',
+        'content-disposition': `attachment; filename="Ma these.${fmt}"; filename*=UTF-8''Ma%20th%C3%A8se.${fmt}` };
+      if (fmt === 'docx') return route.fulfill({ status: 200, headers, contentType: DOCX, body: fs.readFileSync(FIX(remote.file)) });
+      if (fmt === 'pdf') return remote.pdf ? route.fulfill({ status: 200, headers, contentType: 'application/pdf', body: fakePdf(remote.pages, marksOf(remote.shift)) }) : route.fulfill({ status: 500, headers, body: 'erreur' });
+      return route.fulfill({ status: 200, headers, contentType: 'text/plain; charset=utf-8', body: 'Texte de ' + remote.file });
+    });
+    const { ctx, page } = await newPage(browser, { user: { uid, email: 'gdoc@example.com' } });
+    await serve(ctx);
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    await page.evaluate(() => { window.showOpenFilePicker = undefined; }); // téléphone, Safari, Firefox : pas de fichier lié possible
+    await page.evaluate(() => window.openDocxModal());
+    await page.waitForSelector('#gdocUrl');
+    assert.equal(await page.textContent('#docxAddTitle'), 'Choisir mon document');
+    // Un lien qui n'est pas un Google Doc : on dit quoi coller
+    await page.fill('#gdocUrl', 'https://www.example.com/mon-document');
+    await page.click('#gdocBox button');
+    assert.match(await page.textContent('#docxError'), /n'est pas celui d'un document Google Docs/);
+    // Document pas encore partagé : on explique le réglage à changer
+    remote.shared = false;
+    await page.fill('#gdocUrl', `https://docs.google.com/document/d/${ID}/edit`);
+    await page.click('#gdocBox button');
+    await page.waitForFunction(() => /Tous les utilisateurs disposant du lien/.test(document.getElementById('docxError').textContent), null, { timeout: 15000 });
+    assert.equal(await page.inputValue('#gdocUrl'), `https://docs.google.com/document/d/${ID}/edit`, 'le lien reste dans le champ pour réessayer');
+    remote.shared = true;
+    // Le lien copié depuis la barre d'adresse, avec ses paramètres
+    await page.fill('#gdocUrl', `https://docs.google.com/document/d/${ID}/edit?tab=t.0#heading=h.abc123`);
+    await page.press('#gdocUrl', 'Enter');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 20000 });
+    assert.match(await page.textContent('#docxSummary'), /^Ma thèse : 5\s270 mots, 15 pages\. 5 parties détectées, 4 sous-sections\. Pages liminaires non comptées : 1 p\.$/, 'le titre du document et sa vraie pagination');
+    assert.equal(await page.inputValue('#docxPages'), '15');
+    assert.match(await page.textContent('#docxPagesHint'), /pagination de Google Docs, exacte/);
+    await page.screenshot({ path: path.join(SHOTS, '41-01-google-docs.png') });
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Google Doc lié/.test(t.textContent)), null, { timeout: 8000 });
+    await flush(page);
+    let d = await docOf(page, uid);
+    // Les pages de chaque partie viennent des signets du PDF : 2 ; 0,5 + 2,5 ; 3 ; 0,1 + 1,9 ; 1 ; 1
+    assert.deepEqual(d.chapters.map(c => (c.subsections.length ? c.subsections.map(s => s.writtenPages) : c.writtenPages)), [2, [3, 3], [2, 1], 1]);
+    const f = d.docFiles[KEY];
+    assert.deepEqual([f.name, f.gdoc, f.src, f.pages, f.pv, f.k], ['Ma thèse', ID, 'pdf', 15, 2, null]);
+    assert.match(f.sig, /^[a-z0-9]+\.[a-z0-9]+$/, 'signature du texte gardée pour savoir s\'il change');
+    assert.ok(!JSON.stringify(d).includes('recherche doctorale'), 'le texte du document n\'est jamais enregistré');
+    assert.match(await page.textContent('#tdPrimary'), /Synchroniser/);
+    assert.match(await page.textContent('#tdCap'), /Ma thèse/);
+    assert.deepEqual(hits, { docx: 1, pdf: 1, txt: 1 });
+    // Rien n'a changé dans le document : on ne relit que son texte (léger), pas le fichier ni le PDF
+    await page.click('#tdPrimary');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Déjà à jour/.test(t.textContent)), null, { timeout: 15000 });
+    assert.deepEqual(hits, { docx: 1, pdf: 1, txt: 2 });
+    // On a écrit dans Google Docs : un geste, pas d'aperçu
+    Object.assign(remote, { file: 'these_v2.docx', pages: 16, shift: 1 });
+    await page.waitForTimeout(400);
+    await page.click('#tdPrimary');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Ma thèse synchronisé\s:\s\+1,5\sp\./.test(t.textContent)), null, { timeout: 20000 });
+    assert.equal(await page.isVisible('#docxModal'), false);
+    await flush(page);
+    d = await docOf(page, uid);
+    assert.equal(d.docFiles[KEY].pages, 16);
+    assert.equal(written(d), 13, 'une page de plus, lue dans le PDF');
+    assert.equal(d.activity[TODAY], 1.49, '600 mots de plus, à 403 mots par page dans ce document');
+    assert.deepEqual(hits, { docx: 2, pdf: 2, txt: 3 });
+    // PDF indisponible (document très lourd, Google qui peine) : la mise en page du fichier prend le relais
+    Object.assign(remote, { file: 'these_v3.docx', pdf: false });
+    await page.waitForTimeout(400);
+    await page.click('#tdPrimary');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 20000 });
+    assert.match(await page.textContent('#docxPagesHint'), /calculé d'après la mise en page/);
+    assert.match(await page.textContent('#docxSummary'), /≈ 14 pages/);
+    await page.click('#docxModal >> text=Changer de document');
+    assert.equal(await page.textContent('#docxAddTitle'), 'Ajouter un document, ou en changer');
+    assert.match(await page.textContent('#linkedList'), /Ma thèse.*Google Docs · synchro : aujourd'hui · 16 p\./s);
+    assert.equal(await page.getAttribute('#linkedList a.lk-btn', 'href'), `https://docs.google.com/document/d/${ID}/edit`);
+    await page.click('#docxModal >> text=Fermer');
+    // Le partage a été retiré : message clair, rien n'est perdu
+    remote.shared = false;
+    await page.click('#tdPrimary');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Tous les utilisateurs disposant du lien/.test(t.textContent)), null, { timeout: 15000 });
+    assert.equal(written(await docOf(page, uid)), 13);
+    assert.deepEqual(page._errors.filter(e => !/Google Docs|Failed to load resource|net::ERR/.test(e)), []);
+    await ctx.close();
+
+    // Un autre appareil (un téléphone) : le lien est dans le compte, il n'y a rien à refaire
+    Object.assign(remote, { shared: true, pdf: true, file: 'these_v2.docx' });
+    const other = await newPage(browser, { user: { uid, email: 'gdoc@example.com' }, store: { [`users/${uid}/thesis/main`]: d }, viewport: { width: 390, height: 844 } });
+    await serve(other.ctx);
+    await other.page.goto(BASE);
+    await other.page.waitForSelector('.chapter-card');
+    await other.page.waitForFunction(() => document.getElementById('tdPrimary').textContent.includes('Synchroniser'), null, { timeout: 8000 });
+    assert.match(await other.page.textContent('#tdCap'), /Ma thèse/);
+    // Délier : le plan et les pages restent, le document n'est plus relu
+    await other.page.evaluate(() => window.openDocxModal());
+    await other.page.click('#linkedList >> text=Délier');
+    await other.page.waitForFunction(() => document.getElementById('tdPrimary').textContent.trim() === '+1 page');
+    await flush(other.page);
+    const d2 = await docOf(other.page, uid);
+    assert.deepEqual(d2.docFiles, {});
+    assert.equal(written(d2), 13);
+    assert.ok(d2.chapters.every(c => !c.docFile && c.subsections.every(s => !s.docFile)), 'les parties ne sont plus rattachées au document');
+    await other.page.click('.toast .toast-act'); // Annuler
+    await other.page.waitForFunction(() => document.getElementById('tdPrimary').textContent.includes('Synchroniser'));
+    await other.ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('Un fichier par chapitre : « Ajouter un chapitre », nombre de pages corrigé et retenu, document oublié', async () => {
+    const uid = 'u_ajout';
+    const { ctx, page } = await newPage(browser, { user: { uid, email: 'ajout@example.com' }, store: { [`users/${uid}/thesis/main`]: clone(V1_DOC) } });
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+    assert.equal(await page.isVisible('#wordChange'), false, 'pas encore de document : rien à changer');
+    // Un fichier dont rien ne correspond au plan, et dont le nom dit « chapitre »
+    await sendDocx(page, 'chapitre-methodo.docx', 'chapitre-5-resultats.docx');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.equal(await page.isChecked('#docxModes input[value="add"]'), true, 'proposé comme un chapitre de plus');
+    assert.equal(await page.inputValue('#docxNewTitle'), 'Chapitre 5 resultats');
+    await page.fill('#docxNewTitle', 'Chapitre 5 : Résultats');
+    assert.deepEqual(await page.$$eval('#docxRows .dx-row', rs => rs.map(r => [r.querySelector('.dx-title').textContent, r.querySelector('input[type=checkbox]').checked])),
+      [['Chapitre 5 : Résultats', true], ['Terrain', true], ['Entretiens', true], ['Bibliographie', false]]);
+    assert.match(await page.textContent('#docxRows .dx-ch .dx-map'), /nouveau chapitre/);
+    assert.equal(await page.textContent('#docxApply'), 'Ajouter ce chapitre');
+    // Les autres choix restent à portée de main
+    await page.check('#docxModes input[value="chapter"]');
+    assert.ok(await page.isVisible('#docxScope'));
+    assert.match(await page.textContent('#docxRows .dx-ch .dx-map'), /ce fichier = ce chapitre/);
+    await page.check('#docxModes input[value="match"]');
+    assert.deepEqual(await page.$$eval('#docxRows .dx-ch .dx-title', els => els.map(e => e.textContent)), ['Terrain', 'Entretiens', 'Bibliographie']);
+    await page.check('#docxModes input[value="add"]');
+    assert.equal(await page.inputValue('#docxNewTitle'), 'Chapitre 5 : Résultats', 'le titre saisi est gardé');
+    // « Ce document fait N pages » : mon fichier en fait 8 dans ma mise en page à moi
+    assert.equal(await page.inputValue('#docxPages'), '4');
+    await page.fill('#docxPages', '8');
+    assert.match(await page.textContent('#docxPagesHint'), /corrigé par vous, retenu pour ce document/);
+    assert.match(await page.textContent('#docxSummary'), /1\s823 mots, 8 pages\./, 'plus de « ≈ » : c\'est moi qui le dis');
+    assert.deepEqual(await page.$$eval('#docxRows .dx-meta b', els => els.map(e => e.textContent)), ['6 p.', '4 p.', '2 p.', '2 p.']);
+    await page.screenshot({ path: path.join(SHOTS, '41-02-ajouter-chapitre.png') });
+    await page.click('#docxApply');
+    await page.waitForFunction(() => document.querySelectorAll('.chapter-card').length === 5);
+    await flush(page);
+    let d = await docOf(page, uid);
+    const ch = d.chapters[4];
+    assert.deepEqual([ch.title, ch.subsections.map(s => [s.title, s.writtenPages])], ['Chapitre 5 : Résultats', [['Terrain', 4], ['Entretiens', 2]]]);
+    assert.equal(written(d), 6 + 20 + 12 + 6, 'les autres chapitres n\'ont pas bougé');
+    let f = d.docFiles.chapitre_5_resultats;
+    assert.deepEqual([f.scope, f.k, f.pages, f.src], [ch.id, 2, 8, 'layout'], 'ce fichier est désormais ce chapitre, et sa correction est retenue');
+    assert.equal(await page.isVisible('#wordChange'), true, '« Changer de document » est proposé près du bouton de synchro');
+    // Même fichier, un peu plus tard : reconnu, déjà à jour
+    await page.waitForTimeout(400);
+    await sendDocx(page, 'chapitre-methodo.docx', 'chapitre-5-resultats.docx');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Déjà à jour/.test(t.textContent)), null, { timeout: 15000 });
+    // « Changer de document » : la liste, avec de quoi revoir ou oublier
+    await page.click('#wordChange');
+    await page.waitForSelector('#linkedBox:not(.hidden)');
+    assert.match(await page.textContent('#linkedList'), /chapitre-5-resultats\.docx.*fichier · synchro : aujourd'hui · 8 p\./s);
+    await page.click('#linkedList >> text=Oublier');
+    await flush(page);
+    d = await docOf(page, uid);
+    assert.deepEqual(d.docFiles, {});
+    assert.equal(d.chapters[4].subsections[0].writtenPages, 4, 'le plan et les pages restent');
+    assert.ok(!d.chapters[4].docFile && !d.chapters[4].subsections[0].docFile);
+    assert.equal(await page.isVisible('#linkedBox'), false);
+    // Annuler : le document revient, avec sa correction
+    await page.click('.toast .toast-act');
+    await flush(page);
+    d = await docOf(page, uid);
+    f = d.docFiles.chapitre_5_resultats;
+    assert.deepEqual([f.scope, f.k], [d.chapters[4].id, 2]);
+    assert.equal(d.chapters[4].docFile, 'chapitre_5_resultats');
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('Journal : journée de terrain, joker, période hors rédaction, défi de la semaine (le tout facultatif)', async () => {
+    const C = await import(path.join(DIR, '..', 'core.js'));
+    const uid = 'u_vie';
+    const ALL = [0, 1, 2, 3, 4, 5, 6];
+    const base = () => Object.assign(clone(V1_DOC), { version: 2, writingDays: ALL, trackedSince: addDays(TODAY, -20), deadline: addDays(TODAY, 200), marginDays: 0,
+      activity: { [addDays(TODAY, -1)]: 1, [addDays(TODAY, -2)]: 1 }, journal: {}, docFiles: {}, docIgnore: [] });
+    let { ctx, page } = await newPage(browser, { user: { uid, email: 'vie@example.com' }, store: { [`users/${uid}/thesis/main`]: base() } });
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    assert.equal(await page.textContent('#tdStreak'), '2');
+    assert.equal(await page.textContent('#tdStreakSub'), 'à prolonger');
+    // Une journée de terrain : pas de pages, mais une journée de thèse
+    await page.click('#tdOther button');
+    await page.waitForSelector('#logModal:not(.hidden)');
+    assert.equal(await page.textContent('#logTitle'), 'Ma journée de thèse');
+    assert.equal(await page.isVisible('#logWrite'), false);
+    assert.deepEqual(await page.$$eval('#logKinds .kind-chip', els => els.map(e => e.textContent)),
+      ['Terrain', 'Lectures', 'Analyse, données', 'Colloque, séminaire', 'Formation', 'Article, publication', 'Enseignement', 'Point avec ma direction', 'Administratif']);
+    await page.click('#logModal >> text=Enregistrer');
+    assert.match((await toasts(page)).join('|'), /Choisissez ce que vous avez fait/);
+    await page.click('#logKinds >> text=Terrain');
+    assert.equal(await page.getAttribute('#logKinds [data-kind="terrain"]', 'aria-checked'), 'true');
+    assert.equal(await page.isDisabled('#logJokerBtn'), false);
+    await page.fill('#logNote', 'Entretiens à Tournon');
+    await page.click('#logModal >> text=Enregistrer');
+    await page.waitForSelector('#logModal.hidden', { state: 'attached' });
+    assert.match((await toasts(page)).join('|'), /Terrain : noté dans votre journal · série de 3 jours/);
+    assert.equal(await page.textContent('#tdStreak'), '3', 'la journée de terrain prolonge la série');
+    assert.match(await page.textContent('#tdSub'), /Terrain\s: c'est noté/);
+    assert.match(await page.textContent('#jcEntries .je'), /Terrain\s*Entretiens à Tournon/);
+    assert.equal(await page.locator('#heatmap .hm.kind.today').count(), 1, 'le calendrier distingue une journée de thèse sans pages');
+    await flush(page);
+    let d = await docOf(page, uid);
+    assert.deepEqual([d.journal[TODAY][0].k, d.journal[TODAY][0].p, d.journal[TODAY][0].n], ['terrain', 0, 'Entretiens à Tournon']);
+    assert.ok(!d.activity[TODAY], 'aucune page inventée');
+    assert.equal(written(d), 6 + 20 + 12, 'le plan ne bouge pas');
+    // On a travaillé aujourd'hui : pas besoin de joker
+    await page.click('#journalCard >> text=Autre travail de thèse');
+    await page.waitForSelector('#logModal:not(.hidden)');
+    assert.equal(await page.isDisabled('#logJokerBtn'), true);
+    assert.match(await page.textContent('#logJokerHint'), /pas besoin de joker/);
+    // « Des pages » reste là, comme avant
+    await page.click('#logModeSeg >> text=Des pages');
+    assert.equal(await page.textContent('#logTitle'), 'J\'ai écrit');
+    assert.ok(await page.isVisible('#logSection'));
+    assert.equal(await page.isVisible('#logJokerRow'), false);
+    await page.keyboard.press('Escape');
+    // Retirer la journée : la série retombe à 2
+    await page.click('#jcEntries .je-del');
+    await page.waitForFunction(() => document.getElementById('tdStreak').textContent === '2');
+    assert.match((await toasts(page)).join('|'), /Journée retirée du journal/);
+
+    // Le joker : une journée off, la série ne casse pas (un par semaine)
+    await page.click('#tdOther button');
+    await page.waitForSelector('#logModal:not(.hidden)');
+    assert.match(await page.textContent('#logJokerHint'), /sans casser votre série\. Un par semaine/);
+    await page.click('#logJokerBtn');
+    await page.waitForSelector('#logModal.hidden', { state: 'attached' });
+    assert.match((await toasts(page)).join('|'), /Joker posé/);
+    assert.match(await page.textContent('#tdSub'), /Joker posé/);
+    assert.equal(await page.textContent('#tdStreak'), '2', 'le joker ne prolonge pas la série, il la garde');
+    assert.match(await page.textContent('#jcEntries .je'), /Joker/);
+    assert.equal(await page.locator('#heatmap .hm.off.today').count(), 1);
+    await page.click('#tdOther button');
+    await page.waitForSelector('#logModal:not(.hidden)');
+    assert.equal(await page.isDisabled('#logJokerBtn'), true);
+    assert.match(await page.textContent('#logJokerHint'), /Joker déjà posé ce jour-là/);
+    await page.keyboard.press('Escape');
+    await flush(page);
+    d = await docOf(page, uid);
+    assert.equal(d.journal[TODAY].filter(e => e.k === 'joker').length, 1);
+    assert.equal(d.journal[TODAY].find(e => e.k === 'joker').s, '~joker', 'le genre est aussi écrit là où les anciennes versions le gardent');
+    assert.deepEqual(C.streak(d, addDays(TODAY, 1)), { count: 2, includesToday: false }, 'demain, la série sera toujours là');
+    await ctx.close();
+
+    // Un appareil resté ouvert en ancienne version a réenregistré le journal : il a effacé « k », pas « s ». Rien n'est perdu.
+    ({ ctx, page } = await newPage(browser, { user: { uid: 'u_vie3', email: 'vie3@example.com' }, store: { 'users/u_vie3/thesis/main': Object.assign(base(), {
+      journal: { [addDays(TODAY, -3)]: [{ p: 0, s: '~terrain', n: 'Archives', m: 0, t: '10:00' }], [TODAY]: [{ p: 0, s: '~joker', n: '', m: 0, t: '09:00' }] } }) } }));
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    assert.match(await page.textContent('#jcEntries'), /Terrain\s*Archives/);
+    assert.match(await page.textContent('#jcEntries .je'), /Joker/);
+    assert.match(await page.textContent('#tdSub'), /Joker posé/);
+    assert.equal(await page.locator('#heatmap .hm.off.today').count(), 1);
+    assert.equal(await page.textContent('#tdStreak'), '3', 'terrain il y a trois jours, pages ensuite, joker aujourd\'hui');
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+
+    // Une période hors rédaction (colloque) : le rythme à tenir se recalcule, le jour est « off »
+    ({ ctx, page } = await newPage(browser, { user: { uid: 'u_vie2', email: 'vie2@example.com' }, store: { 'users/u_vie2/thesis/main': base() } }));
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    const paceBefore = await page.textContent('#paceNeed');
+    await page.evaluate(() => window.openProjectModal());
+    await page.waitForSelector('#projectModal:not(.hidden)');
+    assert.equal(await page.locator('#pmPauses .pause-item').count(), 0);
+    assert.equal(await page.isChecked('#pmDefi'), true);
+    await page.selectOption('#pmPauseKind', 'colloque');
+    await page.fill('#pmPauseFrom', TODAY);
+    await page.fill('#pmPauseTo', addDays(TODAY, 59));
+    await page.click('#projectModal >> text=Ajouter');
+    assert.match(await page.textContent('#pmPauses .pause-item'), /Colloque\s*du .+ au .+\(60 jours\)/);
+    await page.click('#projectModal >> text=Enregistrer');
+    await page.waitForSelector('#projectModal.hidden', { state: 'attached' });
+    assert.match(await page.textContent('#tdSub'), /Colloque jusqu'au .+: le Journal n'attend pas de pages/);
+    assert.equal(await page.locator('#weekBars .wk-col.is-today.rest').count(), 1, 'jour marqué comme un jour sans écriture');
+    assert.notEqual(await page.textContent('#paceNeed'), paceBefore, 'soixante jours de moins pour écrire : le rythme à tenir augmente');
+    await flush(page);
+    d = await docOf(page, 'u_vie2');
+    assert.deepEqual(d.pauses, [{ from: TODAY, to: addDays(TODAY, 59), kind: 'colloque' }]);
+    assert.equal(C.forecast(d, { total: 115, written: 38 }, TODAY).writingDaysLeft, 201 - 60);
+    // On la retire : tout revient
+    await page.evaluate(() => window.openProjectModal());
+    await page.click('#pmPauses .je-del');
+    await page.click('#projectModal >> text=Enregistrer');
+    await page.waitForSelector('#projectModal.hidden', { state: 'attached' });
+    assert.equal(await page.textContent('#paceNeed'), paceBefore);
+    await flush(page);
+    assert.deepEqual((await docOf(page, 'u_vie2')).pauses, []);
+
+    // Le défi de la semaine : affiché dans le journal, vérifié d'après les données, et que l'on peut refuser
+    const expected = () => C.weeklyChallenge(d, TODAY, C.forecast(d, { total: 115, written: written(d) }, TODAY));
+    d = await docOf(page, 'u_vie2');
+    let ch = expected();
+    assert.ok(await page.isVisible('#jcDefi'));
+    assert.match(await page.textContent('#jcDefi .defi-kicker'), /Défi de la semaine/);
+    const norm = s => s.replace(/[  ]/g, ' ');
+    assert.equal(norm(await page.textContent('#jcDefi .defi-text')), ch.text);
+    // Trois pages et une note aujourd'hui : selon le défi de cette semaine, il est relevé ou non (même calcul que l'application)
+    await page.click('#journalCard >> text=Ajouter une note');
+    await page.waitForSelector('#logModal:not(.hidden)');
+    await page.fill('#logPages', '3');
+    await page.fill('#logNote', 'Bonne séance');
+    await page.click('#logModal >> text=Enregistrer');
+    await page.waitForSelector('#logModal.hidden', { state: 'attached' });
+    await flush(page);
+    d = await docOf(page, 'u_vie2');
+    ch = expected();
+    assert.equal((await toasts(page)).some(t => /Défi de la semaine relevé/.test(t)), ch.done);
+    assert.deepEqual(d.defis.won, ch.done ? [ch.week] : []);
+    assert.equal(await page.locator('#jcDefi.won').count(), ch.done ? 1 : 0);
+    assert.match(norm(await page.textContent('#jcDefi .defi-val')), new RegExp(`^${String(Math.round(ch.value * 10) / 10).replace('.', ',')} / ${String(Math.round(ch.target * 10) / 10).replace('.', ',')}$`));
+    // Pas envie de défis : une croix, et c'est réglé (réversible dans les réglages)
+    await page.click('#jcDefi .defi-x');
+    assert.equal(await page.isVisible('#jcDefi'), false);
+    await flush(page);
+    assert.equal((await docOf(page, 'u_vie2')).defis.off, true);
+    await page.evaluate(() => window.openProjectModal());
+    assert.equal(await page.isChecked('#pmDefi'), false);
+    await page.evaluate(() => { document.getElementById('pmAdv').open = true; });
+    await page.check('#pmDefi');
+    await page.click('#projectModal >> text=Enregistrer');
+    await page.waitForSelector('#projectModal.hidden', { state: 'attached' });
+    assert.ok(await page.isVisible('#jcDefi'));
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('Agenda : créneaux par jour, rappel, Google Agenda en un clic par événement, prochaine séance au tableau de bord', async () => {
+    const uid = 'u_agenda';
+    const doc = Object.assign(clone(V1_DOC), { version: 2, trackedSince: addDays(TODAY, -20), deadline: addDays(TODAY, 200), activity: {}, journal: {} });
+    const { ctx, page } = await newPage(browser, { user: { uid, email: 'agenda@example.com' }, store: { [`users/${uid}/thesis/main`]: doc } });
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    // Le tableau de bord annonce la prochaine séance et mène à l'agenda
+    assert.match((await page.textContent('#tdNextTxt')).replace(/[  ]/g, ' '), /^Prochaine séance : (aujourd'hui|demain|lundi) à 9 h \(1 h 30\)$/);
+    await page.click('#tdNext button');
+    await page.waitForSelector('#calendarModal:not(.hidden)');
+    assert.equal(await page.textContent('#calTitle'), 'Planifier mes séances');
+    assert.equal(await page.isChecked('#calSame'), true);
+    assert.equal(await page.locator('#calSlots .cal-slot').count(), 1);
+    assert.match(await page.textContent('#calSyncLbl'), /Bilan de la semaine/, 'sans document à déposer : un bilan plutôt qu\'un point d\'étape');
+    assert.equal(await page.isChecked('#calIncSync'), false);
+    // Un horaire différent le vendredi
+    await page.uncheck('#calSame');
+    assert.deepEqual(await page.$$eval('#calSlots .cal-slot-day', els => els.map(e => e.textContent)), ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi']);
+    await page.fill('#calSlots input[data-day="5"]', '14:00');
+    await page.selectOption('#calSlots select[data-day="5"]', '120');
+    await page.selectOption('#calAlarm', '30');
+    assert.match((await page.textContent('#calSummary')).replace(/[  ]/g, ' '),
+      /^2 événements récurrents : lundi, mardi, mercredi et jeudi à 9 h \(1 h 30\) ; vendredi à 14 h \(2 h\), jusqu'au .+\. Rappel une demi-heure avant\.$/);
+    // Bilan de la semaine et rappel pour la direction
+    await page.check('#calIncSync');
+    await page.selectOption('#calMeetWeeks', '6');
+    assert.equal(await page.isChecked('#calIncMeet'), true, 'choisir un intervalle coche le rappel');
+    const items = await page.$$eval('#calGoogleList li', ls => ls.map(l => l.querySelector('span').textContent.replace(/[  ]/g, ' ')));
+    assert.equal(items.length, 7, JSON.stringify(items));
+    assert.deepEqual(items.slice(0, 4), ['Séances : lundi, mardi, mercredi et jeudi à 9 h', 'Séances : vendredi à 14 h', 'Bilan de la semaine', 'Mes pages à ma direction, toutes les 6 semaines']);
+    assert.match(items[4], /^Dépôt : /);
+    assert.match(items[5], /^Fin de rédaction visée : /);
+    assert.match(items[6], /^4 échéances de chapitre : plus simple avec le fichier/);
+    const links = await page.$$eval('#calGoogleList a', as => as.map(a => a.href));
+    assert.equal(links.length, 6);
+    assert.ok(links.every(h => h.startsWith('https://calendar.google.com/calendar/render?action=TEMPLATE')));
+    const q = i => new URL(links[i]).searchParams;
+    assert.match(q(0).get('recur'), /^RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH;UNTIL=\d{8}T235959Z$/);
+    assert.match(q(1).get('recur'), /^RRULE:FREQ=WEEKLY;BYDAY=FR;UNTIL=\d{8}T235959Z$/);
+    assert.match(q(1).get('dates'), /^\d{8}T140000\/\d{8}T160000$/);
+    assert.match(q(2).get('dates'), /^\d{8}T160000\/\d{8}T161500$/, 'le bilan suit la dernière séance de la semaine');
+    assert.match(q(3).get('recur'), /^RRULE:FREQ=WEEKLY;INTERVAL=6;BYDAY=FR;UNTIL=\d{8}T235959Z$/);
+    assert.equal(q(3).get('text'), 'Envoyer mes pages à ma direction');
+    await page.screenshot({ path: path.join(SHOTS, '41-03-agenda.png') });
+    // Un clic sur « Ajouter » : l'événement part vers Google Agenda, la ligne est cochée, les créneaux sont gardés
+    await page.$eval('#calGoogle', a => { a.addEventListener('click', e => e.preventDefault()); a.click(); });
+    assert.equal(await page.textContent('#calGoogle'), 'Ajouté');
+    await flush(page);
+    let d = await docOf(page, uid);
+    assert.deepEqual([d.sessionTime, d.sessionMinutes, d.slots, d.alarmMin, d.meetWeeks], ['09:00', 90, [[5, '14:00', 120]], 30, 6]);
+    // Le fichier .ics contient la même chose, rappels compris
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#calendarModal >> text=fichier agenda (.ics)')]);
+    const ics = fs.readFileSync(await dl.path(), 'utf8').replace(/\r\n /g, '');
+    assert.equal((ics.match(/BEGIN:VEVENT/g) || []).length, 2 + 1 + 1 + 1 + 1 + 4, 'deux séries de séances, bilan, direction, dépôt, fin de rédaction, 4 chapitres');
+    assert.equal((ics.match(/TRIGGER:-PT30M/g) || []).length, 2);
+    assert.match(ics, /RRULE:FREQ=WEEKLY;INTERVAL=6;BYDAY=FR;UNTIL=/);
+    assert.match(ics, /SUMMARY:Bilan de la semaine : mon Journal de Bord/);
+    await page.click('#calendarModal >> text=Fermer');
+    await page.waitForSelector('#calendarModal.hidden', { state: 'attached' });
+    // Fenêtre rouverte : les créneaux sont là
+    await page.evaluate(() => window.openCalendarModal());
+    assert.equal(await page.isChecked('#calSame'), false);
+    assert.equal(await page.inputValue('#calSlots input[data-day="5"]'), '14:00');
+    assert.equal(await page.inputValue('#calAlarm'), '30');
+    // Retour à un seul horaire, et fermeture : enregistré sans rien télécharger
+    await page.check('#calSame');
+    assert.equal(await page.locator('#calSlots .cal-slot').count(), 1);
+    await page.fill('#calTime', '08:30');
+    await page.click('#calendarModal >> text=Fermer');
+    assert.match((await toasts(page)).join('|'), /Créneaux d'écriture enregistrés/);
+    await flush(page);
+    d = await docOf(page, uid);
+    assert.deepEqual([d.sessionTime, d.slots], ['08:30', []]);
+    assert.match((await page.textContent('#tdNextTxt')).replace(/[  ]/g, ' '), /à 8 h 30 \(1 h 30\)$/);
+    assert.deepEqual(page._errors, []);
     await ctx.close();
   });
 
@@ -772,7 +1252,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     const a = await newPage(browser, { user: { uid, email: 'maj@example.com' }, store: { [`users/${uid}/thesis/main`]: V1_DOC }, seenNews: false });
     await a.page.goto(BASE);
     await a.page.waitForSelector('#whatsNewModal:not(.hidden)');
-    assert.match(await a.page.textContent('#wnTitle'), /Nouveau bureau/);
+    assert.match(await a.page.textContent('#wnTitle'), /Vos vraies pages/);
     assert.equal(await a.page.isVisible('#wnPromo'), false, 'la promo n\'est pas annoncée tant qu\'elle est fermée');
     assert.equal(await a.page.textContent('#sWritten'), '38', 'les données sont intactes derrière l\'annonce');
     await a.page.click('#whatsNewModal >> text=C\'est parti');
@@ -1219,7 +1699,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.ok(await page.evaluate(() => document.querySelector('#whatsNewModal .modal').contains(document.activeElement)), 'le focus est dans la fenêtre');
     await page.keyboard.press('Escape');
     await page.waitForSelector('#whatsNewModal.hidden', { state: 'attached' });
-    assert.equal(await page.evaluate(() => localStorage.getItem('jdb_whatsnew')), '4');
+    assert.equal(await page.evaluate(() => localStorage.getItem('jdb_whatsnew')), '5');
     // Anciens marqueurs supprimés, réglages conservés
     assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter(k => /^jdb_(goal|streak|bingo)_/.test(k))), []);
     assert.equal(await page.evaluate(() => localStorage.getItem('jdb_lastSection_u_fin')), 's2');
@@ -1377,7 +1857,8 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(await page.inputValue('#docxLevel'), 'auto');
     assert.match(await page.textContent('#docxLevel option[value="auto"]'), /repérés automatiquement \(niveau 2\)/);
     assert.deepEqual(await page.$$eval('#docxLevel option', os => os.map(o => o.value)), ['auto', '1', '2', '3', '4']);
-    assert.equal(await page.isVisible('#docxReplaceRow'), false, 'plan vide : rien à remplacer');
+    assert.deepEqual(await page.$$eval('#docxModes input', os => os.map(o => o.value)), ['match', 'add'], 'plan vide : rien à remplacer');
+    assert.match(await page.textContent('#docxSummary'), /≈ 16 pages/);
     await page.screenshot({ path: path.join(SHOTS, '31-01-plan-propose.png') });
     // On peut choisir un autre niveau : l'aperçu se refait aussitôt
     await page.selectOption('#docxLevel', '1');
@@ -1395,29 +1876,30 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(d.docFiles['these-titre-unique'] === undefined, true);
     assert.equal(d.docFiles.these_titre_unique.level, 'auto', 'niveau retenu pour ce document');
     const w0 = written(d);
-    assert.equal(d.chapters[3].writtenPages, 4);
-    assert.equal(d.chapters[2].subsections[0].writtenPages, 2, 'notes de bas de page comprises');
+    assert.equal(w0, 14, 'seize pages, dont le titre et la bibliographie, non suivis');
+    assert.equal(d.chapters[3].writtenPages, 3);
+    assert.equal(d.chapters[2].subsections[0].writtenPages, 1, 'notes de bas de page comprises : une page et demie, arrondie avec les autres');
     // Synchro suivante : un geste, sans aperçu, même découpage
     await page.waitForTimeout(1100);
     await sendDocx(page, 'these-titre-unique_v2.docx', 'these-titre-unique.docx');
-    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /synchronisé\s:\s\+2\sp\./.test(t.textContent)), null, { timeout: 15000 });
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /synchronisé\s:\s\+1,6\sp\./.test(t.textContent)), null, { timeout: 15000 });
     assert.equal(await page.isVisible('#docxModal'), false, 'pas d\'aperçu la deuxième fois');
     await flush(page);
     d = await docOf(page, uid);
-    assert.equal(written(d), w0 + 2);
-    assert.equal(d.chapters[2].subsections[1].writtenPages, 3);
-    assert.equal(d.activity[TODAY], 2);
+    assert.equal(written(d), w0 + 1, 'quinze pages suivies sur dix-huit');
+    assert.equal(d.chapters[2].subsections[1].writtenPages, 2);
+    assert.equal(d.activity[TODAY], 1.58, '760 mots de plus, à 480 mots par page');
     // « Revoir le plan » : l'aperçu se rouvre, on peut changer de niveau, le choix est retenu
     await page.evaluate(() => window.openDocxModal());
     await page.waitForSelector('#linkedBox:not(.hidden)');
     await page.evaluate(() => { document.getElementById('docxInput').click = () => {}; });
-    await page.click('#linkedList >> text=Revoir le plan');
+    await page.click('#linkedList >> text=Revoir');
     await sendDocx(page, 'these-titre-unique_v2.docx', 'these-titre-unique.docx');
     await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
     assert.equal(await page.inputValue('#docxLevel'), 'auto');
-    assert.ok(await page.isVisible('#docxReplaceRow'));
+    assert.equal(await page.isChecked('#docxModes input[value="match"]'), true);
     await page.selectOption('#docxLevel', '1');
-    await page.check('#docxReplace');
+    await page.check('#docxModes input[value="replace"]');
     assert.equal(await page.textContent('#docxApply'), 'Refaire mon plan');
     assert.equal(await page.isVisible('#docxCountRow'), false, 'changer de découpage n\'est pas écrire');
     await page.click('#docxApply');
@@ -1425,7 +1907,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await flush(page);
     d = await docOf(page, uid);
     assert.equal(d.docFiles.these_titre_unique.level, 1);
-    assert.equal(d.activity[TODAY], 2, 'journal inchangé');
+    assert.equal(d.activity[TODAY], 1.58, 'journal inchangé');
     assert.equal(d.chapters[0].subsections.length, 6);
     assert.deepEqual(page._errors, []);
     await ctx.close();
@@ -1454,7 +1936,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await sendDocx(page, 'these-titre-unique.docx');
     await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
     assert.ok(await page.isVisible('#docxSuggest'), 'le nouveau découpage est expliqué');
-    assert.equal(await page.isChecked('#docxReplace'), true);
+    assert.equal(await page.isChecked('#docxModes input[value="replace"]'), true);
     assert.equal(await page.inputValue('#docxLevel'), 'auto');
     assert.match(await page.textContent('#docxLevel option[value="legacy"]'), /comme à la dernière synchro/);
     assert.deepEqual((await rowTitles(page)).slice(0, 3), ['Introduction générale', 'Chapitre 1 : État de l’art', 'Chapitre 2 : Méthodologie']);
@@ -1485,7 +1967,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await sendDocx(page, 'these-titre-unique.docx');
     await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
     await page.selectOption('#docxLevel', 'legacy');
-    await page.uncheck('#docxReplace');
+    await page.check('#docxModes input[value="match"]');
     assert.deepEqual(await rowTitles(page), ['Les ponts suspendus en France au XIXe siècle']);
     assert.deepEqual(page._errors, []);
     await ctx.close();
@@ -1531,10 +2013,11 @@ const clone = o => JSON.parse(JSON.stringify(o));
     ({ ctx, page } = await open());
     await sendDocx(page, 'natif.odt');
     await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
-    assert.match(await page.textContent('#docxSummary'), /2\s103 mots, 6 pages selon LibreOffice\. 3 parties détectées, 2 sous-sections/, 'ni la table des matières, ni le texte supprimé, ni les commentaires ne comptent');
+    assert.match(await page.textContent('#docxSummary'), /2\s103 mots, 6 pages\. 3 parties détectées, 2 sous-sections/, 'ni la table des matières, ni le texte supprimé, ni les commentaires ne comptent');
     assert.deepEqual(await rowTitles(page), ['Introduction', 'Chapitre 1 : Le sol', 'Conclusion']);
     assert.deepEqual(await page.$$eval('#docxRows .dx-ss .dx-title', els => els.map(e => e.textContent)), ['Géologie', 'Sondages']);
-    assert.equal(await page.inputValue('#docxWpp'), '351', 'mots par page calibrés sur la pagination du fichier');
+    assert.equal(await page.inputValue('#docxPages'), '6');
+    assert.match(await page.textContent('#docxPagesHint'), /nombre de pages indiqué par LibreOffice/, 'le total est celui que le fichier enregistre');
     await ctx.close();
 
     // LaTeX
@@ -1543,9 +2026,10 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
     assert.deepEqual(await rowTitles(page), ['Introduction générale', 'État de l\'art', 'Conclusion générale']);
     assert.deepEqual(await page.$$eval('#docxRows .dx-ss .dx-title', els => els.map(e => e.textContent)), ['Histoire des techniques', 'Débats historiographiques']);
-    assert.equal(await page.inputValue('#docxWpp'), '420');
+    assert.match(await page.textContent('#docxPagesHint'), /estimation sans mise en page/, 'LaTeX : pas de mise en page à lire, on le dit');
+    assert.match(await page.textContent('#docxSummary'), /≈ \d+ pages?\./);
     // Formats non lus : un message qui dit quoi faire
-    await page.click('#docxModal >> text=Retour');
+    await page.click('#docxModal >> text=Changer de document');
     await page.setInputFiles('#docxInput', { name: 'these.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7\n%âãÏÓ\n1 0 obj\n') });
     await page.waitForSelector('#docxError:not(.hidden)');
     assert.match(await page.textContent('#docxError'), /PDF.*collez votre texte/);
@@ -1590,19 +2074,22 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await flush(page);
     let d = await docOf(page, uid);
     assert.deepEqual(planOf(d), ['Introduction', 'Chapitre 1 : Les câbles [1.1 Acier | 1.2 Fonte]', 'Conclusion']);
-    assert.equal(d.chapters[0].writtenPages, 2);
+    // 5,4 pages de texte suivi (à 2 700 signes la page) : cinq pages, réparties au plus près (1,7 ; 2,0 ; 0,9 ; 0,9)
+    assert.equal(d.chapters[0].writtenPages, 1);
     assert.equal(d.chapters[1].subsections[0].writtenPages, 2, 'listes comprises, ouverture du chapitre avec sa première section');
     assert.equal(d.chapters[1].subsections[1].writtenPages, 1, 'tableaux compris');
     assert.equal(d.docFiles.texte_colle.name, 'Texte collé');
+    assert.equal(d.docFiles.texte_colle.src, 'density', 'texte collé : pas de mise en page, on compte en signes');
     const w0 = written(d);
+    assert.equal(w0, 5);
     // La fois suivante : coller n'importe où dans la page suffit
     await page.waitForTimeout(1100);
     await pasteInto(page, null, gdoc(760), words(3000));
-    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Texte collé synchronisé\s:\s\+2\sp\./.test(t.textContent)));
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Texte collé synchronisé\s:\s\+1,7\sp\./.test(t.textContent)));
     await flush(page);
     d = await docOf(page, uid);
     assert.equal(written(d), w0 + 2);
-    assert.equal(d.activity[TODAY], 2);
+    assert.equal(d.activity[TODAY], 1.72, '760 mots, soit 4 640 signes, à 2 700 signes la page');
     // Coller dans un champ de saisie reste un collage ordinaire
     await page.evaluate(() => window.openLogModal());
     await page.waitForSelector('#logModal:not(.hidden)');
@@ -1626,7 +2113,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await pasteInto(n.page, '#planText', gdoc(0), words(1500));
     await n.page.waitForSelector('#docxStep2:not(.hidden)');
     assert.deepEqual(await rowTitles(n.page), ['Introduction', 'Chapitre 1 : Les câbles', 'Conclusion']);
-    await n.page.click('#docxModal >> text=Retour');
+    await n.page.click('#docxModal >> text=Changer de document');
     await n.page.click('#docxModal >> text=Fermer');
     // … et un plan collé au même endroit reste un plan
     await pasteInto(n.page, '#planText', '', 'Introduction\nMéthode\nConclusion');

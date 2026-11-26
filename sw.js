@@ -17,7 +17,7 @@
    APP_VERSION dans app.js et data-app-version dans index.html).
 ============================================================ */
 
-const VERSION = '4.0.1';
+const VERSION = '4.1.0';
 const CACHE_NAME = 'journal-de-bord-' + VERSION;
 
 const ASSETS_TO_CACHE = [
@@ -29,6 +29,7 @@ const ASSETS_TO_CACHE = [
   './outline.js',
   './humour.js',
   './visuals.js',
+  './pages.js',
   './promo.js',
   './docx.js',
   './ics.js',
