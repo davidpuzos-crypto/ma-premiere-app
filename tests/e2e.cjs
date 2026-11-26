@@ -900,7 +900,21 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await flush(page);
     d = await docOf(page, uid);
     assert.equal(d.journal[TODAY].filter(e => e.k === 'joker').length, 1);
+    assert.equal(d.journal[TODAY].find(e => e.k === 'joker').s, '~joker', 'le genre est aussi écrit là où les anciennes versions le gardent');
     assert.deepEqual(C.streak(d, addDays(TODAY, 1)), { count: 2, includesToday: false }, 'demain, la série sera toujours là');
+    await ctx.close();
+
+    // Un appareil resté ouvert en ancienne version a réenregistré le journal : il a effacé « k », pas « s ». Rien n'est perdu.
+    ({ ctx, page } = await newPage(browser, { user: { uid: 'u_vie3', email: 'vie3@example.com' }, store: { 'users/u_vie3/thesis/main': Object.assign(base(), {
+      journal: { [addDays(TODAY, -3)]: [{ p: 0, s: '~terrain', n: 'Archives', m: 0, t: '10:00' }], [TODAY]: [{ p: 0, s: '~joker', n: '', m: 0, t: '09:00' }] } }) } }));
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    assert.match(await page.textContent('#jcEntries'), /Terrain\s*Archives/);
+    assert.match(await page.textContent('#jcEntries .je'), /Joker/);
+    assert.match(await page.textContent('#tdSub'), /Joker posé/);
+    assert.equal(await page.locator('#heatmap .hm.off.today').count(), 1);
+    assert.equal(await page.textContent('#tdStreak'), '3', 'terrain il y a trois jours, pages ensuite, joker aujourd\'hui');
+    assert.deepEqual(page._errors, []);
     await ctx.close();
 
     // Une période hors rédaction (colloque) : le rythme à tenir se recalcule, le jour est « off »

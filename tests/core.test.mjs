@@ -383,6 +383,22 @@ console.log('visuals.js : dessins OK');
   assert.deepEqual(C.streak(jk, '2026-11-26'), { count: 2, includesToday: true });
   assert.equal(C.jokersInWeek(jk.journal, '2026-11-27'), 1);
   assert.equal(C.jokersInWeek(jk.journal, '2026-11-30'), 0, 'un joker par semaine : le compteur repart le lundi');
+  // Le genre voyage aussi dans « s » : une ancienne version, qui efface « k », ne le fait pas perdre
+  assert.equal(C.kindTag('joker'), '~joker');
+  assert.equal(C.entryKind({ p: 0, k: 'terrain' }), 'terrain');
+  assert.equal(C.entryKind({ p: 0, s: '~terrain' }), 'terrain', 'entrée repassée par une ancienne version');
+  assert.equal(C.entryKind({ p: 0, k: 'inconnu', s: '~lecture' }), 'lecture');
+  assert.equal(C.entryKind({ p: 2, s: 'c1_s2', n: 'Bonne séance' }), '', 'une entrée ordinaire, rattachée à une partie');
+  assert.equal(C.entryKind({ p: 0, s: '~inconnu' }), '');
+  assert.equal(C.entryKind({ p: 0, k: 'constructor' }), '', 'pas de genre hérité par accident');
+  assert.equal(C.entryKind({ p: 0, s: '~toString' }), '');
+  assert.equal(C.entryKind(null), '');
+  assert.equal(C.isPauseKind('colloque'), true);
+  assert.equal(C.isPauseKind('constructor'), false);
+  const old = { ...jk, journal: { '2026-11-25': [{ p: 0, s: '~joker', n: '', m: 0, t: '09:00' }] } };
+  assert.equal(C.hasJoker(old.journal, '2026-11-25'), true);
+  assert.equal(C.isActiveDay(old, '2026-11-25'), false);
+  assert.deepEqual(C.streak(old, '2026-11-26'), { count: 2, includesToday: true });
   // Numéro de semaine (ISO)
   assert.equal(C.weekId('2026-11-25'), '2026-S48');
   assert.equal(C.weekId('2027-01-01'), '2026-S53');

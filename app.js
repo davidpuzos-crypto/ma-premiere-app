@@ -36,7 +36,7 @@ import {
   dayKey, todayKey, isDayKey, parseDay, addDays, diffDays, weekday, mondayOf,
   nthWritingDay, pagesOn, sumRange, hasNotes, streak, bestStreak,
   forecast, schedule, normalizeTitle, normalizeFull, titleScore, clamp, distribute,
-  parsePlanText, PAUSE_KINDS, ENTRY_KINDS, JOKERS_PER_WEEK, pauseOn, pausedDays, hasJoker, jokersInWeek,
+  parsePlanText, PAUSE_KINDS, ENTRY_KINDS, JOKERS_PER_WEEK, pauseOn, pausedDays, hasJoker, jokersInWeek, entryKind, kindTag, isPauseKind,
   isActiveDay, weeklyChallenge,
 } from './core.js';
 import { buildICS, googleCalendarUrl, byDay } from './ics.js';
@@ -284,14 +284,15 @@ function normalizeState(d) {
     for (const [k, arr] of Object.entries(d.journal)) {
       if (!isDayKey(k) || !Array.isArray(arr)) continue;
       s.journal[k] = arr.filter(isObj).map(e => {
+        const kind = entryKind(e);                 // autre travail de thèse, ou joker
         const o = {
           p: Number(e.p) || 0,
-          s: typeof e.s === 'string' ? e.s : null,
+          s: kind ? kindTag(kind) : (typeof e.s === 'string' ? e.s : null),
           n: typeof e.n === 'string' ? e.n.slice(0, 500) : '',
           m: clamp(Math.round(Number(e.m) || 0), 0, 5),
           t: typeof e.t === 'string' ? e.t.slice(0, 5) : '',
         };
-        if (typeof e.k === 'string' && ENTRY_KINDS[e.k]) o.k = e.k; // autre travail de thèse, ou joker
+        if (kind) o.k = kind;
         return o;
       });
     }
@@ -305,7 +306,7 @@ function normalizeState(d) {
   if (Number.isFinite(d.meetWeeks)) s.meetWeeks = clamp(Math.round(d.meetWeeks), 0, 12);
   if (Array.isArray(d.pauses)) {
     s.pauses = d.pauses.filter(p => isObj(p) && isDayKey(p.from) && isDayKey(p.to) && p.to >= p.from)
-      .map(p => ({ from: p.from, to: p.to, kind: PAUSE_KINDS[p.kind] ? p.kind : 'autre' }))
+      .map(p => ({ from: p.from, to: p.to, kind: isPauseKind(p.kind) ? p.kind : 'autre' }))
       .sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0)).slice(0, 40);
   }
   if (isObj(d.defis)) {
@@ -2388,7 +2389,7 @@ function addPause() {
   if (to < from) { toast('La fin de la période vient avant son début', 'warn'); return; }
   if (diffDays(from, to) > 730) { toast('Période trop longue', 'warn'); return; }
   if (_pmPauses.length >= 40) { toast('Trop de périodes : retirez les plus anciennes', 'warn'); return; }
-  _pmPauses.push({ from, to, kind: PAUSE_KINDS[kind] ? kind : 'autre' });
+  _pmPauses.push({ from, to, kind: isPauseKind(kind) ? kind : 'autre' });
   _pmPauses.sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
   document.getElementById('pmPauseFrom').value = '';
   document.getElementById('pmPauseTo').value = '';
@@ -2515,7 +2516,7 @@ function setLogMode(mode) {
 }
 
 function setLogKind(kind) {
-  _logKind = ENTRY_KINDS[kind] && kind !== 'joker' ? kind : '';
+  _logKind = entryKind({ k: kind }) && kind !== 'joker' ? kind : '';
   document.querySelectorAll('#logKinds .kind-chip').forEach(b => {
     const on = b.dataset.kind === _logKind;
     b.classList.toggle('on', on);
@@ -2553,7 +2554,7 @@ function useJoker() {
   const day = logDayKey();
   if (hasJoker(state.journal, day) || isActiveDay(state, day) || jokersInWeek(state.journal, day) >= JOKERS_PER_WEEK) return;
   const snap = snapshotState();
-  state.journal[day] = [...(state.journal[day] || []), { p: 0, s: null, n: '', m: 0, t: nowHHMM(), k: 'joker' }];
+  state.journal[day] = [...(state.journal[day] || []), { p: 0, s: kindTag('joker'), n: '', m: 0, t: nowHHMM(), k: 'joker' }];
   if (!state.trackedSince || day < state.trackedSince) state.trackedSince = day;
   saveNow();
   closeModal('logModal');
@@ -2579,7 +2580,7 @@ function saveLog() {
   if (_logMode === 'other') {
     // Une journée de thèse sans pages : elle compte dans le journal et dans la série
     if (!_logKind) { toast('Choisissez ce que vous avez fait', 'warn'); return; }
-    state.journal[day] = [...(state.journal[day] || []), { p: 0, s: null, n: note, m: 0, t: nowHHMM(), k: _logKind }];
+    state.journal[day] = [...(state.journal[day] || []), { p: 0, s: kindTag(_logKind), n: note, m: 0, t: nowHHMM(), k: _logKind }];
     if (!state.trackedSince || day < state.trackedSince) state.trackedSince = day;
     saveNow();
     closeModal('logModal');

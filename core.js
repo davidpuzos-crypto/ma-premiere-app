@@ -178,8 +178,24 @@ export const ENTRY_KINDS = {
 };
 export const JOKERS_PER_WEEK = 1;
 
+const own = (o, k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(o, k);
+export const isPauseKind = k => own(PAUSE_KINDS, k);
+
+/* Le genre voyage deux fois : dans « k », et dans « s » précédé d'un tilde. Les versions d'avant la 4.1
+   gardent « s » tel quel mais effacent « k » quand elles réenregistrent le journal : grâce à ce double,
+   un appareil resté ouvert en ancienne version ne fait perdre ni la journée de terrain ni le joker. */
+export const kindTag = k => '~' + k;
+
+/** Genre d'une entrée du journal ('' pour une entrée ordinaire), lu dans « k » ou, à défaut, dans « s ». */
+export function entryKind(e) {
+  if (!e) return '';
+  if (own(ENTRY_KINDS, e.k)) return e.k;
+  const t = typeof e.s === 'string' && e.s[0] === '~' ? e.s.slice(1) : '';
+  return own(ENTRY_KINDS, t) ? t : '';
+}
+
 export function hasJoker(journal, k) {
-  return Array.isArray(journal && journal[k]) && journal[k].some(e => e && e.k === 'joker');
+  return Array.isArray(journal && journal[k]) && journal[k].some(e => entryKind(e) === 'joker');
 }
 
 /** Jokers posés dans la semaine (du lundi au dimanche) qui contient k. */
@@ -194,7 +210,7 @@ export function jokersInWeek(journal, k) {
 export function isActiveDay(state, k) {
   if (pagesOn(state.activity, k) > 0) return true;
   const arr = state.journal && state.journal[k];
-  return Array.isArray(arr) && arr.some(e => e && e.k !== 'joker');
+  return Array.isArray(arr) && arr.some(e => e && entryKind(e) !== 'joker');
 }
 
 /** Jour où l'on n'attend rien : joker posé, ou période hors rédaction. */
