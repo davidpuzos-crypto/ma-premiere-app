@@ -2353,6 +2353,8 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.setInputFiles('#docxInput', { name: 'these.doc', mimeType: 'application/msword', buffer: Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]) });
     await page.waitForFunction(() => /ancien Word/.test(document.getElementById('docxError').textContent));
     await page.setInputFiles('#docxInput', { name: 'photo.png', mimeType: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4E, 0x47, 1, 2, 3]) });
+    await page.waitForFunction(() => /Une image ne contient pas de texte lisible/.test(document.getElementById('docxError').textContent));
+    await page.setInputFiles('#docxInput', { name: 'donnees.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([1, 2, 3, 4, 5, 6, 7, 8, 9]) });
     await page.waitForFunction(() => /Format non reconnu/.test(document.getElementById('docxError').textContent));
     assert.equal(await page.evaluate(() => window.__fbStore.writes.filter(w => w.data && w.data.chapters).length), 0, 'rien n\'a été écrit');
     assert.deepEqual(page._errors.filter(e => !/document :/.test(e)), []);
