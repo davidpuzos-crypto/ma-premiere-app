@@ -371,9 +371,10 @@ function measureBlock(b, width, opt) {
   const notes = (b.notes || []).map(nb => stackHeight(nb.map(x => measureBlock(x, width, opt))));
   // Interligne multiple : le supplément se place au-dessus de chaque ligne, sauf en haut de page
   const lead = opt.topLead && !b.lr && (b.lv || 1) > 1 ? 1 - 1 / b.lv : 0;
+  const blank = !b.r.some(it => (it.k ? it.k === 'img' : /\S/.test(it.x || '')));
   return {
     t: 'p', s: b.s, hd: b.hd, h, ev, tot: sum(h), sb: b.sb || 0, sa: b.sa || 0, lead,
-    kn: !!b.kn, kl: !!b.kl, wc: b.wc !== false, pb: !!b.pb, cs: !!b.cs, st: b.st || '', notes,
+    kn: !!b.kn, kl: !!b.kl, wc: b.wc !== false, pb: !!b.pb, cs: !!b.cs, st: b.st || '', notes, blank, nm: !!b.nm || blank,
   };
 }
 
@@ -413,10 +414,25 @@ function simulate(M, geos, opt) {
   let lastSa = 0;
   let cur = 0;
   let g = geos[0];
+  let forced = true;  // la page en cours a été ouverte par un saut voulu (saut de page, section), non par débordement
+  let hollow = true;  // rien d'autre sur la page que des paragraphes vides
   const newPage = () => {
-    page++; y = 0; top = true; lastSa = 0;
+    page++; y = 0; top = true; lastSa = 0; forced = false; hollow = true;
     foot = Math.min(carry, g.H * 0.7);
     carry -= foot;
+  };
+  /* Saut voulu (saut de page, « saut de page avant », nouvelle section). Quand une section commence alors que la
+     page, ouverte par un saut de page, ne porte que des paragraphes vides (celui qui porte la section, typiquement),
+     Word n'en fait pas une page blanche : la section commence sur cette page (relevé sur un vrai modèle de thèse).
+     opt.tiny (banc de mesure) : tenir aussi pour logées sur la page précédente quelques lignes arrivées là par
+     débordement juste avant un saut. Écarté par défaut : cela corrige les documents dont chaque chapitre remplit
+     exactement sa page, mais retire à tort une page à tous ceux qui finissent vraiment par quelques lignes. */
+  const breakPage = section => {
+    const spare = !top && !foot && !carry && page > 0;
+    const blankPage = spare && section && forced && hollow && y <= g.H * 0.25;
+    const fewLines = spare && !forced && opt.tiny > 0 && y <= g.H * opt.tiny;
+    if (blankPage || fewLines) { y = 0; top = true; lastSa = 0; hollow = true; } else newPage();
+    forced = true;
   };
   const here = () => page + Math.min(1, y / g.H);
   const mark = hd => { if (hd !== undefined && !starts.has(hd)) starts.set(hd, here()); };
@@ -428,7 +444,7 @@ function simulate(M, geos, opt) {
       const ng = geos[m.s];
       if (ng.type === 'continuous') y = (y / g.H) * ng.H;
       else {
-        if (!(top && page === 0 && y === 0)) newPage();
+        if (!(top && page === 0 && y === 0)) breakPage(true);
         if ((ng.type === 'oddPage' && page % 2 === 1) || (ng.type === 'evenPage' && page % 2 === 0)) page++;
       }
       g = ng;
@@ -449,6 +465,7 @@ function simulate(M, geos, opt) {
           y = rem;
         }
         top = false;
+        hollow = false;
       }
       lastSa = 0;
       continue;
@@ -461,14 +478,15 @@ function simulate(M, geos, opt) {
       if (e[1] === 'fn') fnAt.set(e[0], (fnAt.get(e[0]) || 0) + (m.notes[e[2]] || 0));
       else if (e[1] === 'pb') pbAt.add(e[0]);
     }
-    if (m.pb && !(top && page === 0)) { if (!top) newPage(); }
+    if (m.pb && !(top && page === 0)) { if (!top) breakPage(); }
 
     // Titre solidaire du paragraphe suivant : on vérifie que l'ensemble tient
     if (m.kn && !top && !(i > 0 && M[i - 1].t === 'p' && M[i - 1].kn) && !pbAt.size) {
       let need = m.sb + m.tot + m.sa;
       let j = i + 1;
-      while (j < M.length && j < i + 6 && M[j].t === 'p' && M[j].kn && !M[j].ev.some(e => e[1] === 'pb')) { need += M[j].sb + M[j].tot + M[j].sa; j++; }
-      if (j < M.length && !(M[j].t === 'p' && M[j].pb)) need += headLines(M[j]);
+      const apart = x => (x.t === 'p' && x.pb) || (x.s !== m.s && geos[x.s] && geos[x.s].type !== 'continuous');
+      while (j < M.length && j < i + 6 && M[j].t === 'p' && M[j].kn && !apart(M[j]) && !M[j].ev.some(e => e[1] === 'pb')) { need += M[j].sb + M[j].tot + M[j].sa; j++; }
+      if (j < M.length && !apart(M[j])) need += headLines(M[j]);
       if (y + need > g.H - foot + 0.5 && need <= g.H * 0.9) newPage();
     }
 
@@ -478,7 +496,7 @@ function simulate(M, geos, opt) {
     let first = true;
     let guard = 0;
     while (L < n && guard++ < 10000) {
-      if (pbAt.has(L) && !(L === 0 && top && page === 0)) { newPage(); sb = 0; }
+      if (pbAt.has(L) && !(L === 0 && top && page === 0)) { breakPage(); sb = 0; }
       let stop = n;
       for (const p of pbAt) if (p > L && p < stop) stop = p;
       const shrink = top ? m.h[L] * m.lead : 0;        // première ligne de la page : sans le supplément d'interligne
@@ -528,12 +546,13 @@ function simulate(M, geos, opt) {
           carry += ff - put;
         }
         top = false;
+        if (!m.blank) hollow = false;
         L += k;
       }
       if (L < stop) { newPage(); sb = 0; }
     }
     if (first) mark(m.hd);
-    if (pbAt.has(n)) newPage();
+    if (pbAt.has(n)) breakPage();
     else { y += m.sa; lastSa = m.sa; }
   }
   return { total: page + 1, starts, last: here() };
@@ -545,7 +564,7 @@ function simulate(M, geos, opt) {
    rendue à l'enregistrement. On compte les repères, et la position
    dans la page est donnée par les hauteurs estimées.
 ------------------------------------------------------------ */
-function byMarkers(M, geos) {
+function byMarkers(M, geos, missing = 0) {
   const heads = [];       // [rang du titre, page, hauteur depuis le haut de page]
   const fill = [];        // hauteur de contenu de chaque page
   const cap = [];         // hauteur utile de chaque page
@@ -554,6 +573,7 @@ function byMarkers(M, geos) {
   let cur = 0;
   let g = geos[0];
   let odd = 0;            // pages blanches qu'ajouterait un saut « page impaire » / « page paire »
+  const tail = [];        // par intervalle : hauteur, en bas de page et au-delà, de ce qui ne peut pas porter de repère
   const turn = () => { fill[page] = u; cap[page] = g.H; page++; u = 0; };
   for (const m of M) {
     if (m.s !== cur && geos[m.s]) {
@@ -561,6 +581,8 @@ function byMarkers(M, geos) {
       cur = m.s;
       if (g.type === 'oddPage' || g.type === 'evenPage') odd++;
     }
+    // Ligne de table des matières, paragraphe vide : un saut de page y passerait inaperçu
+    if (m.t === 'p' && m.nm && u + m.tot > g.H * 0.85) tail[page] = (tail[page] || 0) + m.tot + m.sa;
     if (m.t === 'tbl') {
       for (const r of m.rows) {
         for (let q = 0; q < r.mk; q++) turn();
@@ -584,11 +606,36 @@ function byMarkers(M, geos) {
   }
   fill[page] = u;
   cap[page] = g.H;
+
+  /* Pages sans repère. Word n'en laisse pas à l'intérieur d'une table des matières, ni sur une page sans texte :
+     entre deux repères, il peut donc y avoir plus d'une page. Quand Word a enregistré un nombre de pages un peu
+     supérieur au décompte des repères (missing), on rend ces pages aux intervalles dont le contenu déborde de la
+     page ET où le débordement tombe sur ce qui ne peut pas porter de repère (dans du texte courant, un saut de
+     page aurait laissé le sien). Ce qui reste va en fin de document. */
+  const pages = fill.map(() => 1);
+  if (missing > 0) {
+    const over = [];
+    for (let p = 0; p < fill.length; p++) {
+      const weight = Math.min(fill[p] - cap[p], tail[p] || 0);
+      if (weight > 0 && fill[p] > cap[p] * 1.02) over.push({ p, weight });
+    }
+    over.sort((x, y) => y.weight - x.weight);
+    for (let k = 0; k < missing && over.length; k++) {
+      const o = over[0];
+      pages[o.p]++;
+      o.weight -= cap[o.p];
+      if (o.weight <= 0) over.shift();
+      over.sort((x, y) => y.weight - x.weight);
+    }
+  }
+  const base = [];
+  let n = 0;
+  for (let p = 0; p < pages.length; p++) { base.push(n); n += pages[p]; }
   const starts = new Map();
   for (const [hd, p, at] of heads) {
-    if (!starts.has(hd)) starts.set(hd, p + Math.min(0.98, at / Math.max(fill[p], cap[p], 1)));
+    if (!starts.has(hd)) starts.set(hd, base[p] + Math.min(pages[p] - 0.02, (at / Math.max(fill[p], cap[p] * pages[p], 1)) * pages[p]));
   }
-  return { total: page + 1, starts, markers: page, odd };
+  return { total: page + 1 + missing, starts, markers: page, odd };
 }
 
 /* ------------------------------------------------------------
@@ -857,6 +904,7 @@ export function paginate(layout, count, opts = {}) {
   const geos = (layout.sections && layout.sections.length ? layout.sections : [A4]).map(s => geometry(s, opt));
   const M = layout.blocks.map(b => measureBlock(b, (geos[b.s] || geos[0]).colW, opt));
   const sim = simulate(M, geos, opt);
+  if (typeof opt.debug === 'function') opt.debug({ M, geos, sim });   // banc de mesure : le détail de la simulation
   const list = (res, scale = 1) => {
     const out = [];
     let prev = 0;
@@ -907,12 +955,19 @@ export function paginate(layout, count, opts = {}) {
 
   // 2. Repères de Word
   const meta = layout.pagesMeta || 0;
-  const mk = byMarkers(M, geos);
+  let mk = byMarkers(M, geos);
   if (mk.markers >= 1) {
+    /* Word ne laisse pas de repère à l'intérieur d'une table des matières, ni sur une page sans texte : une table
+       de deux pages, une couverture qui déborde, et le décompte des repères est en dessous du nombre de pages que
+       Word a lui-même enregistré (relevé sur un vrai modèle de thèse : 21 pages par les repères, 23 pour Word et
+       pour sa table des matières). Quand l'écart est petit, on suit Word. */
+    const gap = meta - mk.total;
+    if (gap > 0 && gap <= Math.max(3, Math.round(mk.total * 0.1))) mk = byMarkers(M, geos, gap);
     const total = mk.total;
+    const starts = list(mk);
     const okMeta = !meta || Math.abs(meta - total) <= Math.max(1, mk.odd + 1, total * 0.04);
     const okSim = total >= sim.total * 0.6 && total <= sim.total * 1.6;
-    if (okMeta || okSim) return { total, starts: list(mk), source: 'word', sim: sim.total, meta };
+    if (okMeta || okSim) return { total, starts, source: 'word', sim: sim.total, meta };
   }
 
   // 3. Total donné par le fichier (LibreOffice, Word sans repères)

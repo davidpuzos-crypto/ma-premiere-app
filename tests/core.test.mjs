@@ -665,6 +665,11 @@ console.log('core.js : périodes, joker, défi OK');
   near(r.starts[0], 1, 0.001, 'le titre ne reste pas seul en bas de page');
   r = P.paginate(lay([...fill, p('Titre', { hd: 0 }), p(SENT.repeat(4))]), 1);
   assert.ok(r.starts[0] < 1, 'sans « paragraphes solidaires », il reste en bas de page');
+  // …mais la chaîne s'arrête au paragraphe qui ouvre de toute façon une page : le titre et sa légende restent en bas de page
+  const three = Array.from({ length: 3 }, () => p(SENT.repeat(4)));       // 24 lignes : il en reste neuf
+  r = P.paginate(lay([...three, p('Figure', { hd: 0, kn: 1 }), p('Légende', { kn: 1 }), p('Chapitre suivant', { hd: 1, pb: 1, kn: 1 }), p(SENT.repeat(40))]), 2);
+  assert.ok(r.starts[0] < 1, 'la figure reste sur la première page : ' + r.starts[0]);
+  near(r.starts[1], 1, 0.001, 'le chapitre suivant ouvre la deuxième');
   // Notes de bas de page : elles prennent la place du texte
   const note = [p('Archives départementales de l’Ardèche, rapport de l’ingénieur ordinaire. '.repeat(6), { lv: 1 })];
   const noted = long.map(b => ({ ...b, r: [...b.r, { k: 'fn', n: 0 }], notes: [note] }));
@@ -686,6 +691,21 @@ console.log('core.js : périodes, joker, défi OK');
   r = P.paginate({ sections: [A4, { ...A4, type: 'continuous' }], blocks: [p('Un', { hd: 0 }), p('Deux', { hd: 1, s: 1 })], gen: 'other' }, 2);
   assert.equal(r.total, 1);
 
+  // Saut de page, puis paragraphe vide qui porte la fin de section, puis nouvelle section : Word n'en fait pas une page blanche
+  const brk = (text = SENT) => p(text, { r: [...(text ? [run(text)] : []), { k: 'pb' }] });
+  r = P.paginate({ sections: [A4, { ...A4, type: '' }], gen: 'other', blocks: [p('Un', { hd: 0 }), brk(), p(''), p('Deux', { hd: 1, s: 1 })] }, 2);
+  assert.equal(r.total, 2);
+  near(r.starts[1], 1, 0.001);
+  // …alors qu'une ligne de texte sur cette page en fait une vraie page, et que deux sauts de page à la suite laissent une page blanche
+  r = P.paginate({ sections: [A4, { ...A4, type: '' }], gen: 'other', blocks: [p('Un', { hd: 0 }), brk(), p('Une ligne.'), p('Deux', { hd: 1, s: 1 })] }, 2);
+  assert.equal(r.total, 3);
+  r = P.paginate(lay([p('Un', { hd: 0 }), brk(), brk(''), p('Deux', { hd: 1 })]), 2);
+  assert.equal(r.total, 3);
+  // Quelques lignes qui débordent juste avant un saut de page : comptées (une page de plus), sauf réglage du banc de mesure
+  const spill = [...Array.from({ length: 4 }, () => p(SENT.repeat(4))), brk(SENT.repeat(2)), p('Deux', { hd: 0 })];
+  assert.equal(P.paginate(lay(spill), 1).total, 3);
+  assert.equal(P.paginate(lay(spill), 1, { tune: { tiny: 0.12 } }).total, 2);
+
   // Pagination réelle : les repères de Word l'emportent sur la simulation
   const marked = [p('Un', { hd: 0 }), p(SENT), p('Deux', { hd: 1, r: [{ k: 'mk' }, run('Deux')] }), p(SENT),
     p(SENT + SENT, { r: [run(SENT), { k: 'mk' }, run(SENT)] }), p('Trois', { hd: 2 }), p(SENT)];
@@ -695,6 +715,28 @@ console.log('core.js : périodes, joker, défi OK');
   near(r.starts[0], 0, 0.001);
   near(r.starts[1], 1, 0.001, 'le titre qui porte le repère ouvre la page 2');
   assert.ok(r.starts[2] > 2 && r.starts[2] < 3, 'le troisième titre est en cours de page 3');
+  /* Une table des matières de deux pages : Word n'y laisse pas de repère. Trois repères (quatre pages), mais Word a
+     enregistré cinq pages : la page manquante est rendue à la table, et tout ce qui suit est décalé d'autant. */
+  const toc = Array.from({ length: 50 }, (_, i) => p(`Chapitre ${i + 1} ........ ${i + 3}`, { nm: 1 }));     // 50 lignes : une page et demie
+  const withToc = [p('Sommaire', { hd: 0 }), ...toc,
+    p('Introduction', { hd: 1, r: [{ k: 'mk' }, run('Introduction')] }), p(SENT.repeat(30)),
+    p(SENT.repeat(4), { r: [run(SENT), { k: 'mk' }, run(SENT.repeat(3))] }), p('Chapitre 1', { hd: 2, r: [{ k: 'mk' }, run('Chapitre 1')] }), p(SENT)];
+  r = P.paginate(lay(withToc, { gen: 'word', pagesMeta: 5 }), 3);
+  assert.equal(r.source, 'word');
+  assert.equal(r.total, 5, 'le total de Word, repères plus la page sans repère');
+  near(r.starts[1], 2, 0.001, 'l\'introduction commence page 3, après les deux pages de la table');
+  near(r.starts[2], 4, 0.001);
+  // Sans indication du fichier, ou avec un total inférieur aux repères : les repères seuls
+  assert.equal(P.paginate(lay(withToc, { gen: 'word' }), 3).total, 4);
+  assert.equal(P.paginate(lay(withToc, { gen: 'word', pagesMeta: 4 }), 3).total, 4);
+  // L'écart ne tombe pas dans du texte courant (un saut de page y aurait laissé son repère) : la page manquante va en fin de document
+  const plain = withToc.map(b => (b.nm ? { ...b, nm: 0 } : b));
+  r = P.paginate(lay(plain, { gen: 'word', pagesMeta: 5 }), 3);
+  assert.equal(r.total, 5);
+  near(r.starts[1], 1, 0.001, 'les titres restent où les repères les placent');
+  // Un écart trop grand pour être celui d'une table des matières : on ne suit pas le fichier
+  assert.equal(P.paginate(lay(withToc, { gen: 'word', pagesMeta: 9 }), 3).total, 4);
+
   // Repères incohérents avec le fichier et avec la simulation : on ne s'y fie pas
   r = P.paginate(lay([p('Un', { hd: 0, r: [{ k: 'mk' }, run('Un')] }), ...long], { gen: 'word', pagesMeta: 15 }), 1);
   assert.equal(r.source, 'meta');

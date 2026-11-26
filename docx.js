@@ -599,6 +599,10 @@ function layoutParagraph(p, L, tableKey) {
   if (pp.pb) b.pb = 1;
   if (pp.cs) b.cs = 1;
   if (pp.wc === false) b.wc = false;
+  // Ligne d'une table des matières (ou des figures) : Word n'y laisse pas de repère de page
+  for (const el of p.getElementsByTagNameNS(W_NS, 'instrText')) {
+    if (/\b(PAGEREF|TOC)\b/.test(el.textContent)) { b.nm = 1; break; }
+  }
   const items = b.r;
   let last = null;
 
