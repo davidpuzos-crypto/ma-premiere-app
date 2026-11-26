@@ -592,6 +592,44 @@ function byMarkers(M, geos) {
 }
 
 /* ------------------------------------------------------------
+   SAUTS DE PAGE ENREGISTRÉS (LibreOffice)
+   Un .odt garde la trace des sauts de page de sa dernière mise en
+   page (text:soft-page-break), en plus de ceux que demandent les
+   styles. On en tire le nombre de pages et la page de chaque titre ;
+   dans la page, le titre est situé d'après la quantité de texte
+   qui le précède.
+   atoms : [{ w: poids (signes), hd: rang du titre } | { brk: 'soft' | 'hard' }]
+   Renvoie { total, starts: Map(rang → position), soft, hard, median, last, max }
+   (median, last, max : poids des pages, pour juger si la mise en page était complète).
+------------------------------------------------------------ */
+export function byBreaks(atoms) {
+  const weight = [0];
+  const marks = [];
+  let soft = 0;
+  let hard = 0;
+  for (const a of atoms || []) {
+    if (a.brk) {
+      if (a.brk === 'soft') soft++; else hard++;
+      weight.push(0);
+      continue;
+    }
+    const p = weight.length - 1;
+    if (a.hd !== undefined && a.hd >= 0) marks.push({ hd: a.hd, page: p, before: weight[p] });
+    weight[p] += Math.max(0, Number(a.w) || 0);
+  }
+  const total = weight.length;
+  const full = weight.slice(0, -1).filter(w => w > 0).sort((x, y) => x - y);
+  const median = full.length ? full[full.length >> 1] : 0;
+  const starts = new Map();
+  for (const m of marks) {
+    // La dernière page n'est pas forcément pleine : on la rapporte à une page courante
+    const whole = m.page === total - 1 ? Math.max(weight[m.page], median) : weight[m.page];
+    if (!starts.has(m.hd)) starts.set(m.hd, m.page + (whole > 0 ? Math.min(0.999, m.before / whole) : 0));
+  }
+  return { total, starts, soft, hard, median, last: weight[total - 1], max: Math.max(...weight) };
+}
+
+/* ------------------------------------------------------------
    PDF — nombre de pages et position de chaque titre (signets)
    Lecture minimale : table des objets, arbre des pages, plan du
    document (/Outlines). C'est ce que produit « Télécharger en PDF »

@@ -3688,7 +3688,7 @@ function renderDocxPreview() {
   };
   const SRC = {
     pdf: res.kind === 'pdf' ? `pagination du PDF, exacte${HEADS[res.headingSource] ? ` · ${HEADS[res.headingSource]}` : ''}` : 'pagination de Google Docs, exacte',
-    word: 'pagination enregistrée par Word, exacte',
+    word: res.kind === 'odt' ? 'pagination enregistrée par LibreOffice, exacte' : 'pagination enregistrée par Word, exacte',
     meta: `nombre de pages indiqué par ${res.kind === 'odt' || res.gen === 'libreoffice' ? 'LibreOffice' : 'le fichier'}`,
     layout: `calculé d'après la mise en page${layTxt}`,
     density: 'estimation sans mise en page (une page courante : Times 12, interligne 1,5). Indiquez le vrai nombre de pages de votre document : il sera retenu',

@@ -719,6 +719,39 @@ const clone = o => JSON.parse(JSON.stringify(o));
   });
 
   /* ------------------------------------------------------------ */
+  await test('LibreOffice (.odt) : la pagination enregistrée dans le fichier, exacte, comme pour Word', async () => {
+    const uid = 'u_odt';
+    const ODT = 'application/vnd.oasis.opendocument.text';
+    const { ctx, page } = await newPage(browser, { user: { uid, email: 'odt@example.com' } });
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+    // Enregistré par LibreOffice, mise en page terminée : ses sauts de page sont dans le fichier
+    await page.setInputFiles('#docxInput', { name: 'memoire.odt', mimeType: ODT, buffer: fs.readFileSync(FIX('memoire.odt')) });
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.match(await page.textContent('#docxSummary'), /memoire\.odt : 3\s610 mots, 13 pages\. 6 parties détectées, 4 sous-sections\. Pages liminaires non comptées : 1 p\./, 'treize pages, comme dans LibreOffice, sans « environ »');
+    assert.match(await page.textContent('#docxPagesHint'), /pagination enregistrée par LibreOffice, exacte/);
+    assert.deepEqual(await page.$$eval('#docxRows .dx-row', rs => rs.map(r => [r.querySelector('.dx-title').textContent, r.querySelector('.dx-meta b').textContent])), [
+      ['Remerciements', '1 p.'], ['Introduction générale', '2 p.'],
+      ['Chapitre 1 : État de l’art', '4 p.'], ['1.1 Contexte général', '2 p.'], ['1.2 Travaux existants', '2 p.'],
+      ['Chapitre 2 : Méthodologie', '3 p.'], ['2.1 Terrain', '2 p.'], ['2.2 Entretiens', '1 p.'],
+      ['Conclusion générale', '1 p.'], ['Bibliographie', '1 p.'],
+    ], 'les mêmes pages que le PDF du même document');
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    await flush(page);
+    const d = await docOf(page, uid);
+    assert.deepEqual([d.docFiles.memoire.src, d.docFiles.memoire.pages], ['word', 13]);
+    // Le même document « à plat » (.fodt), sans mise en page enregistrée : une estimation, annoncée comme telle
+    await page.setInputFiles('#docxInput', { name: 'brouillon.fodt', mimeType: 'application/vnd.oasis.opendocument.text-flat-xml', buffer: fs.readFileSync(FIX('memoire.fodt')) });
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.match(await page.textContent('#docxSummary'), /brouillon\.fodt : 3\s610 mots, ≈ 9 pages/);
+    assert.match(await page.textContent('#docxPagesHint'), /estimation sans mise en page/);
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
   // Un PDF minimal, comme celui de Google Docs : des pages A4 et un signet par titre (page, hauteur depuis le haut)
   const fakePdf = (pages, marks) => {
     const hex = t => 'FEFF' + [...t].map(c => c.charCodeAt(0).toString(16).padStart(4, '0')).join('').toUpperCase();

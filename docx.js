@@ -17,7 +17,7 @@
    pagination réelle du fichier, sinon simulation de sa mise en page.
 ============================================================ */
 import { countWords, parseTextDocument, signs, guessHeadings } from './outline.js';
-import { paginate, spans, readPdf } from './pages.js';
+import { paginate, spans, readPdf, byBreaks } from './pages.js';
 import { openZip, canInflate } from './zip.js';
 import { readPdfDocument } from './pdfread.js';
 
@@ -138,10 +138,16 @@ export async function parseDocumentFile(file, opts = {}) {
     if (zip.has('content.xml')) {
       const [contentXml, stylesXml, metaXml, mime] = await Promise.all([read('content.xml'), read('styles.xml'), read('meta.xml'), read('mimetype')]);
       if (mime && !/opendocument\.text/.test(mime)) throw new DocxError('not-docx'); // tableur, présentation…
-      return analyzeOdt({ contentXml, stylesXml, metaXml });
+      return analyzeOdt({ contentXml, stylesXml, metaXml, planTitles: opts.planTitles });
     }
     if (/\.pages$/i.test(name) || zip.has('Index/Document.iwa')) throw new DocxError('pages');
     throw new DocxError('not-docx');
+  }
+  if (/\.fodt$/i.test(name) || (sig[0] === 0x3C && /<office:document\b[^>]*opendocument\.text/.test(new TextDecoder('utf-8').decode(buf.slice(0, 4000))))) {
+    // LibreOffice « à plat » : un seul fichier XML pour le texte, les styles et les statistiques
+    if (buf.byteLength > 4 * MAX_TEXT) throw new DocxError('too-big');
+    const xml = decodeText(buf);
+    return analyzeOdt({ contentXml: xml, stylesXml: null, metaXml: xml, planTitles: opts.planTitles });
   }
   if (/\.html?$/i.test(name) || file.type === 'text/html') {
     if (buf.byteLength > MAX_TEXT) throw new DocxError('too-big');
@@ -976,9 +982,320 @@ const ODF_TEXT = 'urn:oasis:names:tc:opendocument:xmlns:text:1.0';
 const ODF_OFFICE = 'urn:oasis:names:tc:opendocument:xmlns:office:1.0';
 const ODF_TABLE = 'urn:oasis:names:tc:opendocument:xmlns:table:1.0';
 const ODF_STYLE = 'urn:oasis:names:tc:opendocument:xmlns:style:1.0';
+const ODF_FO = 'urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0';
+const ODF_DRAW = 'urn:oasis:names:tc:opendocument:xmlns:drawing:1.0';
+const ODF_SVG = 'urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0';
 // Tables générées et coulisses du document : jamais comptées
 const ODF_SKIP = new Set(['table-of-content', 'illustration-index', 'table-index', 'object-index', 'user-index',
-  'alphabetical-index', 'tracked-changes', 'sequence-decls', 'variable-decls', 'user-field-decls', 'forms']);
+  'alphabetical-index', 'bibliography', 'tracked-changes', 'sequence-decls', 'variable-decls', 'user-field-decls', 'forms']);
+// Parmi elles, celles qui occupent des pages (sommaire, index) : leur texte ne compte pas, leur place si
+const ODF_INDEX = new Set(['table-of-content', 'illustration-index', 'table-index', 'object-index', 'user-index', 'alphabetical-index', 'bibliography']);
+
+/** Longueur ODF (« 2.5cm », « 12pt », « 0.5in ») en points ; NaN si ce n'en est pas une. */
+function odfLen(v) {
+  const m = /^(-?[\d.]+)\s*(pt|cm|mm|in|pc|px)?$/.exec(String(v || '').trim());
+  if (!m) return NaN;
+  const n = parseFloat(m[1]);
+  return n * ({ pt: 1, cm: 28.3465, mm: 2.83465, in: 72, pc: 12, px: 0.75 }[m[2] || 'pt']);
+}
+
+/**
+ * Styles d'un document ODF (styles nommés de styles.xml, styles automatiques de content.xml).
+ * Renvoie look(nom) : les propriétés utiles, héritées de style parent en style parent :
+ *   level  niveau de titre (nom « Heading 2 », « Titre 2 », ou niveau de plan du style), 0 sinon
+ *   before, after  saut de page demandé avant / après le paragraphe
+ *   size (points), bold, center, caption
+ */
+function odfStyles(docs) {
+  const raw = new Map();
+  let defSize = 12;
+  for (const d of docs) {
+    if (!d) continue;
+    for (const ds of d.getElementsByTagNameNS(ODF_STYLE, 'default-style')) {
+      if (ds.getAttributeNS(ODF_STYLE, 'family') !== 'paragraph') continue;
+      const tp = ds.getElementsByTagNameNS(ODF_STYLE, 'text-properties')[0];
+      const z = tp ? odfLen(tp.getAttributeNS(ODF_FO, 'font-size')) : NaN;
+      if (z > 0) defSize = z;
+    }
+    for (const st of d.getElementsByTagNameNS(ODF_STYLE, 'style')) {
+      const fam = st.getAttributeNS(ODF_STYLE, 'family') || 'paragraph';
+      if (fam !== 'paragraph' && fam !== 'text' && fam !== 'table') continue;
+      const name = st.getAttributeNS(ODF_STYLE, 'name');
+      if (!name) continue;
+      const o = {
+        parent: st.getAttributeNS(ODF_STYLE, 'parent-style-name') || null,
+        label: (st.getAttributeNS(ODF_STYLE, 'display-name') || name).replace(/_20_/g, ' ').toLowerCase(),
+      };
+      const lvl = parseInt(st.getAttributeNS(ODF_STYLE, 'default-outline-level') || '', 10);
+      if (lvl >= 1 && lvl <= 9) o.outline = lvl;
+      if (st.getAttributeNS(ODF_STYLE, 'master-page-name')) o.before = true;   // changement de style de page : nouvelle page
+      for (let c = st.firstElementChild; c; c = c.nextElementSibling) {
+        if (c.namespaceURI !== ODF_STYLE) continue;
+        if (c.localName === 'paragraph-properties' || c.localName === 'table-properties') {
+          const bb = c.getAttributeNS(ODF_FO, 'break-before');
+          const ba = c.getAttributeNS(ODF_FO, 'break-after');
+          if (bb) o.before = o.before || bb === 'page';
+          if (ba) o.after = ba === 'page';
+          const al = c.getAttributeNS(ODF_FO, 'text-align');
+          if (al) o.center = al === 'center';
+        } else if (c.localName === 'text-properties') {
+          const fs = c.getAttributeNS(ODF_FO, 'font-size');
+          if (fs) { if (/%$/.test(fs)) o.pct = parseFloat(fs) / 100; else if (odfLen(fs) > 0) o.size = odfLen(fs); }
+          const fw = c.getAttributeNS(ODF_FO, 'font-weight');
+          if (fw) o.bold = fw === 'bold' || parseInt(fw, 10) >= 600;
+        }
+      }
+      // Les styles automatiques (content.xml) priment sur un style nommé de même nom ; à nom égal par famille, le paragraphe d'abord
+      const key = fam === 'text' ? `t:${name}` : name;
+      raw.set(key, o);
+    }
+  }
+  const cache = new Map();
+  const look = (name, text, depth = 0) => {
+    const key = text ? `t:${name}` : name;
+    if (cache.has(key)) return cache.get(key);
+    // Un style de caractères ne dit que ce qu'il change (taille, gras) : le reste vient du paragraphe
+    const base = text ? { size: 0, pct: 0, bold: undefined }
+      : { level: 0, before: false, after: false, size: defSize, bold: false, center: false, caption: false };
+    if (!name || depth > 12) return base;
+    const st = raw.get(key);
+    const label = st ? st.label : String(name).replace(/_20_/g, ' ').toLowerCase();
+    let out;
+    if (!st) {
+      const m = text ? null : HEADING_NAME.exec(label);
+      out = m ? { ...base, level: +m[2] } : base;
+    } else {
+      const up = st.parent ? look(st.parent, text, depth + 1) : base;
+      out = { ...up };
+      // le saut de page d'un style parent vaut pour ses dérivés, sauf mention contraire
+      if (st.before !== undefined) out.before = st.before;
+      if (st.after !== undefined) out.after = st.after;
+      if (st.size) { out.size = st.size; if (text) out.pct = 0; }
+      else if (st.pct) { if (text) out.pct = (up.pct || 1) * st.pct; else out.size = up.size * st.pct; }
+      if (st.bold !== undefined) out.bold = st.bold;
+      if (!text) {
+        if (st.center !== undefined) out.center = st.center;
+        if (/^(contents|index|table of|table des|sommaire)/.test(label)) out.level = 0;
+        else {
+          const m = HEADING_NAME.exec(label);
+          if (m) out.level = +m[2];
+          else if (st.outline) out.level = st.outline;
+        }
+        if (/^(caption|légende|legende|illustration|figure|table\b|tableau)/.test(label)) out.caption = true;
+      }
+    }
+    cache.set(key, out);
+    return out;
+  };
+  return look;
+}
+
+/**
+ * LibreOffice (.odt, .fodt). Le texte et les titres comme pour Word ; les pages d'après les sauts
+ * de page que LibreOffice enregistre dans le fichier, quand sa mise en page était terminée.
+ */
+export function analyzeOdt({ contentXml, stylesXml, metaXml, planTitles, doc: given }) {
+  const parser = new DOMParser();
+  const doc = given || parser.parseFromString(contentXml || '', 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length) throw new DocxError('bad-xml');
+  const body = doc.getElementsByTagNameNS(ODF_OFFICE, 'text')[0];
+  if (!body) throw new DocxError('not-docx');
+  let sdoc = null;
+  if (stylesXml) {
+    sdoc = parser.parseFromString(stylesXml, 'application/xml');
+    if (sdoc.getElementsByTagName('parsererror').length) sdoc = null;
+  }
+  const look = odfStyles([sdoc, doc]);
+
+  // Le document dans l'ordre : paragraphes et tableaux (recs), et de quoi retrouver la pagination (atoms)
+  const recs = [];
+  const atoms = [];
+  let placed = false;      // du contenu est-il déjà posé ? (un saut demandé avant le tout premier paragraphe ne crée pas de page)
+  let afterBreak = false;  // le paragraphe précédent demandait un saut après lui
+  const hardBreak = () => { if (placed) atoms.push({ brk: 'hard' }); };
+  const weigh = (w, rec) => { if (w > 0 || rec) { atoms.push(rec ? { w, rec } : { w }); placed = true; } };
+
+  /** Texte d'un paragraphe (ou d'une cellule…), avec l'allure de ses caractères et les sauts de page tombés dedans. */
+  const read = (el, st, sink) => {
+    for (let c = el.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType === 3) { sink.text(c.nodeValue, st); continue; }
+      if (c.nodeType !== 1) continue;
+      const ln = c.localName;
+      if (c.namespaceURI === ODF_TEXT) {
+        if (ln === 'soft-page-break') { sink.brk(); continue; }
+        if (ln === 's') { sink.text(' '.repeat(Math.min(40, parseInt(c.getAttributeNS(ODF_TEXT, 'c') || '1', 10) || 1)), st); continue; }
+        if (ln === 'tab' || ln === 'line-break') { sink.text(' ', st); continue; }
+        if (ln === 'note-citation' || ODF_SKIP.has(ln)) continue;        // appel de note : seul le corps de la note compte
+        if (ln === 'span') { read(c, mergeLook(st, look(c.getAttributeNS(ODF_TEXT, 'style-name'), true)), sink); continue; }
+        if (ln === 'p' || ln === 'h') { sink.text(' ', st); read(c, st, sink); sink.text(' ', st); continue; } // note, cadre : pas collé au mot voisin
+      }
+      if (c.namespaceURI === ODF_OFFICE && ln === 'annotation') continue; // commentaires
+      if (ln === 'title' || ln === 'desc') continue;                      // texte alternatif des images
+      if (c.namespaceURI === ODF_DRAW && ln === 'frame') {
+        const h = odfLen(c.getAttributeNS(ODF_SVG, 'height'));
+        if (h > 0) sink.extra(h * 4.2);                                   // une image occupe à peu près la place de ce texte
+      }
+      read(c, st, sink);
+    }
+  };
+
+  const paragraph = (el, isHeading, listed, counted) => {
+    const st = look(el.getAttributeNS(ODF_TEXT, 'style-name'));
+    if (st.before || afterBreak) hardBreak();
+    afterBreak = st.after;
+    const parts = [];
+    let chars = 0;
+    let bold = 0;
+    let extra = 0;
+    let pieceW = 0;
+    const sizes = new Map();
+    const rec = { level: 0, text: '', words: 0, chars: 0, look: null, counted };
+    let first = true;
+    const flush = () => { weigh(pieceW + (first ? 60 : 0), first ? rec : null); first = false; pieceW = 0; };
+    read(el, st, {
+      text: (s, cs) => {
+        parts.push(s);
+        const n = s.replace(/\s/g, '').length;
+        if (!n) { pieceW += s.length; return; }
+        chars += n;
+        pieceW += s.length;
+        if (cs.bold) bold += n;
+        const k = Math.round(cs.size * 2) / 2;
+        sizes.set(k, (sizes.get(k) || 0) + n);
+      },
+      brk: () => { flush(); atoms.push({ brk: 'soft' }); },
+      extra: w => { extra += w; pieceW += w; },
+    });
+    flush();
+    const text = parts.join('').replace(/\s+/g, ' ').trim();
+    let size = st.size;
+    let best = -1;
+    for (const [z, n] of sizes) if (n > best) { best = n; size = z; }
+    rec.text = text;
+    rec.words = counted ? countWords(text) : 0;
+    rec.chars = counted && text ? text.length + 1 : 0;
+    rec.look = { text, words: rec.words, size, bold: chars > 0 && bold >= chars * 0.9, center: st.center, list: listed, caption: st.caption };
+    if (counted && text) {
+      if (isHeading) {
+        const lv = parseInt(el.getAttributeNS(ODF_TEXT, 'outline-level') || el.getAttribute('text:outline-level') || '1', 10);
+        rec.level = lv >= 1 && lv <= 9 ? lv : 1;
+      } else rec.level = st.level;
+    }
+    recs.push(rec);
+  };
+
+  const table = (el, counted) => {
+    const st = look(el.getAttributeNS(ODF_TABLE, 'style-name'));
+    if (st.before || afterBreak) hardBreak();
+    afterBreak = st.after;
+    const out = [];
+    const rows = node => {
+      for (let c = node.firstElementChild; c; c = c.nextElementSibling) {
+        if (c.namespaceURI === ODF_TEXT && c.localName === 'soft-page-break') { atoms.push({ brk: 'soft' }); continue; }
+        if (c.namespaceURI !== ODF_TABLE) continue;
+        if (c.localName === 'table-row') {
+          const acc = [];
+          odfText(c, acc);
+          const t = acc.join('');
+          out.push(t);
+          weigh(t.length * 1.3 + 50);
+        } else if (c.localName === 'table-header-rows' || c.localName === 'table-rows' || c.localName === 'table-row-group') rows(c);
+      }
+    };
+    rows(el);
+    const text = out.join(' ').replace(/\s+/g, ' ').trim();
+    recs.push({ table: true, words: counted ? countWords(text) : 0, chars: counted && text ? text.length + 1 : 0 });
+  };
+
+  const block = (el, listed, counted) => {
+    const ln = el.localName;
+    if (el.namespaceURI === ODF_TEXT) {
+      if (ln === 'soft-page-break') { atoms.push({ brk: 'soft' }); return; }
+      if (ODF_SKIP.has(ln)) {
+        // sommaire, index : on suit leur place dans les pages, pas leur texte
+        if (ODF_INDEX.has(ln)) for (const c of el.getElementsByTagNameNS(ODF_TEXT, 'index-body')) for (const k of c.children) block(k, false, false);
+        return;
+      }
+      if (ln === 'h' || ln === 'p') { paragraph(el, ln === 'h', listed, counted); return; }
+      if (ln === 'list' || ln === 'list-item' || ln === 'list-header') { for (const c of el.children) block(c, true, counted); return; }
+      if (ln === 'index-title') { for (const c of el.children) block(c, listed, false); return; }
+    }
+    if (el.namespaceURI === ODF_TABLE && ln === 'table') { table(el, counted); return; }
+    for (const c of el.children) block(c, listed, counted); // sections, cadres : on descend
+  };
+  for (const c of body.children) block(c, false, true);
+
+  // Pas de titres marqués (ou un seul) : on les repère à leur mise en forme
+  let headingSource = 'styles';
+  const styled = recs.filter(r => r.level > 0).length;
+  if (styled < 2) {
+    const lv = guessHeadings(recs.map(r => (r.table ? { text: 'tableau', words: r.words, table: true } : r.look)), { planTitles: (planTitles || []).map(t => t.title) });
+    const n = lv.filter(Boolean).length;
+    if (n >= 2 && n > styled) {
+      recs.forEach((r, i) => { r.level = r.table || !r.counted ? 0 : lv[i]; });
+      headingSource = 'layout';
+    }
+  }
+  const segments = [];
+  let front = 0;
+  let frontChars = 0;
+  for (const r of recs) {
+    if (!r.table && r.level > 0 && r.text) {
+      const before = segments.length;
+      pushHeading(segments, r.level, r.text, r.words);
+      if (segments.length > before) r.hd = before;
+      continue;
+    }
+    if (!r.words) continue;
+    if (segments.length) { const s = segments[segments.length - 1]; s.words += r.words; s.bodyWords += r.words; s.chars += r.chars; }
+    else { front += r.words; frontChars += r.chars; }
+  }
+
+  const mm = metaXml ? /meta:page-count="(\d+)"/.exec(metaXml) : null;
+  const metaPages = mm ? parseInt(mm[1], 10) : null;
+  const totalWords = front + segments.reduce((a, x) => a + x.words, 0);
+
+  // Pagination enregistrée : valable si la mise en page était terminée à l'enregistrement
+  let paged = null;
+  let metaTrust = metaPages;
+  const br = byBreaks(atoms.map(a => (a.brk ? a : { w: a.w, hd: a.rec && a.rec.hd !== undefined ? a.rec.hd : -1 })));
+  if (br.soft >= 1 || (br.total === 1 && metaPages === 1)) {
+    let total = br.total;
+    let scale = 1;
+    let ok = true;
+    if (metaPages) {
+      const d = metaPages - total;
+      if (Math.abs(d) <= Math.max(1, total * 0.04)) { /* concordant */ }
+      else if (d > 0 && d <= br.hard) { scale = metaPages / total; total = metaPages; }   // pages blanches insérées (chapitres en belle page)
+      else ok = false;
+    }
+    // Une page qui porterait bien plus de texte que les autres : la mise en page n'était pas allée au bout
+    if (br.median > 0 && (br.last > br.median * 2.5 || br.max > br.median * 4.5)) ok = false;
+    const wpp = totalWords / total;
+    if (totalWords > 200 && (wpp < 40 || wpp > 1200)) ok = false;
+    if (ok) {
+      const starts = [];
+      let prev = 0;
+      for (let i = 0; i < segments.length; i++) {
+        let v = br.starts.has(i) ? br.starts.get(i) * scale : prev;
+        if (v < prev) v = prev;
+        starts.push(v);
+        prev = v;
+      }
+      const sp = spans(starts, total);
+      paged = { total, front: sp.front, pages: sp.pages, source: 'word', layout: null, gen: 'libreoffice' };
+    } else metaTrust = null;   // mise en page inachevée : le nombre de pages enregistré avec elle ne vaut pas mieux
+  }
+  const res = finish('odt', segments, front, metaTrust, DEFAULT_WPP, paged, frontChars);
+  res.headingSource = segments.length ? headingSource : '';
+  return res;
+}
+
+/** Allure d'un passage (text:span) : celle du paragraphe, corrigée par le style de caractères. */
+function mergeLook(st, span) {
+  if (!span.size && !span.pct && span.bold === undefined) return st;
+  return { ...st, size: span.size || (span.pct ? st.size * span.pct : st.size), bold: span.bold === undefined ? st.bold : span.bold };
+}
 
 function odfText(el, out) {
   for (let c = el.firstChild; c; c = c.nextSibling) {
@@ -994,92 +1311,6 @@ function odfText(el, out) {
     if (ln === 'title' || ln === 'desc') continue;                      // texte alternatif des images
     odfText(c, out);
   }
-}
-
-/**
- * Niveau de titre des styles de paragraphe. Un document né dans LibreOffice marque ses titres (text:h),
- * mais un document converti depuis Word n'a souvent que des paragraphes au style « Heading 2 » :
- * on remonte donc la chaîne des styles, comme pour Word.
- */
-function odfStyleLevels(docs) {
-  const styles = new Map();
-  for (const d of docs) {
-    if (!d) continue;
-    for (const st of d.getElementsByTagNameNS(ODF_STYLE, 'style')) {
-      const fam = st.getAttributeNS(ODF_STYLE, 'family');
-      if (fam && fam !== 'paragraph') continue;
-      const name = st.getAttributeNS(ODF_STYLE, 'name');
-      if (!name) continue;
-      const lvl = parseInt(st.getAttributeNS(ODF_STYLE, 'default-outline-level') || '', 10);
-      styles.set(name, {
-        parent: st.getAttributeNS(ODF_STYLE, 'parent-style-name') || null,
-        label: (st.getAttributeNS(ODF_STYLE, 'display-name') || name).replace(/_20_/g, ' ').toLowerCase(),
-        outline: lvl >= 1 && lvl <= 9 ? lvl : 0,
-      });
-    }
-  }
-  const level = (name, depth = 0) => {
-    if (!name || depth > 12) return 0;
-    const st = styles.get(name);
-    const label = st ? st.label : String(name).replace(/_20_/g, ' ').toLowerCase();
-    if (/^(contents|index|table of|table des)/.test(label)) return 0;
-    const m = HEADING_NAME.exec(label);
-    if (m) return +m[2];
-    if (!st) return 0;
-    if (st.outline) return st.outline;
-    return level(st.parent, depth + 1);
-  };
-  return level;
-}
-
-export function analyzeOdt({ contentXml, stylesXml, metaXml }) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(contentXml || '', 'application/xml');
-  if (doc.getElementsByTagName('parsererror').length) throw new DocxError('bad-xml');
-  const body = doc.getElementsByTagNameNS(ODF_OFFICE, 'text')[0];
-  if (!body) throw new DocxError('not-docx');
-  let sdoc = null;
-  if (stylesXml) {
-    sdoc = parser.parseFromString(stylesXml, 'application/xml');
-    if (sdoc.getElementsByTagName('parsererror').length) sdoc = null;
-  }
-  const styleLevelOf = odfStyleLevels([sdoc, doc]);
-
-  const segments = [];
-  let front = 0;
-  let frontChars = 0;
-  const add = text => {
-    const n = countWords(text);
-    if (!n) return;
-    if (segments.length) { const s = segments[segments.length - 1]; s.words += n; s.bodyWords += n; s.chars += text.length + 1; }
-    else { front += n; frontChars += text.length + 1; }
-  };
-  const textOf = el => { const out = []; odfText(el, out); return out.join('').replace(/\s+/g, ' ').trim(); };
-  const block = el => {
-    const ln = el.localName;
-    if (el.namespaceURI === ODF_TEXT) {
-      if (ODF_SKIP.has(ln)) return;
-      if (ln === 'h') {
-        const text = textOf(el);
-        const level = parseInt(el.getAttributeNS(ODF_TEXT, 'outline-level') || el.getAttribute('text:outline-level') || '1', 10);
-        if (text) pushHeading(segments, level >= 1 && level <= 9 ? level : 1, text, countWords(text));
-        return;
-      }
-      if (ln === 'p') {
-        const text = textOf(el);
-        const level = text ? styleLevelOf(el.getAttributeNS(ODF_TEXT, 'style-name')) : 0;
-        if (level) pushHeading(segments, level, text, countWords(text));
-        else add(text);
-        return;
-      }
-    }
-    if (el.namespaceURI === ODF_TABLE && ln === 'table') { add(textOf(el)); return; }
-    for (const c of el.children) block(c); // listes, sections, cadres : on descend
-  };
-  for (const c of body.children) block(c);
-
-  const m = metaXml ? /meta:page-count="(\d+)"/.exec(metaXml) : null;
-  return finish('odt', segments, front, m ? parseInt(m[1], 10) : null, DEFAULT_WPP, null, frontChars);
 }
 
 /* ------------------------------------------------------------

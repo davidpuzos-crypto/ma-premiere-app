@@ -609,6 +609,18 @@ console.log('core.js : périodes, joker, défi OK');
   assert.ok(r.starts[1] > 2 && r.starts[1] < 4.5, 'le titre sans signet est placé au prorata : ' + r.starts[1]);
   const sp = P.spans(r.starts, r.total);
   near(sp.front + sp.pages.reduce((a, b) => a + b, 0), 10, 1e-9, 'la somme des parties est le nombre de pages');
+
+  // Sauts de page enregistrés par LibreOffice : nombre de pages, page de chaque titre, place dans la page
+  const A = [{ w: 300, hd: 0 }, { w: 2700 }, { brk: 'soft' }, { w: 1500 }, { w: 100, hd: 1 }, { w: 1400 }, { brk: 'soft' }, { w: 3000 }, { brk: 'hard' }, { w: 60, hd: 2 }, { w: 900 }];
+  const br = P.byBreaks(A);
+  assert.deepEqual([br.total, br.soft, br.hard], [4, 2, 1]);
+  assert.equal(br.starts.get(0), 0);
+  near(br.starts.get(1), 1.5, 1e-9, 'au milieu de la page 2');
+  near(br.starts.get(2), 3, 1e-9, 'en haut de la page 4');
+  assert.deepEqual([br.median, br.last, br.max], [3000, 960, 3000]);
+  // Titre sur la dernière page, à moitié pleine : rapporté à une page courante, pas à ce qui s'y trouve
+  near(P.byBreaks([{ w: 3000 }, { brk: 'soft' }, { w: 3000 }, { brk: 'soft' }, { w: 600 }, { w: 60, hd: 0 }, { w: 300 }]).starts.get(0), 2.2, 1e-9);
+  assert.deepEqual([P.byBreaks([]).total, P.byBreaks([{ w: 10, hd: 0 }]).starts.get(0)], [1, 0]);
 }
 console.log('pages.js : pagination OK');
 
