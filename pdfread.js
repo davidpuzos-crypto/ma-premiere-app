@@ -14,7 +14,11 @@ import { linesFromItems, analyzePdfModel } from './pdfdoc.js';
 const LIB_URL = './vendor/pdfjs/pdf.min.js';
 const WORKER_URL = './vendor/pdfjs/pdf.worker.min.js';
 const RANGE_FROM = 24 * 1024 * 1024;   // au-delà, lecture par morceaux
-const CHUNK = 256 * 1024;
+// Taille des morceaux. Sur le disque, de gros morceaux : chaque demande coûte un aller-retour, et un PDF dont le
+// texte est entrelacé d'images en réclame des centaines (mesuré : 28 s avec 256 Ko, 3 s avec 4 Mo, pour 83 Mo).
+// Par le réseau, plus petits : on évite de télécharger des images pour rien.
+const FILE_CHUNK = 4 * 1024 * 1024;
+const NET_CHUNK = 1024 * 1024;
 
 export class PdfError extends Error {
   constructor(code) { super(code); this.code = code; }
@@ -95,20 +99,20 @@ function taggedHeadings(tree) {
 /**
  * Lit un PDF et renvoie son analyse (voir pdfdoc.js).
  * source : File/Blob, Uint8Array, ArrayBuffer ou { url }
- * opts   : { planTitles, onProgress(pagesLues, total), lib }
+ * opts   : { planTitles, onProgress(pagesLues, total), lib, noOutline, noTags }
  */
 export async function readPdfDocument(source, opts = {}) {
   const lib = await pdfLib(opts.lib);
   const params = { isEvalSupported: false, disableFontFace: true, useSystemFonts: false, verbosity: 0, stopAtErrors: false };
   if (source && typeof source.url === 'string') {
-    Object.assign(params, { url: source.url, withCredentials: false, rangeChunkSize: CHUNK, disableAutoFetch: true, disableStream: true });
+    Object.assign(params, { url: source.url, withCredentials: false, rangeChunkSize: NET_CHUNK, disableAutoFetch: true, disableStream: true });
   } else if (source && typeof source.slice === 'function' && typeof source.arrayBuffer === 'function' && source.size > RANGE_FROM) {
     const file = source;
     const transport = new lib.PDFDataRangeTransport(file.size, null);
     transport.requestDataRange = (begin, end) => {
       file.slice(begin, end).arrayBuffer().then(buf => transport.onDataRange(begin, new Uint8Array(buf)), e => console.warn('PDF, lecture partielle :', e));
     };
-    Object.assign(params, { range: transport, length: file.size, rangeChunkSize: CHUNK, disableAutoFetch: true, disableStream: true });
+    Object.assign(params, { range: transport, length: file.size, rangeChunkSize: FILE_CHUNK, disableAutoFetch: true, disableStream: true });
   } else {
     const buf = source instanceof Uint8Array ? source : source instanceof ArrayBuffer ? new Uint8Array(source) : new Uint8Array(await source.arrayBuffer());
     params.data = buf;
@@ -129,8 +133,9 @@ export async function readPdfDocument(source, opts = {}) {
     let tags = [];
     let done = 0;
     // Pas de signets, mais un PDF balisé (export de Word) : les titres sont dans les balises de structure
-    const tree = await doc.getOutline().catch(() => null);
-    const withTags = !(tree && tree.length) && !!(mark && mark.Marked);
+    // (opts.noOutline, opts.noTags : pour les essais, faire comme si le PDF n'en avait pas)
+    const tree = opts.noOutline ? null : await doc.getOutline().catch(() => null);
+    const withTags = !(tree && tree.length) && !!(mark && mark.Marked) && !opts.noTags;
 
     // Première passe : taille des pages et texte
     const readPage = async i => {
