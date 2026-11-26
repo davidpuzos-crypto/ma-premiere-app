@@ -21,12 +21,13 @@ export class ZipError extends Error {
 
 /** Le navigateur sait-il décompresser seul ? (Chrome 103, Firefox 113, Safari 16.4) */
 export function canInflate() {
-  if (typeof DecompressionStream !== 'function' || typeof Response !== 'function' || typeof Blob !== 'function') return false;
-  try { new DecompressionStream('deflate-raw'); return true; } catch { return false; }
+  const DS = globalThis.DecompressionStream;
+  if (typeof DS !== 'function' || typeof Response !== 'function' || typeof Blob !== 'function') return false;
+  try { new DS('deflate-raw'); return true; } catch { return false; }
 }
 
 async function inflateRaw(u8) {
-  const stream = new Blob([u8]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  const stream = new Blob([u8]).stream().pipeThrough(new globalThis.DecompressionStream('deflate-raw'));
   return new Uint8Array(await new Response(stream).arrayBuffer());
 }
 

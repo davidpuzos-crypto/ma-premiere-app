@@ -1,6 +1,9 @@
 /* ============================================================
    DOCUMENTS — lecture du manuscrit dans le navigateur
    Le fichier n'est jamais envoyé. Formats lus :
+     • PDF (LaTeX et Overleaf, Word, Pages, Scrivener, Typst…) : la
+       pagination est exacte, le plan vient des signets, des titres
+       balisés ou de la mise en forme (pdfread.js, pdfdoc.js) ;
      • Word (.docx) et LibreOffice (.odt) : on ouvre l'archive (zip.js,
        sans bibliothèque extérieure) et on lit les titres et le texte ;
      • LaTeX (.tex), Markdown (.md), texte simple (.txt) ;
@@ -16,6 +19,7 @@
 import { countWords, parseTextDocument, signs } from './outline.js';
 import { paginate, spans, readPdf } from './pages.js';
 import { openZip, canInflate } from './zip.js';
+import { readPdfDocument } from './pdfread.js';
 
 export { countWords };
 
@@ -82,15 +86,34 @@ function decodeText(buf) {
 }
 
 /**
+ * Un PDF comme document suivi. source : File, Uint8Array ou { url }.
+ * opts.planTitles : titres du plan déjà saisi ; opts.onProgress(pagesLues, total).
+ */
+export async function analyzePdf(source, opts = {}) {
+  let r;
+  try { r = await readPdfDocument(source, { planTitles: opts.planTitles, onProgress: opts.onProgress, lib: opts.pdfLib }); }
+  catch (e) { throw new DocxError(e && e.code ? e.code : 'pdf-broken'); }
+  const res = finish('pdf', r.segments.map(s => ({ ...s, bodyWords: 0 })), r.frontWords, null, DEFAULT_WPP,
+    { total: r.totalPages, front: r.frontPages, pages: r.segments.map(s => s.pages), source: 'pdf', layout: null, gen: 'pdf' }, r.frontChars);
+  res.headingSource = r.headingSource;   // 'outline' (signets), 'tags' (titres balisés), 'layout' (mise en forme), 'plan', ''
+  res.scanned = !!r.scanned;             // pages scannées : pas de texte, seulement un nombre de pages
+  res.docTitle = r.docTitle || '';
+  return res;
+}
+
+/**
  * Lit un fichier (File) et renvoie l'analyse commune à tous les formats.
  * opts.pdf : le même document en PDF (Uint8Array), quand on l'a : il donne la pagination exacte.
+ * opts.planTitles, opts.onProgress : voir analyzePdf.
  */
 export async function parseDocumentFile(file, opts = {}) {
+  const name = String(file.name || '');
+  // Un PDF peut peser des centaines de Mo (images) : on ne le charge pas en entier, PDF.js lit ce qu'il lui faut
+  const head = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+  if (head[0] === 0x25 && head[1] === 0x50 && head[2] === 0x44 && head[3] === 0x46) return analyzePdf(file, opts);
   const buf = await file.arrayBuffer();
   const sig = new Uint8Array(buf.slice(0, 5));
-  const name = String(file.name || '');
   if (sig[0] === 0xD0 && sig[1] === 0xCF && sig[2] === 0x11 && sig[3] === 0xE0) throw new DocxError('old-doc');
-  if (sig[0] === 0x25 && sig[1] === 0x50 && sig[2] === 0x44 && sig[3] === 0x46) throw new DocxError('pdf');
   if (sig[0] === 0x7B && sig[1] === 0x5C && sig[2] === 0x72 && sig[3] === 0x74) throw new DocxError('rtf');
   if (sig[0] === 0x50 && sig[1] === 0x4B) {
     const zip = await openArchive(buf);

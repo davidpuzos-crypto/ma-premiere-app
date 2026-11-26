@@ -9,6 +9,8 @@
      visuals.js  les dessins : étagère, plante, barres de la semaine
      pages.js    la pagination d'un document (polices, lignes, pages, PDF de Google Docs)
      zip.js      l'ouverture des archives (docx, odt, projets zippés), sans bibliothèque
+     pdfread.js  la lecture des PDF (PDF.js embarqué, chargé à la demande)
+     pdfdoc.js   du texte d'un PDF au plan : signets, titres balisés, mise en forme
      promo.js    la promo (fiches, classement, fil)
 ============================================================ */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
@@ -70,7 +72,7 @@ window.__jdbVersion = APP_VERSION;
     sessionStorage.setItem('jdb_heal', String(n + 1));
   } catch { return; }
   window.__jdbHealing = true;
-  const files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'zip.js', 'ics.js'];
+  const files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'zip.js', 'pdfdoc.js', 'pdfread.js', 'ics.js'];
   Promise.all(files.map(u => fetch(u, { cache: 'reload' }).catch(() => {}))).then(() => location.reload());
   throw new Error('Mise à jour en cours : la page va se recharger.');
 })();
@@ -219,8 +221,13 @@ const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v);
 function num(v, min = 0) { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.max(min, n) : min; }
 function cleanId(id) { return String(id || '').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 40); }
 
-/** Clé stable d'un fichier Word (sert de nom de champ : lettres, chiffres, « _ »). */
+/** Clé stable d'un fichier (sert de nom de champ : lettres, chiffres, « _ »).
+ *  Pour les formats lus depuis toujours, l'extension est retirée de la clé (these.docx → « these ») ; pour les
+ *  formats ajoutés ensuite (PDF…), elle y reste (these.pdf → « these_pdf ») : le même manuscrit en .docx et en
+ *  .pdf fait deux documents distincts, dont les mots ne se comptent pas de la même façon. */
 const DOC_EXT = /\.(docx|odt|tex|ltx|md|markdown|mdown|txt|text|rst)$/i;
+/** Extension à retirer d'un nom de fichier pour en faire un titre. */
+const NAME_EXT = /\.(docx|docm|dotx|odt|fodt|pdf|rtf|tex|ltx|md|markdown|mdown|qmd|rmd|typ|org|adoc|asciidoc|txt|text|rst|zip|html?)$/i;
 const PASTE_NAME = 'Texte collé';
 
 function fileKeyOf(name) {
@@ -2984,9 +2991,10 @@ async function pickWordFile() {
   if (canLink()) {
     try {
       const [handle] = await window.showOpenFilePicker({
-        types: [{ description: 'Document (Word, LibreOffice, LaTeX, Markdown, texte)', accept: {
+        types: [{ description: 'Document (Word, LibreOffice, PDF, LaTeX, Markdown, texte)', accept: {
           'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
           'application/vnd.oasis.opendocument.text': ['.odt'],
+          'application/pdf': ['.pdf'],
           'text/plain': ['.txt', '.tex', '.md'],
         } }],
         multiple: false,
@@ -3032,9 +3040,9 @@ async function handleDocxFile(file, handle = null) {
   if (input) input.value = '';
   setDocxError('');
   setDocxBusy(true);
-  const busy = toast(`Lecture de ${trunc(file.name, 40)}…`, '', { key: 'docx', duration: 30000 });
+  const busy = toast(`Lecture de ${trunc(file.name, 40)}…`, '', { key: 'docx', duration: 300000 });
   try {
-    routeDocument(await parseDocumentFile(file), file, handle);
+    routeDocument(await parseDocumentFile(file, readOptions(file.name, busy)), file, handle);
   } catch (e) {
     console.error('document :', e);
     showDocxFailure(DOC_ERRORS[e && e.code] || 'Lecture impossible de ce fichier.');
@@ -3044,8 +3052,25 @@ async function handleDocxFile(file, handle = null) {
   }
 }
 
+/** Titres du plan actuel : ils aident à situer les parties d'un PDF sans signets. */
+const planTitles = () => state.chapters.flatMap(c => [{ title: c.title, level: 1 }, ...c.subsections.map(s => ({ title: s.title, level: 2 }))]);
+
+/** Options de lecture d'un document ; un long PDF dit où il en est dans le message d'attente. */
+function readOptions(name, busy) {
+  return {
+    planTitles: planTitles(),
+    onProgress: (done, total) => {
+      const sp = busy && busy.querySelector('span');
+      if (sp && total > 40) sp.textContent = typo(`Lecture de ${trunc(name, 28)}… page ${done} sur ${total}`);
+    },
+  };
+}
+
 const DOC_ERRORS = {
-  'pdf': 'Ce fichier est un PDF : les titres n\'y sont plus repérables de façon fiable. Déposez plutôt le fichier d\'origine (Word, LibreOffice, LaTeX), ou collez votre texte.',
+  'pdf-password': 'Ce PDF est protégé par un mot de passe : le Journal ne peut pas le lire. Exportez-le sans protection, ou déposez le fichier d\'origine.',
+  'pdf-broken': 'Ce PDF est illisible (fichier incomplet ou endommagé ?). Exportez-le de nouveau depuis votre logiciel, puis réessayez.',
+  'pdf-lib': 'Impossible de charger le lecteur de PDF : vérifiez votre connexion internet, puis réessayez.',
+  'pdf-fetch': 'Le PDF n\'a pas pu être téléchargé jusqu\'au bout. Réessayez dans un instant.',
   'old-doc': 'Ce fichier est au format .doc (ancien Word). Ouvrez-le dans Word, puis Fichier > Enregistrer sous > Document Word (.docx), et réessayez.',
   'rtf': 'Ce fichier est au format RTF. Ouvrez-le dans Word ou LibreOffice, enregistrez-le en .docx ou .odt, puis réessayez. Vous pouvez aussi coller votre texte.',
   'pages': 'Ce fichier vient de Pages. Dans Pages : Fichier > Exporter vers > Word, puis déposez le .docx. Vous pouvez aussi coller votre texte.',
@@ -3090,6 +3115,12 @@ function routeDocument(res, file, handle, extra) {
   const m = buildDocxModel(res, file, handle, extra);
   if (_forceReview.delete(m.key)) { m.review = true; m.clean = false; }
   if (!m.rows.length && m.planEmpty) {
+    if (res.kind === 'pdf') {
+      showDocxFailure(res.scanned
+        ? `« ${file.name} » fait ${fmtInt(res.totalPages)} pages, mais ne contient pas de texte lisible (pages scannées ?). Déposez plutôt le fichier d'origine, ou un PDF exporté depuis votre logiciel.`
+        : `Aucun titre repéré dans « ${file.name} » (${fmtInt(res.totalPages)} pages, ${fmtInt(res.totalWords)} mots) : ce PDF n'a pas de signets, et ses titres ne se distinguent pas du texte. Exportez-le avec ses signets (LaTeX : extension hyperref ; Word : Enregistrer sous, PDF, Options, « Créer des signets à l'aide des titres »), ou déposez le fichier d'origine.`);
+      return;
+    }
     const how = res.kind === 'docx' || res.kind === 'odt' || res.kind === 'html'
       ? 'Appliquez le style « Titre 1 » à vos chapitres et « Titre 2 » à vos sous-parties, puis réessayez.'
       : 'Commencez vos chapitres par « Chapitre 1 », ou utilisez \\chapter{…} (LaTeX) ou « # Titre » (Markdown), puis réessayez.';
@@ -3139,7 +3170,7 @@ function docxDefaultTitle(m) {
   const roots = m.res.segments.filter(s => s.level === Math.min(...m.res.segments.map(x => x.level)));
   if (roots.length === 1 && roots[0].title) return roots[0].title;
   if (tops.length === 1) return tops[0].title;
-  const base = String(m.name).replace(DOC_EXT, '').replace(/[_-]+/g, ' ').trim();
+  const base = String(m.name).replace(NAME_EXT, '').replace(/[_-]+/g, ' ').trim();
   return base && m.name !== PASTE_NAME ? base.charAt(0).toUpperCase() + base.slice(1) : 'Nouveau chapitre';
 }
 
@@ -3151,7 +3182,7 @@ function detectScope(res, fileName) {
   if (!state.chapters.length) return '';
   const tops = buildOutline(res.segments, res.frontWords, 'auto').chapters.filter(c => !DOCX_IGNORE.test(normalizeTitle(c.title)));
   if (tops.some(c => state.chapters.some(ch => titleScore(c.title, ch.title) >= 0.55))) return '';
-  const base = String(fileName).replace(DOC_EXT, '');
+  const base = String(fileName).replace(NAME_EXT, '');
   const named = fileName !== PASTE_NAME; // un texte collé n'a pas de nom qui renseigne
   const secs = buildOutline(res.segments, res.frontWords, 'auto', { single: true }).chapters;
   let best = '';
@@ -3471,7 +3502,10 @@ function docxPageDelta(m) {
  * déplace la pagination sans que rien n'ait été écrit.
  */
 function docxActivityDelta(m) {
-  if (docxComparable(m)) return Math.round(((m.inclWords - m.known.inclWords) / m.wpp) * 100) / 100;
+  if (docxComparable(m)) {
+    if (!m.inclWords && !m.known.inclWords) return docxPageDelta(m); // PDF sans texte (pages scannées) : on suit les pages
+    return Math.round(((m.inclWords - m.known.inclWords) / m.wpp) * 100) / 100;
+  }
   // Même document mais autre découpage (plan refait, autre niveau de titre) : rien de comparable, on repart de là
   if (m.known && Number.isFinite(m.known.inclWords)) return 0;
   return docxPageDelta(m);
@@ -3645,8 +3679,13 @@ function renderDocxPreview() {
   if (document.activeElement !== pagesEl) pagesEl.value = total;
   const lay = res.layout;
   const layTxt = lay && lay.font ? ` (${esc(lay.font)} ${fmt1(lay.size)}${lay.spacing ? `, interligne ${fmt1(lay.spacing)}` : ''}${lay.paper ? `, ${lay.paper === 'Letter' ? 'format Lettre' : lay.paper}` : ''})` : '';
+  // Un PDF : d'où vient son plan (signets, titres balisés, mise en forme, titres de votre plan)
+  const HEADS = {
+    outline: 'plan lu dans ses signets', tags: 'plan lu dans ses titres balisés',
+    layout: 'titres repérés d\'après la mise en forme, à vérifier ci-dessous', plan: 'parties situées d\'après les titres de votre plan',
+  };
   const SRC = {
-    pdf: 'pagination de Google Docs, exacte',
+    pdf: res.kind === 'pdf' ? `pagination du PDF, exacte${HEADS[res.headingSource] ? ` · ${HEADS[res.headingSource]}` : ''}` : 'pagination de Google Docs, exacte',
     word: 'pagination enregistrée par Word, exacte',
     meta: `nombre de pages indiqué par ${res.kind === 'odt' || res.gen === 'libreoffice' ? 'LibreOffice' : 'le fichier'}`,
     layout: `calculé d'après la mise en page${layTxt}`,
@@ -4215,7 +4254,7 @@ async function syncLinked({ manual, only }) {
         if (_autoSkip.get(lf.key) === file.lastModified) continue;             // synchro annulée par l'utilisateur
       }
       let m;
-      try { m = buildDocxModel(await parseDocumentFile(file), file, lf.handle); }
+      try { m = buildDocxModel(await parseDocumentFile(file, { planTitles: planTitles() }), file, lf.handle); }
       catch (e) {
         console.warn('Synchro', lf.name, e);
         if (manual) toast(`Lecture impossible de ${trunc(lf.name, 30)}`, 'warn');

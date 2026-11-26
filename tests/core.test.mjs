@@ -660,3 +660,155 @@ console.log('zip.js : archives OK');
   assert.equal((await zip.bytes('figures/pont.png')).length, 72);
 }
 console.log('zip.js : projet zippé OK');
+
+// -----------------------------------------------------------
+// outline.js : titres repérés sans styles, niveaux d'après la numérotation
+// -----------------------------------------------------------
+{
+  const O = await import('../outline.js');
+  assert.equal(O.titleKey('  Chapitre 2 : État de l’art  '), 'chapitre 2 etat de l art');
+  const nb = t => { const x = O.titleNumbering(t); return x.kind + (x.kind === 'num' ? x.depth : ''); };
+  assert.deepEqual(['1 Introduction', '2.3.1 Bandes', 'II.3 Les algues', 'I.1.1 Définition', 'A. Preuves', 'IV - Résultats'].map(nb), ['num1', 'num3', 'num2', 'num3', 'num1', 'num1']);
+  assert.deepEqual(['Chapitre 3 : Méthode', 'Deuxième partie', 'Conclusion générale', 'Références bibliographiques', 'List of figures', 'Acknowledgements'].map(nb), ['chap', 'part', 'matter', 'matter', 'matter', 'matter']);
+  assert.deepEqual(['A Scrooge McDuck Theory', '2025 en chiffres', 'Le fer', '3D printing'].map(nb), ['', '', '', ''], 'un article, une année, un mot ne sont pas des numéros');
+
+  const body = 'Les ingénieurs hésitent longtemps entre le fer et la pierre, et les archives gardent la trace de chacune de leurs hésitations.';
+  const P = (text, o = {}) => ({ text, size: 12, ...o });
+  // Mise en forme à la main : page de garde, sommaire, « CHAPITRE 1 » puis son intitulé, sections numérotées en gras
+  const doc = [
+    P('UNIVERSITÉ DE LYON', { size: 16, center: true }), P('Les ponts suspendus', { size: 24, bold: true, center: true }), P('Thèse présentée par Camille Durand', { center: true }),
+    P('Sommaire', { size: 16, bold: true }), P('Introduction'), P('Chapitre 1 : Le fer'), P('Chapitre 2 : La pierre'), P('Conclusion'),
+    P('Introduction', { size: 16, bold: true }), P(body), P(body),
+    P('CHAPITRE 1', { size: 16, bold: true }), P('Le fer', { size: 16, bold: true }), P(body),
+    P('1.1 Les forges', { bold: true }), P(body), P('Figure 1 : une forge', { bold: true }), P(body),
+    P('1.2 Les ingénieurs', { bold: true }), P(body), P('Une phrase en gras qui se termine par un point.', { bold: true }), P(body),
+    P('CHAPITRE 2', { size: 16, bold: true }), P('La pierre', { size: 16, bold: true }), P(body), P('2.1 Les carrières', { bold: true }), P(body),
+    P('Conclusion', { size: 16, bold: true }), P(body),
+  ];
+  const found = lv => doc.map((it, i) => (lv[i] ? `${lv[i]} ${it.text}` : null)).filter(Boolean);
+  assert.deepEqual(found(O.guessHeadings(doc)), ['1 Introduction', '1 CHAPITRE 1', '1 Le fer', '2 1.1 Les forges', '2 1.2 Les ingénieurs', '1 CHAPITRE 2', '1 La pierre', '2 2.1 Les carrières', '1 Conclusion'],
+    'ni la page de garde, ni le sommaire, ni la légende, ni la phrase en gras');
+  // Rien de mis en valeur : on ne devine pas
+  assert.deepEqual(O.guessHeadings([P(body), P(body), P('Une ligne courte'), P(body)]).filter(Boolean), []);
+  const bare = doc.map(it => ({ text: it.text, size: 12 }));
+  assert.deepEqual(O.guessHeadings(bare).map((l, i) => (l ? `${l} ${bare[i].text}` : null)).filter(Boolean), ['1 Introduction', '1 CHAPITRE 1', '1 CHAPITRE 2', '1 Conclusion'],
+    'sans gras ni taille, restent les mots qui ne trompent pas : introduction, chapitre, conclusion (mais pas ceux du sommaire)');
+  assert.deepEqual(O.guessHeadings([]), []);
+  // Un titre du plan déjà saisi est reconnu même sans mise en forme marquée
+  const plain = [P('Méthode'), P(body), P('Terrain'), P(body), P('Résultats'), P(body)];
+  assert.deepEqual(O.guessHeadings(plain).filter(Boolean), []);
+  assert.deepEqual(O.guessHeadings(plain, { planTitles: ['Méthode', 'Terrain', 'Résultats'] }), [1, 0, 1, 0, 1, 0]);
+  // Sans gras (PDF) : mêmes tailles pour 2.1 et 2.1.1, la numérotation départage ; « Chapitre N » puis sections « 1. », « 2. »
+  const pdfLike = [
+    P('Thèse de doctorat', { size: 20 }), P('Résumé', { size: 14 }), P(body),
+    P('Chapter 1 Introduction', { size: 18 }), P(body), P('1.1 Energy', { size: 14 }), P(body), P('1.1.1 Sun', { size: 14 }), P(body), P('References', { size: 14 }), P(body),
+    P('Chapter 2 Cells', { size: 17.6 }), P(body), P('2.1 Principle', { size: 14 }), P(body), P('General conclusions', { size: 18 }), P(body),
+  ];
+  const lvPdf = O.guessHeadings(pdfLike);
+  assert.deepEqual(pdfLike.map((it, i) => (lvPdf[i] ? `${lvPdf[i]} ${it.text}` : null)).filter(Boolean),
+    ['2 Résumé', '1 Chapter 1 Introduction', '2 1.1 Energy', '3 1.1.1 Sun', '2 References', '1 Chapter 2 Cells', '2 2.1 Principle', '1 General conclusions'],
+    'la couverture est écartée ; 18 et 17,6 points sont le même palier ; « References » se range avec les sections');
+  const restart = [P('Chapitre I Problème', { size: 16 }), P(body), P('1. Contexte', { size: 16 }), P(body), P('2. Enjeux', { size: 16 }), P(body), P('Conclusion', { size: 16 }), P(body),
+    P('Chapitre II Étude', { size: 16 }), P(body), P('1. Généralités', { size: 16 }), P(body), P('Conclusion générale', { size: 16 }), P(body)];
+  assert.deepEqual(O.guessHeadings(restart).filter(Boolean), [1, 2, 2, 2, 1, 2, 1],
+    'la numérotation qui repart à 1 dans chaque chapitre désigne ses sections ; une conclusion entre deux chapitres appartient au premier, la dernière est générale');
+
+  // Styles posés au hasard (« Titre 1 » sur les sous-sections) : la numérotation rétablit la hiérarchie
+  const messy = [{ level: 2, title: 'I. Bibliographie' }, { level: 3, title: 'I.1 Les microalgues' }, { level: 1, title: 'I.1.1 Définition' }, { level: 1, title: 'I.1.2 Classification' },
+    { level: 4, title: 'Transfert cyclique' }, { level: 3, title: 'I.2 Réactions' }, { level: 2, title: 'II. Matériel et méthodes' }, { level: 3, title: 'II.1 Souche' }];
+  assert.deepEqual(O.relevelByNumbering(messy), [1, 2, 3, 3, 4, 2, 1, 2]);
+  // Niveaux déjà cohérents : on n'y touche pas
+  assert.equal(O.relevelByNumbering([{ level: 1, title: '1 Un' }, { level: 2, title: '1.1 Deux' }, { level: 2, title: '1.2 Trois' }, { level: 1, title: '2 Quatre' }]), null);
+  assert.equal(O.relevelByNumbering([{ level: 1, title: 'Un' }, { level: 2, title: 'Deux' }, { level: 1, title: 'Trois' }]), null, 'pas de numérotation : rien à dire');
+  // « Partie » au-dessus des chapitres
+  assert.deepEqual(O.relevelByNumbering([{ level: 1, title: 'Première partie' }, { level: 1, title: 'Chapitre 1 : Le fer' }, { level: 1, title: '1.1 Les forges' }, { level: 1, title: 'Chapitre 2 : La pierre' }], { force: true }), [1, 2, 3, 2]);
+}
+console.log('outline.js : titres sans styles OK');
+
+// -----------------------------------------------------------
+// pdfdoc.js : du texte d'un PDF au plan (signets, balises, mise en forme, titres du plan)
+// -----------------------------------------------------------
+{
+  const D = await import('../pdfdoc.js');
+  const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg || ''} (${a} au lieu de ${b})`);
+  // Fragments → lignes : appel de note en exposant, blanc entre deux fragments écartés, gras majoritaire
+  const L = D.linesFromItems([
+    { str: 'Les ponts', x: 70, y: 100, size: 12, w: 50 }, { str: 'suspendus', x: 124, y: 100, size: 12, w: 52 }, { str: '3', x: 176, y: 96, size: 7, w: 4 },
+    { str: ' tiennent.', x: 180, y: 100, size: 12, w: 50, eol: true },
+    { str: 'Chapitre 2', x: 70, y: 140, size: 18, w: 90, bold: true }, { str: '', x: 0, y: 0, size: 0, w: 0, eol: true },
+    { str: 'Texte', x: 70, y: 170, size: 12, w: 30 }, { str: 'en retour', x: 70, y: 185, size: 12, w: 50 },
+  ]);
+  assert.deepEqual(L.map(l => [l.text, l.size, l.bold]), [['Les ponts suspendus3 tiennent.', 12, false], ['Chapitre 2', 18, true], ['Texte', 12, false], ['en retour', 12, false]]);
+  assert.equal(L[0].y, 100, 'la ligne garde la hauteur de son texte, pas celle de l\'appel de note');
+
+  // Un PDF de six pages : en-tête répété, numéros de page, signets
+  const SENT = 'Les ingénieurs des Ponts et Chaussées hésitent longtemps entre le fer et la pierre';
+  const body = (n, from = 150) => Array.from({ length: n }, (_, i) => ({ x: 70, y: from + i * 20, size: 12, text: SENT }));
+  const page = (lines, n) => ({ w: 595, h: 842, lines: [{ x: 200, y: 40, size: 9, text: 'Les ponts suspendus en France' }, ...lines, { x: 290, y: 800, size: 9, text: String(n) }] });
+  const head = (text, y = 110, size = 18) => ({ x: 70, y, size, text });
+  const pages = [
+    page([head('Les ponts suspendus', 300, 24)], 1),
+    page([head('Introduction'), ...body(30)], 2),
+    page([...body(15, 90), head('Chapitre 1 : Le fer', 410), ...body(15, 440)], 3),
+    page([...body(32, 90)], 4),
+    page([head('Chapitre 2 : La pierre'), ...body(10), head('2.1 Les carrières', 370, 14), ...body(18, 400)], 5),
+    page([head('Conclusion'), ...body(8), { x: 70, y: 400, size: 12, text: 'Une coupure de mot en fin de ligne : sus-' }, { x: 70, y: 420, size: 12, text: 'pendus, et la suite.' }], 6),
+  ];
+  const clone = o => JSON.parse(JSON.stringify(o));
+  const outline = [{ title: 'Introduction', level: 1, page: 1, y: 92 }, { title: 'Chapitre 1 : Le fer', level: 1, page: 2, y: 392 }, { title: 'Chapitre 2 : La pierre', level: 1, page: 4, y: null },
+    { title: 'Les carrières', level: 2, page: 4, y: 356 }, { title: 'Conclusion', level: 1, page: 5, y: 92 }];
+  let r = D.analyzePdfModel({ pages: clone(pages), outline });
+  assert.equal(r.kind, 'pdf');
+  assert.equal(r.totalPages, 6);
+  assert.equal(r.headingSource, 'outline');
+  assert.equal(r.bodySize, 12);
+  assert.deepEqual(r.segments.map(s => [s.level, s.title]), [[1, 'Introduction'], [1, 'Chapitre 1 : Le fer'], [1, 'Chapitre 2 : La pierre'], [2, 'Les carrières'], [1, 'Conclusion']]);
+  const W = 14;   // mots d'une ligne de texte
+  assert.deepEqual(r.segments.map(s => s.words), [1 + 45 * W, 4 + 47 * W, 4 + 10 * W, 3 + 18 * W, 1 + 8 * W + 12], 'en-têtes et numéros de page non comptés ; « sus-pendus » recollé');
+  assert.equal(r.frontWords, 3, 'la page de titre');
+  near(r.frontPages + r.segments.reduce((s, x) => s + x.pages, 0), 6, 1e-9, 'la somme des parties est le nombre de pages');
+  near(r.segments[0].pages, 1.4, 0.08, 'du haut de la page 2 au milieu de la page 3');
+  near(r.segments[1].pages, 1.6, 0.08);
+  assert.ok(r.segments[2].pages > 0.3 && r.segments[2].pages < 0.5, 'le signet sans hauteur est situé par le texte du titre');
+  near(r.frontPages, 1, 0.03);
+
+  // Sans signets : titres balisés (niveaux fantaisistes, rétablis par la numérotation), puis mise en forme, puis titres du plan
+  const tags = [{ title: 'Introduction', level: 2, page: 1, y: 92 }, { title: 'Chapitre1:Lefer', level: 2, page: 2, y: 392 }, { title: 'Chapitre 2 : La pierre', level: 2, page: 4, y: 92 },
+    { title: '2.1Lescarrières', level: 1, page: 4, y: 356 }, { title: 'Conclusion', level: 2, page: 5, y: 92 }];
+  r = D.analyzePdfModel({ pages: clone(pages), outline: [], tags });
+  assert.equal(r.headingSource, 'tags');
+  assert.deepEqual(r.segments.map(s => [s.level, s.title]), [[1, 'Introduction'], [1, 'Chapitre 1 : Le fer'], [1, 'Chapitre 2 : La pierre'], [2, '2.1 Les carrières'], [1, 'Conclusion']],
+    'le titre est repris tel qu\'il est composé (avec ses espaces), la section numérotée repasse sous son chapitre');
+  r = D.analyzePdfModel({ pages: clone(pages), outline: [], tags: [] });
+  assert.equal(r.headingSource, 'layout');
+  assert.deepEqual(r.segments.map(s => [s.level, s.title]), [[1, 'Introduction'], [1, 'Chapitre 1 : Le fer'], [1, 'Chapitre 2 : La pierre'], [2, '2.1 Les carrières'], [1, 'Conclusion']], 'le grand titre de couverture est écarté');
+  const flat = clone(pages).map(pg => ({ ...pg, lines: pg.lines.map(l => ({ ...l, size: l.size > 12 ? 12 : l.size })) }));
+  flat[1].lines[1].text = 'Présentation';
+  flat[5].lines[1].text = 'Bilan';
+  // Aucune mise en valeur : les mots « chapitre » et les titres du plan déjà saisi suffisent à s'y retrouver
+  const plan = [{ title: 'Présentation', level: 1 }, { title: 'Chapitre 2 : La pierre', level: 1 }, { title: 'Les carrières', level: 2 }, { title: 'Absent', level: 1 }, { title: 'Bilan', level: 1 }];
+  r = D.analyzePdfModel({ pages: clone(flat) }, { planTitles: plan });
+  assert.equal(r.headingSource, 'layout');
+  assert.deepEqual(r.segments.map(s => [s.level, s.title]), [[1, 'Présentation'], [1, 'Chapitre 1 : Le fer'], [1, 'Chapitre 2 : La pierre'], [2, '2.1 Les carrières'], [1, 'Bilan']]);
+  assert.equal(D.analyzePdfModel({ pages: clone(flat) }).segments.length, 2, 'sans le plan : seulement les deux lignes « Chapitre N »');
+  // Titres collés au texte qui les suit (même corps, même interligne) : rien ne les distingue à l'œil,
+  // on les retrouve par leur texte, dans l'ordre du plan
+  const glued = clone(flat).map(pg => ({ ...pg, lines: pg.lines.map(l => (l.y === 110 ? { ...l, y: 130 } : l.y === 410 ? { ...l, y: 420 } : l.y === 370 ? { ...l, y: 380 } : l)) }));
+  glued[2].lines = glued[2].lines.filter(l => l.text !== 'Chapitre 1 : Le fer');
+  r = D.analyzePdfModel({ pages: glued }, { planTitles: plan });
+  assert.equal(r.headingSource, 'plan');
+  assert.deepEqual(r.segments.map(s => [s.level, s.title]), [[1, 'Présentation'], [1, 'Chapitre 2 : La pierre'], [2, 'Les carrières'], [1, 'Bilan']]);
+  // Deux lignes de couverture en signets pour trois cents pages : la mise en forme prend le relais
+  r = D.analyzePdfModel({ pages: clone(pages), outline: [{ title: 'Couverture', level: 1, page: 0, y: 0 }] });
+  assert.equal(r.headingSource, 'layout');
+  // « Chapter 2 » en signet, son intitulé juste en dessous : un seul titre, les sections remontent d'un cran
+  r = D.analyzePdfModel({ pages: clone(pages), outline: [{ title: 'Introduction', level: 1, page: 1, y: 92 }, { title: 'Chapitre 1 : Le fer', level: 1, page: 2, y: 392 }, { title: 'Chapitre 2', level: 1, page: 4, y: 92 },
+    { title: 'La pierre', level: 2, page: 4, y: 93 }, { title: 'Les carrières', level: 3, page: 4, y: 356 }, { title: 'Conclusion', level: 1, page: 5, y: 92 }] });
+  assert.deepEqual(r.segments.map(s => [s.level, s.title]).slice(2, 4), [[1, 'Chapitre 2 : La pierre'], [2, 'Les carrières']]);
+  // Pages scannées : on connaît le nombre de pages, pas le texte
+  r = D.analyzePdfModel({ pages: Array.from({ length: 40 }, () => ({ w: 595, h: 842, lines: [] })) });
+  assert.deepEqual([r.totalPages, r.totalWords, r.segments.length, r.scanned, r.frontPages], [40, 0, 0, true, 40]);
+  r = D.analyzePdfModel({ pages: [] });
+  assert.deepEqual([r.totalPages, r.segments.length], [0, 0]);
+}
+console.log('pdfdoc.js : PDF OK');

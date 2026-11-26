@@ -50,6 +50,8 @@
   <link rel="modulepreload" href="visuals.js" />
   <link rel="modulepreload" href="pages.js" />
   <link rel="modulepreload" href="zip.js" />
+  <link rel="modulepreload" href="pdfdoc.js" />
+  <link rel="modulepreload" href="pdfread.js" />
   <link rel="modulepreload" href="promo.js" />
   <link rel="modulepreload" href="docx.js" />
   <link rel="modulepreload" href="ics.js" />
@@ -775,7 +777,7 @@
         <button type="button" class="dropzone" id="docxDrop" onclick="pickWordFile()">
           <svg class="ic ic-lg" aria-hidden="true"><use href="#i-upload"/></svg>
           <span class="dz-main">Choisir mon fichier</span>
-          <span class="dz-sub">Word (.docx), LibreOffice (.odt), LaTeX (.tex), Markdown, texte. Ou le déposer n'importe où dans la page.</span>
+          <span class="dz-sub">Word (.docx), LibreOffice (.odt), PDF, LaTeX (.tex), Markdown, texte. Ou le déposer n'importe où dans la page.</span>
         </button>
         <div class="gdoc-box" id="gdocBox">
           <label class="gdoc-title" for="gdocUrl"><svg class="ic" aria-hidden="true"><use href="#i-link"/></svg>Lier un Google Doc</label>
@@ -1045,7 +1047,7 @@
 <!-- Zone de dépôt plein écran + sélecteur de fichier de secours -->
 <div id="dropOverlay" aria-hidden="true"><div class="drop-box"><svg class="ic ic-lg" aria-hidden="true"><use href="#i-upload"/></svg><b>Déposez votre document</b><span>pour mettre à jour votre avancement</span></div></div>
 <input type="file" id="docxInput" class="visually-hidden" tabindex="-1" aria-hidden="true"
-       accept=".docx,.odt,.tex,.md,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text,text/plain"
+       accept=".docx,.odt,.pdf,.tex,.md,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text,application/pdf,text/plain"
        onchange="handleDocxFile(this.files[0])" />
 
 <!-- Messages -->
@@ -1103,7 +1105,7 @@
       if (n >= 2) return;
       sessionStorage.setItem('jdb_heal', String(n + 1));
     } catch (e) { return; }
-    var files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'zip.js', 'ics.js'];
+    var files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'zip.js', 'pdfdoc.js', 'pdfread.js', 'ics.js'];
     Promise.all(files.map(function (u) { return fetch(u, { cache: 'reload' }).catch(function () {}); }))
       .then(function () { location.reload(); });
   });

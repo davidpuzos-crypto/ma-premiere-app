@@ -618,6 +618,69 @@ const clone = o => JSON.parse(JSON.stringify(o));
   });
 
   /* ------------------------------------------------------------ */
+  await test('PDF (LaTeX, Overleaf, Pages…) : pages exactes, plan par les signets, les balises ou la mise en forme, mise à jour en un geste', async () => {
+    const uid = 'u_pdf';
+    const sendPdf = (page, fixture, name) => page.setInputFiles('#docxInput', { name: name || fixture, mimeType: 'application/pdf', buffer: fs.readFileSync(FIX(fixture)) });
+    let { ctx, page } = await newPage(browser, { user: { uid, email: 'pdf@example.com' } });
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+    assert.deepEqual(page._requests.filter(u => /vendor\/pdfjs/.test(u)), [], 'le lecteur de PDF n\'est chargé que si l\'on ouvre un PDF');
+    await sendPdf(page, 'memoire.pdf');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 30000 });
+    assert.match(await page.textContent('#docxSummary'), /memoire\.pdf : 3\s517 mots, 13 pages\. 6 parties détectées, 4 sous-sections\. Pages liminaires non comptées : 1 p\./, 'treize pages, sans « environ »');
+    assert.equal(await page.inputValue('#docxPages'), '13');
+    assert.match(await page.textContent('#docxPagesHint'), /pagination du PDF, exacte · plan lu dans ses signets/);
+    const rows = () => page.$$eval('#docxRows .dx-row', rs => rs.map(r => [r.querySelector('.dx-title').textContent, r.querySelector('input').checked, r.querySelector('.dx-meta b').textContent]));
+    assert.deepEqual(await rows(), [
+      ['Remerciements', false, '1 p.'],
+      ['Introduction générale', true, '2 p.'],
+      ['Chapitre 1 : État de l’art', true, '4 p.'], ['1.1 Contexte général', true, '2 p.'], ['1.2 Travaux existants', true, '2 p.'],
+      ['Chapitre 2 : Méthodologie', true, '3 p.'], ['2.1 Terrain', true, '2 p.'], ['2.2 Entretiens', true, '1 p.'],
+      ['Conclusion générale', true, '1 p.'],
+      ['Bibliographie', false, '1 p.'],
+    ], 'remerciements et bibliographie laissés de côté, comme pour un fichier Word');
+    assert.ok(page._requests.some(u => /vendor\/pdfjs\/pdf\.min\.js/.test(u)) && page._requests.some(u => /vendor\/pdfjs\/pdf\.worker\.min\.js/.test(u)), 'lecteur servi par le site lui-même');
+    assert.deepEqual(page._requests.filter(u => /pdf/i.test(u) && !u.startsWith(BASE)), [], 'le PDF est lu sans aucun service extérieur');
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    await flush(page);
+    let d = await docOf(page, uid);
+    assert.deepEqual(d.chapters.map(c => [c.title, c.subsections.length ? c.subsections.map(s => s.writtenPages) : c.writtenPages]),
+      [['Introduction générale', 2], ['Chapitre 1 : État de l’art', [2, 2]], ['Chapitre 2 : Méthodologie', [2, 1]], ['Conclusion générale', 1]]);
+    let f = d.docFiles.memoire_pdf;
+    assert.deepEqual([f.name, f.src, f.pages, f.pv], ['memoire.pdf', 'pdf', 13, 2], 'un PDF est un document à part entière (clé distincte de memoire.docx)');
+    assert.ok(f.inclWords > 2900 && f.inclWords < 3400, 'mots des parties suivies : ' + f.inclWords);
+    // La suite du travail : le même fichier, cinq paragraphes de plus. Un seul geste, pas d'aperçu.
+    await sendPdf(page, 'memoire_v2.pdf', 'memoire.pdf');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /memoire\.pdf synchronisé/.test(t.textContent)), null, { timeout: 30000 });
+    assert.match((await toasts(page)).join('|'), /memoire\.pdf synchronisé : \+1,\d p\. aujourd'hui/);
+    await flush(page);
+    d = await docOf(page, uid);
+    assert.equal(d.docFiles.memoire_pdf.pages, 14);
+    assert.deepEqual(d.chapters[2].subsections.map(s => s.writtenPages), [2, 2], 'le chapitre 2 passe de trois à quatre pages (2,5 + 1,6 arrondis ensemble)');
+    assert.equal(written(d), 11, 'une page de plus au total');
+    assert.ok(d.activity[TODAY] > 1 && d.activity[TODAY] < 2, 'journal du jour : au mot près, ' + d.activity[TODAY]);
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+
+    // Sans signets : les titres balisés (export Word « accessible »), sinon la mise en forme. Le même plan.
+    for (const [fixture, hint] of [['memoire-balise.pdf', /plan lu dans ses titres balisés/], ['memoire-sans-signets.pdf', /titres repérés d'après la mise en forme, à vérifier/]]) {
+      ({ ctx, page } = await newPage(browser, { user: { uid: 'u_pdf2', email: 'pdf2@example.com' } }));
+      await page.goto(BASE);
+      await page.waitForSelector('.onboarding');
+      await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+      await sendPdf(page, fixture);
+      await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 30000 });
+      assert.match(await page.textContent('#docxSummary'), /13 pages\. 6 parties détectées, 4 sous-sections/, fixture);
+      assert.match(await page.textContent('#docxPagesHint'), hint);
+      assert.deepEqual((await page.$$eval('#docxRows .dx-row .dx-title', els => els.map(e => e.textContent))).slice(1, 5), ['Introduction générale', 'Chapitre 1 : État de l’art', '1.1 Contexte général', '1.2 Travaux existants'], fixture);
+      assert.deepEqual(page._errors, []);
+      await ctx.close();
+    }
+  });
+
+  /* ------------------------------------------------------------ */
   // Un PDF minimal, comme celui de Google Docs : des pages A4 et un signet par titre (page, hauteur depuis le haut)
   const fakePdf = (pages, marks) => {
     const hex = t => 'FEFF' + [...t].map(c => c.charCodeAt(0).toString(16).padStart(4, '0')).join('').toUpperCase();
@@ -2033,7 +2096,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.click('#docxModal >> text=Changer de document');
     await page.setInputFiles('#docxInput', { name: 'these.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7\n%âãÏÓ\n1 0 obj\n') });
     await page.waitForSelector('#docxError:not(.hidden)');
-    assert.match(await page.textContent('#docxError'), /PDF.*collez votre texte/);
+    assert.match(await page.textContent('#docxError'), /PDF est illisible/);
     await page.setInputFiles('#docxInput', { name: 'these.doc', mimeType: 'application/msword', buffer: Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]) });
     await page.waitForFunction(() => /ancien Word/.test(document.getElementById('docxError').textContent));
     await page.setInputFiles('#docxInput', { name: 'photo.png', mimeType: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4E, 0x47, 1, 2, 3]) });
