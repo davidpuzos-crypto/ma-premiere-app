@@ -1,8 +1,8 @@
 /* ============================================================
    DOCUMENTS — lecture du manuscrit dans le navigateur
    Le fichier n'est jamais envoyé. Formats lus :
-     • Word (.docx) et LibreOffice (.odt) : on décompresse l'archive
-       (JSZip, chargé à la demande) et on lit les titres et le texte ;
+     • Word (.docx) et LibreOffice (.odt) : on ouvre l'archive (zip.js,
+       sans bibliothèque extérieure) et on lit les titres et le texte ;
      • LaTeX (.tex), Markdown (.md), texte simple (.txt) ;
      • contenu collé : le presse-papiers garde les titres de Google
        Docs, de Word, de LibreOffice (HTML), ou le texte brut.
@@ -15,10 +15,12 @@
 ============================================================ */
 import { countWords, parseTextDocument, signs } from './outline.js';
 import { paginate, spans, readPdf } from './pages.js';
+import { openZip, canInflate } from './zip.js';
 
 export { countWords };
 
 const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+// Secours pour les navigateurs d'avant 2023, qui ne savent pas décompresser seuls
 const JSZIP_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
 const JSZIP_SRI = 'sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg==';
 
@@ -50,6 +52,23 @@ function loadJSZip() {
   return _zipPromise;
 }
 
+/** Ouvre une archive : lecteur maison, ou JSZip (chargé à la demande) si le navigateur ne décompresse pas seul. */
+async function openArchive(buf) {
+  if (canInflate()) {
+    try { return openZip(buf); } catch { throw new DocxError('not-docx'); }
+  }
+  const JSZip = await loadJSZip();
+  let zip;
+  try { zip = await JSZip.loadAsync(buf); } catch { throw new DocxError('not-docx'); }
+  return {
+    names: Object.keys(zip.files).filter(n => !zip.files[n].dir),
+    has: n => !!zip.file(n),
+    size: () => -1,
+    bytes: n => { const f = zip.file(n); return f ? f.async('uint8array') : Promise.resolve(null); },
+    text: n => { const f = zip.file(n); return f ? f.async('string') : Promise.resolve(null); },
+  };
+}
+
 const TEXT_EXT = /\.(tex|ltx|md|markdown|mdown|txt|text|rst)$/i;
 const MAX_TEXT = 30 * 1024 * 1024;
 
@@ -74,11 +93,9 @@ export async function parseDocumentFile(file, opts = {}) {
   if (sig[0] === 0x25 && sig[1] === 0x50 && sig[2] === 0x44 && sig[3] === 0x46) throw new DocxError('pdf');
   if (sig[0] === 0x7B && sig[1] === 0x5C && sig[2] === 0x72 && sig[3] === 0x74) throw new DocxError('rtf');
   if (sig[0] === 0x50 && sig[1] === 0x4B) {
-    const JSZip = await loadJSZip();
-    let zip;
-    try { zip = await JSZip.loadAsync(buf); } catch { throw new DocxError('not-docx'); }
-    const read = p => { const f = zip.file(p); return f ? f.async('string') : Promise.resolve(null); };
-    if (zip.file('word/document.xml')) {
+    const zip = await openArchive(buf);
+    const read = p => zip.text(p).catch(e => { throw e instanceof DocxError ? e : new DocxError('bad-xml'); });
+    if (zip.has('word/document.xml')) {
       const [docXml, stylesXml, appXml, footXml, endXml, themeXml, relsXml] = await Promise.all([
         read('word/document.xml'), read('word/styles.xml'), read('docProps/app.xml'),
         read('word/footnotes.xml'), read('word/endnotes.xml'), read('word/theme/theme1.xml'),
@@ -95,12 +112,12 @@ export async function parseDocumentFile(file, opts = {}) {
       }
       return analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeXml, parts, pdf: opts.pdf || null, tune: opts.tune });
     }
-    if (zip.file('content.xml')) {
+    if (zip.has('content.xml')) {
       const [contentXml, stylesXml, metaXml, mime] = await Promise.all([read('content.xml'), read('styles.xml'), read('meta.xml'), read('mimetype')]);
       if (mime && !/opendocument\.text/.test(mime)) throw new DocxError('not-docx'); // tableur, présentation…
       return analyzeOdt({ contentXml, stylesXml, metaXml });
     }
-    if (/\.pages$/i.test(name) || zip.file('Index/Document.iwa')) throw new DocxError('pages');
+    if (/\.pages$/i.test(name) || zip.has('Index/Document.iwa')) throw new DocxError('pages');
     throw new DocxError('not-docx');
   }
   if (/\.html?$/i.test(name) || file.type === 'text/html') {

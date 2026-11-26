@@ -49,6 +49,7 @@
   <link rel="modulepreload" href="humour.js" />
   <link rel="modulepreload" href="visuals.js" />
   <link rel="modulepreload" href="pages.js" />
+  <link rel="modulepreload" href="zip.js" />
   <link rel="modulepreload" href="promo.js" />
   <link rel="modulepreload" href="docx.js" />
   <link rel="modulepreload" href="ics.js" />
@@ -1102,7 +1103,7 @@
       if (n >= 2) return;
       sessionStorage.setItem('jdb_heal', String(n + 1));
     } catch (e) { return; }
-    var files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'ics.js'];
+    var files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'zip.js', 'ics.js'];
     Promise.all(files.map(function (u) { return fetch(u, { cache: 'reload' }).catch(function () {}); }))
       .then(function () { location.reload(); });
   });

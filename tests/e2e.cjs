@@ -346,6 +346,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.match(await page.textContent('#docxSummary'), /5\s270 mots, ≈ 12 pages\. 5 parties détectées, 4 sous-sections/, 'douze pages, comme dans le traitement de texte');
     assert.equal(await page.inputValue('#docxPages'), '12');
     assert.match(await page.textContent('#docxPagesHint'), /mise en page \(Times New Roman 12, interligne 1,5, A4\)/, 'le nombre de pages vient de la mise en page du fichier');
+    assert.deepEqual(page._requests.filter(u => /cdnjs|jszip/i.test(u)), [], 'le fichier Word est ouvert sans bibliothèque extérieure (donc aussi hors ligne)');
     assert.equal(await page.isVisible('#docxScopeRow'), false, 'plan vide : pas de question superflue');
     assert.deepEqual(await page.$$eval('#docxModes input', os => os.map(o => [o.value, o.checked])), [['match', true], ['add', false]], 'tout le manuscrit, ou un seul chapitre');
     assert.equal(await page.isVisible('#docxRecount'), false);

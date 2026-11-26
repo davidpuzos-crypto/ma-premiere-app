@@ -30,6 +30,7 @@ const ASSETS_TO_CACHE = [
   './humour.js',
   './visuals.js',
   './pages.js',
+  './zip.js',
   './promo.js',
   './docx.js',
   './ics.js',

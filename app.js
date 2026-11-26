@@ -8,6 +8,7 @@
      humour.js   les textes : notes du jour, grades, bingo
      visuals.js  les dessins : étagère, plante, barres de la semaine
      pages.js    la pagination d'un document (polices, lignes, pages, PDF de Google Docs)
+     zip.js      l'ouverture des archives (docx, odt, projets zippés), sans bibliothèque
      promo.js    la promo (fiches, classement, fil)
 ============================================================ */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
@@ -69,7 +70,7 @@ window.__jdbVersion = APP_VERSION;
     sessionStorage.setItem('jdb_heal', String(n + 1));
   } catch { return; }
   window.__jdbHealing = true;
-  const files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'ics.js'];
+  const files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'zip.js', 'ics.js'];
   Promise.all(files.map(u => fetch(u, { cache: 'reload' }).catch(() => {}))).then(() => location.reload());
   throw new Error('Mise à jour en cours : la page va se recharger.');
 })();

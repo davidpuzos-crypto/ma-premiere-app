@@ -611,3 +611,52 @@ console.log('core.js : périodes, joker, défi OK');
   near(sp.front + sp.pages.reduce((a, b) => a + b, 0), 10, 1e-9, 'la somme des parties est le nombre de pages');
 }
 console.log('pages.js : pagination OK');
+
+// -----------------------------------------------------------
+// zip.js : lecture des archives (docx, odt) sans bibliothèque
+// -----------------------------------------------------------
+{
+  const Z = await import('../zip.js');
+  const fs = await import('node:fs');
+  const { execFileSync } = await import('node:child_process');
+  const fix = n => new URL('./fixtures/' + n, import.meta.url).pathname;
+  assert.equal(Z.canInflate(), true);
+  for (const [file, entry] of [['these.docx', 'word/document.xml'], ['these-titre-unique.odt', 'content.xml'], ['natif.odt', 'styles.xml']]) {
+    const buf = fs.readFileSync(fix(file));
+    const zip = Z.openZip(buf);
+    assert.ok(zip.has(entry), `${file} contient ${entry}`);
+    assert.equal(zip.has('absent.xml'), false);
+    assert.equal(await zip.bytes('absent.xml'), null);
+    const ref = execFileSync('unzip', ['-p', fix(file), entry], { maxBuffer: 1 << 28 });
+    const got = await zip.bytes(entry);
+    assert.equal(got.length, ref.length, `${file} : même taille que l'outil unzip`);
+    assert.equal(zip.size(entry), ref.length);
+    assert.ok(Buffer.from(got).equals(ref), `${file} : mêmes octets que l'outil unzip`);
+    assert.equal(await zip.text(entry), ref.toString('utf8').replace(/^﻿/, ''));
+    // Toutes les entrées se lisent (compressées ou simplement rangées)
+    for (const n of zip.names) assert.equal((await zip.bytes(n)).length, zip.size(n), `${file} : ${n}`);
+  }
+  // Un ArrayBuffer convient aussi ; un fichier qui n'est pas une archive est refusé proprement
+  const ab = fs.readFileSync(fix('these.docx'));
+  assert.ok(Z.openZip(ab.buffer.slice(ab.byteOffset, ab.byteOffset + ab.byteLength)).names.length > 3);
+  assert.throws(() => Z.openZip(new Uint8Array(10)), e => e.code === 'not-zip');
+  assert.throws(() => Z.openZip(new TextEncoder().encode('%PDF-1.7 ' + 'x'.repeat(400))), e => e.code === 'not-zip');
+  // Archive tronquée : pas de répertoire central
+  assert.throws(() => Z.openZip(ab.subarray(0, ab.length - 200)), e => e.code === 'not-zip');
+  // Noms accentués (UTF-8 sans drapeau, comme l'archiveur de macOS) et texte UTF-16
+  assert.equal(Z.decodeBytes(new Uint8Array([0xFF, 0xFE, 0xE9, 0x00, 0x74, 0x00, 0xE9, 0x00])), 'été');
+  assert.equal(Z.decodeBytes(new Uint8Array([0xEF, 0xBB, 0xBF, 0x61])), 'a');
+  assert.equal(Z.decodeBytes(null), null);
+}
+console.log('zip.js : archives OK');
+{
+  const Z = await import('../zip.js');
+  const fs = await import('node:fs');
+  // Projet LaTeX zippé : une entrée au format Zip64, un fichier rangé sans compression, des noms accentués
+  const zip = Z.openZip(fs.readFileSync(new URL('./fixtures/projet-latex.zip', import.meta.url)));
+  assert.deepEqual(zip.names, ['main.tex', 'chapitres/intro.tex', 'chapitres/methode.tex', 'chapitres/resultats.tex', 'données/été.txt', 'refs.bib', 'figures/pont.png']);
+  assert.match(await zip.text('main.tex'), /\\input\{chapitres\/intro\}/);
+  assert.equal(await zip.text('données/été.txt'), 'Notes de travail, hors manuscrit.\n');
+  assert.equal((await zip.bytes('figures/pont.png')).length, 72);
+}
+console.log('zip.js : projet zippé OK');
