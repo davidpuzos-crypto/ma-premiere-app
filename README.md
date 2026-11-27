@@ -189,9 +189,13 @@ Les règles de `firestore.rules` face au vrai moteur de règles, sur l'émulateu
 node tests/videos/video-1.cjs
 ```
 
-Fabrique, image par image (façon stop motion, 8 images par seconde), une vidéo verticale de 1080 × 1920 pour les Reels, TikTok et les Stories : le site filmé sur un téléphone avec un compte de démonstration fictif et la base simulée des tests, des légendes sur un papillon adhésif, puis l'adresse du site. Le résultat, avec une image de couverture, va dans `tests/.tmp/videos/`. Il faut Playwright et ffmpeg. Relancée après une mise à jour, elle montre la nouvelle version du site.
+```bash
+node tests/videos/video-2.cjs
+```
 
-La thèse de démonstration (`tests/videos/these-demo.docx`, « Les ponts suspendus en France au XIXe siècle ») est fictive ; `these-demo.py` la refait. La scène où sont composées les images est `tests/videos/scene.html`.
+Chacune fabrique, image par image (façon stop motion, 8 images par seconde), une vidéo verticale de 1080 × 1920 pour les Reels, TikTok et les Stories : le site filmé sur un téléphone avec un compte de démonstration fictif et la base simulée des tests, des légendes sur un papillon adhésif, puis l'adresse du site. La première montre le dépôt de la thèse (chapitres retrouvés, pages comptées, étagère) ; la seconde, sur fond sombre, part de la question du repas de famille (« Et ta thèse, ça avance ? ») et y répond au dessert. Le résultat, avec une image de couverture, va dans `tests/.tmp/videos/`. Il faut Playwright et ffmpeg. Relancée après une mise à jour, elle montre la nouvelle version du site.
+
+La thèse de démonstration (`tests/videos/these-demo.docx`, « Les ponts suspendus en France au XIXe siècle ») est fictive ; `these-demo.py` la refait. La scène où sont composées les images est `tests/videos/scene.html` ; les outils communs (captures, composition, encodage) sont dans `tests/videos/commun.cjs`, et chaque vidéo n'est plus qu'un scénario.
 
 ## Publier une nouvelle version
 

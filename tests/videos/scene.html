@@ -68,6 +68,39 @@ html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--
 #shelf .book { position: absolute; bottom: 26px; width: 74px; border-radius: 8px 8px 2px 2px; background: #EDE3CF; border: 3px solid #CDBF9F; overflow: hidden; }
 #shelf .book i { position: absolute; left: 0; right: 0; bottom: 0; background: var(--saf); }
 #shelf .plant { position: absolute; right: 30px; bottom: 18px; width: 170px; }
+
+/* Thème sombre (version 2) : le pétrole du bandeau du site */
+#stage.dark #paper { background:
+  radial-gradient(circle at 1.6px 1.6px, rgba(251,243,226,.075) 1.6px, transparent 0) 0 0 / 30px 30px,
+  radial-gradient(1100px 760px at 6% 0%, rgba(240,174,60,.20), transparent 70%),
+  radial-gradient(900px 760px at 100% 100%, rgba(58,111,108,.32), transparent 70%), #122423; }
+#stage.dark #grain { mix-blend-mode: screen; opacity: .16; }
+#stage.dark #phone { box-shadow: 0 50px 80px -30px rgba(0,0,0,.85), inset 0 0 0 3px rgba(251,243,226,.3); }
+#stage.dark #end { color: var(--cream); }
+#stage.dark #end .tag { color: #C5D6D1; }
+#stage.dark #end .pill { background: var(--saf); color: var(--ink); }
+#stage.dark #end .url { background: linear-gradient(transparent 60%, rgba(240,174,60,.6) 60%, rgba(240,174,60,.6) 94%, transparent 94%); }
+#stage.dark #callout { border-color: var(--cream); }
+
+/* Les bulles de dialogue, découpées dans du papier */
+#bubbles { position: absolute; inset: 0; z-index: 32; pointer-events: none; }
+.bubble { position: absolute; max-width: 840px; padding: 40px 54px 46px; border-radius: 58px; font-family: 'Fraunces', serif; font-weight: 650; font-size: 78px;
+  line-height: 1.08; letter-spacing: -.015em; color: var(--ink); box-shadow: 0 30px 44px -26px rgba(0,0,0,.65); transform-origin: 20% 100%; }
+.bubble.right { transform-origin: 80% 100%; }
+.bubble::after { content: ''; position: absolute; bottom: -22px; width: 70px; height: 70px; background: inherit; border-radius: 10px; transform: rotate(45deg) skew(14deg, 14deg); z-index: -1; }
+.bubble.left::after { left: 96px; }
+.bubble.right::after { right: 96px; }
+.bubble.cream { background: var(--cream); }
+.bubble.saf { background: var(--saf); }
+.bubble .w { visibility: hidden; }
+.bubble .w.on { visibility: visible; }
+.bubble .hl { background: linear-gradient(transparent 60%, rgba(251,243,226,.75) 60%, rgba(251,243,226,.75) 93%, transparent 93%); }
+.bubble .dots { display: inline-flex; gap: 22px; padding: 18px 6px; }
+.bubble .dots i { width: 30px; height: 30px; border-radius: 50%; background: var(--ink); opacity: .2; }
+.bubble .dots i.on { opacity: .85; }
+#table { position: absolute; left: 0; bottom: 0; z-index: 5; display: none; }
+#label { position: absolute; z-index: 31; font-size: 34px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--ink3); }
+#stage.dark #label { color: rgba(251,243,226,.74); }
 </style></head>
 <body>
 <div id="stage">
@@ -78,6 +111,20 @@ html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--
   <div id="callout"><span class="tape"></span><div class="crop" id="crop"></div></div>
   <div id="doc"><span class="l" style="top:34px;width:96px"></span><span class="l" style="top:58px;width:126px"></span><span class="l" style="top:82px;width:112px"></span><span class="l" style="top:106px;width:128px"></span><span class="l" style="top:130px;width:80px"></span><div class="band">these.docx</div></div>
   <div id="stamp"></div>
+  <!-- La table du repas de famille (version 2) : bois, assiette, couverts, verre -->
+  <svg id="table" viewBox="0 0 1080 560" width="1080" height="560" aria-hidden="true">
+    <defs><linearGradient id="wood" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8A6440"/><stop offset="1" stop-color="#4E3522"/></linearGradient></defs>
+    <rect x="-40" y="150" width="1160" height="460" fill="url(#wood)"/>
+    <path d="M-40 152 H1120" stroke="#B08453" stroke-width="7"/>
+    <ellipse cx="540" cy="306" rx="276" ry="82" fill="rgba(0,0,0,.22)"/>
+    <ellipse cx="540" cy="292" rx="264" ry="74" fill="#FBF3E2"/>
+    <ellipse cx="540" cy="292" rx="180" ry="47" fill="#F1E6CF" stroke="#E3D8C3" stroke-width="3"/>
+    <g fill="#C5D6D1" transform="rotate(-7 214 300)"><rect x="206" y="236" width="16" height="170" rx="8"/><rect x="194" y="196" width="8" height="52" rx="4"/><rect x="210" y="196" width="8" height="52" rx="4"/><rect x="226" y="196" width="8" height="52" rx="4"/><rect x="194" y="236" width="40" height="12" rx="6"/></g>
+    <g fill="#C5D6D1" transform="rotate(7 870 300)"><rect x="862" y="250" width="16" height="156" rx="8"/><path d="M862 252 V190 Q862 176 878 176 Q890 210 878 252 Z"/></g>
+    <g transform="translate(930 18)" stroke="rgba(251,243,226,.8)" stroke-width="5" stroke-linecap="round" fill="rgba(240,174,60,.22)"><path d="M0 0 H76 Q76 74 38 96 Q0 74 0 0 Z"/><path d="M38 96 V150 M12 152 H64" fill="none"/></g>
+  </svg>
+  <div id="label"></div>
+  <div id="bubbles"></div>
   <div id="end">
     <img class="icon" id="endIcon" src="/icon-512.png" alt="">
     <div class="t" id="endTitle"></div>
@@ -125,6 +172,7 @@ let lastShot = '';
 window.render = async (s) => {
   const R = rng(s.seed);
   const j = a => (R() * 2 - 1) * a;
+  $('stage').classList.toggle('dark', s.theme === 'dark');
   // Le décor « reprend vie » à chaque image : papier, lumière
   $('paper').style.transform = `translate(${j(8).toFixed(1)}px, ${j(8).toFixed(1)}px)`;
   $('grain').style.transform = `translate(${j(40).toFixed(1)}px, ${j(40).toFixed(1)}px)`;
@@ -196,6 +244,28 @@ window.render = async (s) => {
   } else doc.style.display = 'none';
 
   // Le tampon
+  $('table').style.display = s.table ? 'block' : 'none';
+  if (s.table) $('table').style.transform = `translate(${j(3).toFixed(1)}px, ${j(3).toFixed(1)}px)`;
+  // L'étiquette de contexte (« Repas de famille, en décembre. »)
+  const lb = $('label');
+  if (s.label) {
+    lb.style.display = 'block';
+    lb.textContent = s.label.text;
+    lb.style.left = `${s.label.x ?? 90}px`;
+    lb.style.top = `${s.label.y}px`;
+    lb.style.transform = `rotate(${((s.label.rot ?? -1) + j(0.4)).toFixed(2)}deg)`;
+  } else lb.style.display = 'none';
+
+  // Les bulles : un texte qui s'écrit mot à mot, ou les trois points de quelqu'un qui cherche sa réponse
+  $('bubbles').innerHTML = (s.bubbles || []).filter(b => b.k > 0).map(b => {
+    const inner = b.typing
+      ? `<span class="dots">${[0, 1, 2].map(d => `<i class="${d < b.typing ? 'on' : ''}"></i>`).join('')}</span>`
+      : b.tokens.map((t, i) => `<span class="w${i < (b.shown ?? b.tokens.length) ? ' on' : ''}${(b.hl || []).includes(i) ? ' hl' : ''}">${t}</span>`).join(' ');
+    const side = b.side === 'right' ? `right:${b.x}px` : `left:${b.x}px`;
+    const rot = (b.rot ?? (b.side === 'right' ? 1.5 : -1.5)) + j(0.5);
+    return `<div class="bubble ${b.side || 'left'} ${b.tone || 'cream'}" style="${side};top:${b.y}px;font-size:${b.size || 78}px;transform:rotate(${rot.toFixed(2)}deg) scale(${b.k.toFixed(3)})">${inner}</div>`;
+  }).join('');
+
   const st = $('stamp');
   if (s.stamp) {
     st.style.display = 'block';
