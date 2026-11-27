@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="fr"><head>
+<!-- Scène de 1080 × 1920 où sont composées les images des vidéos (voir tests/videos/video-1.cjs). Rien ici n'est chargé par le site. --><meta charset="utf-8"><title>Scène des vidéos</title>
+<style>
+@font-face { font-family: 'Fraunces'; font-style: normal; font-weight: 400 800; src: url('/fonts/fraunces-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Fraunces'; font-style: italic; font-weight: 400 700; src: url('/fonts/fraunces-italic-latin.woff2') format('woff2'); }
+@font-face { font-family: 'DM Sans'; font-style: normal; font-weight: 400 800; src: url('/fonts/dm-sans-latin.woff2') format('woff2'); }
+:root { --ink:#16282A; --ink2:#44575A; --ink3:#5A6A67; --cream:#FBF3E2; --paper:#F5EFE3; --card:#FFFDF8; --teal9:#122423; --teal7:#1F4140; --teal6:#2B5654;
+  --saf:#F0AE3C; --saf3:#F3C566; --saf2:#F8D996; --saf1:#FCEBC8; --saf6:#C47C12; --terra:#9E4812; --wood:#B88A57; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--paper); }
+#stage { position: relative; width: 1080px; height: 1920px; overflow: hidden; font-family: 'DM Sans', sans-serif; color: var(--ink); }
+#paper { position: absolute; inset: -40px; background:
+  radial-gradient(circle at 1.6px 1.6px, rgba(22,40,42,.11) 1.6px, transparent 0) 0 0 / 30px 30px,
+  radial-gradient(1100px 760px at 6% 0%, rgba(240,174,60,.18), transparent 70%),
+  radial-gradient(900px 700px at 100% 100%, rgba(43,86,84,.10), transparent 70%), var(--paper); }
+#grain { position: absolute; inset: -80px; opacity: .5; mix-blend-mode: multiply; pointer-events: none; }
+#flicker { position: absolute; inset: 0; pointer-events: none; z-index: 50; }
+
+/* La note : un papillon adhésif, comme celui du site */
+.note { position: absolute; left: 80px; width: 920px; padding: 44px 56px 48px; background: var(--saf1); border-radius: 6px 6px 38px 6px;
+  box-shadow: 0 2px 0 rgba(150,89,11,.2), 0 34px 44px -30px rgba(22,40,42,.6); transform-origin: 50% 0; z-index: 20; }
+.tape { position: absolute; width: 200px; height: 54px; background: rgba(251,243,226,.66); box-shadow: 0 1px 3px rgba(22,40,42,.12); }
+.note > .tape { top: -26px; left: 50%; margin-left: -100px; transform: rotate(-3deg); }
+#cap { font-family: 'Fraunces', serif; font-weight: 650; line-height: 1.1; letter-spacing: -.015em; color: var(--ink); }
+#cap .w { visibility: hidden; }
+#cap .w.on { visibility: visible; }
+#cap .hl { background: linear-gradient(transparent 58%, var(--saf3) 58%, var(--saf3) 93%, transparent 93%); }
+#sub { margin-top: 18px; font-size: 36px; font-weight: 600; line-height: 1.3; color: var(--ink2); }
+#sub:empty { display: none; }
+
+/* Le téléphone */
+#phone { position: absolute; left: 50%; width: 628px; margin-left: -314px; padding: 16px; border-radius: 78px; background: #0C1919;
+  box-shadow: 0 50px 70px -36px rgba(22,40,42,.7), inset 0 0 0 3px var(--teal6); z-index: 10; }
+#screen { position: relative; width: 596px; height: 1289.8px; border-radius: 62px; overflow: hidden; background: #fff; }
+#screen img { display: block; width: 100%; height: 100%; }
+#screen svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+
+/* La loupe : un morceau de l'écran, agrandi, scotché par-dessus */
+#callout { position: absolute; z-index: 30; background: var(--card); border: 5px solid var(--ink); border-radius: 30px; padding: 0; overflow: visible;
+  box-shadow: 0 30px 44px -22px rgba(22,40,42,.6); transform-origin: 50% 50%; }
+#callout .crop { border-radius: 25px; background-repeat: no-repeat; }
+#callout .tape { top: -28px; right: 60px; transform: rotate(4deg); width: 170px; height: 50px; background: rgba(243,197,102,.72); }
+
+/* Le document qu'on dépose */
+#doc { position: absolute; z-index: 40; width: 176px; height: 222px; background: #fff; border-radius: 12px 40px 12px 12px; box-shadow: 0 22px 34px -14px rgba(22,40,42,.55); transform-origin: 50% 50%; }
+#doc::before { content: ''; position: absolute; top: 0; right: 0; width: 40px; height: 40px; background: linear-gradient(225deg, var(--paper) 50%, #E3D8C3 50%); border-radius: 0 0 0 10px; }
+#doc .l { position: absolute; left: 22px; height: 9px; border-radius: 5px; background: #D9D2C3; }
+#doc .band { position: absolute; left: 0; right: 0; bottom: 0; height: 64px; border-radius: 0 0 12px 12px; background: var(--teal7); color: var(--cream);
+  display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 27px; letter-spacing: .01em; }
+
+/* Le tampon */
+#stamp { position: absolute; z-index: 35; padding: 14px 34px 16px; border: 8px solid var(--terra); border-radius: 18px; color: var(--terra);
+  font-family: 'Fraunces', serif; font-weight: 800; font-size: 74px; letter-spacing: .02em; text-transform: uppercase; mix-blend-mode: multiply; opacity: .9; white-space: nowrap; }
+
+/* La fin */
+#end { position: absolute; inset: 0; z-index: 25; display: flex; flex-direction: column; align-items: center; text-align: center; padding-top: 300px; }
+#end .icon { width: 270px; height: 270px; border-radius: 64px; box-shadow: 0 30px 50px -26px rgba(22,40,42,.65); transform-origin: 50% 60%; }
+#end .t { margin-top: 64px; font-family: 'Fraunces', serif; font-weight: 700; font-size: 104px; line-height: 1.02; letter-spacing: -.03em; }
+#end .t .w { visibility: hidden; } #end .t .w.on { visibility: visible; }
+#end .tag { margin-top: 34px; font-family: 'Fraunces', serif; font-style: italic; font-size: 52px; line-height: 1.2; color: var(--ink2); }
+#end .pill { margin-top: 44px; padding: 14px 34px; border-radius: 999px; background: var(--ink); color: var(--cream); font-size: 38px; font-weight: 700; }
+#end .url { margin-top: 40px; font-family: 'Fraunces', serif; font-weight: 700; font-size: 72px; letter-spacing: -.02em;
+  background: linear-gradient(transparent 56%, var(--saf3) 56%, var(--saf3) 94%, transparent 94%); padding: 0 .12em; }
+#end .hide { visibility: hidden; }
+#shelf { position: absolute; left: 120px; right: 120px; bottom: 150px; height: 260px; z-index: 26; }
+#shelf .plank { position: absolute; left: 0; right: 0; bottom: 0; height: 26px; border-radius: 6px; background: linear-gradient(#C99A63, #9C6E3E); box-shadow: 0 12px 18px -10px rgba(22,40,42,.6); }
+#shelf .book { position: absolute; bottom: 26px; width: 74px; border-radius: 8px 8px 2px 2px; background: #EDE3CF; border: 3px solid #CDBF9F; overflow: hidden; }
+#shelf .book i { position: absolute; left: 0; right: 0; bottom: 0; background: var(--saf); }
+#shelf .plant { position: absolute; right: 30px; bottom: 18px; width: 170px; }
+</style></head>
+<body>
+<div id="stage">
+  <div id="paper"></div>
+  <div id="grain"></div>
+  <div class="note" id="note"><span class="tape"></span><div id="cap"></div><div id="sub"></div></div>
+  <div id="phone"><div id="screen"><img id="shot" alt=""><svg id="marks" viewBox="0 0 390 844" preserveAspectRatio="none"></svg></div></div>
+  <div id="callout"><span class="tape"></span><div class="crop" id="crop"></div></div>
+  <div id="doc"><span class="l" style="top:34px;width:96px"></span><span class="l" style="top:58px;width:126px"></span><span class="l" style="top:82px;width:112px"></span><span class="l" style="top:106px;width:128px"></span><span class="l" style="top:130px;width:80px"></span><div class="band">these.docx</div></div>
+  <div id="stamp"></div>
+  <div id="end">
+    <img class="icon" id="endIcon" src="/icon-512.png" alt="">
+    <div class="t" id="endTitle"></div>
+    <div class="tag" id="endTag">Votre thèse, page après page.</div>
+    <div class="pill" id="endPill">Gratuit, sans publicité</div>
+    <div class="url" id="endUrl">lejournaldebord.org</div>
+  </div>
+  <div id="shelf"><div class="plank"></div><div id="books"></div><div class="plant" id="plant"></div></div>
+  <div id="flicker"></div>
+</div>
+<script type="module">
+import { plantSVG } from '/visuals.js';
+const $ = id => document.getElementById(id);
+// Grain de papier (dessiné une fois)
+const noise = `<svg xmlns='http://www.w3.org/2000/svg' width='320' height='320'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 .42  0 0 0 0 .36  0 0 0 0 .28  0 0 0 .22 0'/></filter><rect width='100%' height='100%' filter='url(#n)'/></svg>`;
+$('grain').style.background = `url("data:image/svg+xml,${encodeURIComponent(noise)}") 0 0 / 320px 320px`;
+
+function rng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+/** Un cercle tracé à la main autour d'un rectangle (coordonnées de l'écran du téléphone, en points CSS). */
+function roughEllipse(r, seed) {
+  const R = rng(seed);
+  const cx = r.x + r.w / 2, cy = r.y + r.h / 2;
+  const rx = r.w / 2 + 14, ry = r.h / 2 + 12;
+  const a0 = -Math.PI * (0.62 + R() * 0.1);
+  const pts = [];
+  const n = 46;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    const a = a0 + t * (Math.PI * 2 + 0.55);
+    const grow = 1 + t * 0.05 + (R() - 0.5) * 0.025;
+    pts.push([cx + Math.cos(a) * rx * grow, cy + Math.sin(a) * ry * grow]);
+  }
+  let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+  for (let i = 1; i < pts.length - 1; i++) {
+    const mx = (pts[i][0] + pts[i + 1][0]) / 2, my = (pts[i][1] + pts[i + 1][1]) / 2;
+    d += ` Q${pts[i][0].toFixed(1)} ${pts[i][1].toFixed(1)} ${mx.toFixed(1)} ${my.toFixed(1)}`;
+  }
+  return d;
+}
+
+const PHONE_W = 596, CSS_W = 390, K = PHONE_W / CSS_W;
+let lastShot = '';
+
+window.render = async (s) => {
+  const R = rng(s.seed);
+  const j = a => (R() * 2 - 1) * a;
+  // Le décor « reprend vie » à chaque image : papier, lumière
+  $('paper').style.transform = `translate(${j(8).toFixed(1)}px, ${j(8).toFixed(1)}px)`;
+  $('grain').style.transform = `translate(${j(40).toFixed(1)}px, ${j(40).toFixed(1)}px)`;
+  const f = j(0.022);
+  $('flicker').style.background = f > 0 ? `rgba(255,250,238,${f.toFixed(3)})` : `rgba(22,40,42,${(-f * 0.7).toFixed(3)})`;
+
+  // La note
+  const note = $('note');
+  if (s.note) {
+    note.style.display = 'block';
+    note.style.top = `${s.note.y || 120}px`;
+    note.style.transform = `rotate(${((s.note.rot ?? -1.4) + j(0.35)).toFixed(2)}deg) translate(${j(2).toFixed(1)}px, ${j(2).toFixed(1)}px)`;
+    $('cap').style.fontSize = `${s.note.size || 78}px`;
+    $('cap').innerHTML = s.note.tokens.map((t, i) => `<span class="w${i < s.note.shown ? ' on' : ''}${(s.note.hl || []).includes(i) ? ' hl' : ''}">${t}</span>`).join(' ');
+    $('sub').textContent = s.note.subOn ? (s.note.sub || '') : '';
+  } else note.style.display = 'none';
+
+  // Le téléphone
+  const phone = $('phone');
+  if (s.phone) {
+    phone.style.display = 'block';
+    phone.style.top = `${(s.phone.top ?? 560) + (s.phone.dy || 0)}px`;
+    phone.style.transform = `rotate(${((s.phone.rot || 0) + j(0.45)).toFixed(2)}deg) translate(${j(3.5).toFixed(1)}px, ${j(3.5).toFixed(1)}px)`;
+    if (s.phone.img !== lastShot) { $('shot').src = s.phone.img; await $('shot').decode(); lastShot = s.phone.img; }
+    let svg = '';
+    if (s.phone.drop) {
+      const r = s.phone.drop;
+      svg += `<rect x="${r.x - 4}" y="${r.y - 4}" width="${r.w + 8}" height="${r.h + 8}" rx="18" fill="rgba(240,174,60,.16)" stroke="#E39B2D" stroke-width="5" stroke-dasharray="14 10"/>`;
+    }
+    if (s.phone.circle) {
+      const c = s.phone.circle;
+      svg += `<path id="circ" d="${roughEllipse(c.rect, c.seed || 3)}" fill="none" stroke="#E0901F" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" opacity=".95"/>`;
+    }
+    if (s.phone.tap) {
+      const t = s.phone.tap;
+      svg += `<circle cx="${t.x}" cy="${t.y}" r="${16 + t.k * 18}" fill="none" stroke="rgba(22,40,42,${(0.5 - t.k * 0.35).toFixed(2)})" stroke-width="3"/>`
+        + `<circle cx="${t.x}" cy="${t.y}" r="15" fill="rgba(22,40,42,.28)" stroke="rgba(251,243,226,.9)" stroke-width="2.5"/>`;
+    }
+    $('marks').innerHTML = svg;
+    const circ = document.getElementById('circ');
+    if (circ) { const L = circ.getTotalLength(); circ.style.strokeDasharray = `${L} ${L}`; circ.style.strokeDashoffset = `${(L * (1 - s.phone.circle.p)).toFixed(1)}`; }
+  } else phone.style.display = 'none';
+
+  // La loupe
+  const co = $('callout');
+  if (s.callout && s.callout.k > 0) {
+    const c = s.callout;
+    const sc = c.w / c.crop.w;                       // points CSS → pixels de la scène
+    const crop = $('crop');
+    crop.style.width = `${c.w}px`;
+    crop.style.height = `${(c.crop.h * sc).toFixed(1)}px`;
+    crop.style.backgroundImage = `url("${c.img}")`;
+    crop.style.backgroundSize = `${(CSS_W * sc).toFixed(1)}px auto`;
+    crop.style.backgroundPosition = `${(-c.crop.x * sc).toFixed(1)}px ${(-c.crop.y * sc).toFixed(1)}px`;
+    co.style.display = 'block';
+    co.style.left = `${(540 - c.w / 2 - 5).toFixed(1)}px`;
+    co.style.top = `${c.y}px`;
+    co.style.transform = `rotate(${((c.rot ?? 1.2) + j(0.35)).toFixed(2)}deg) scale(${c.k.toFixed(3)})`;
+    await new Promise(r => { const im = new Image(); im.onload = r; im.onerror = r; im.src = c.img; });
+  } else co.style.display = 'none';
+
+  // Le document
+  const doc = $('doc');
+  if (s.doc) {
+    doc.style.display = 'block';
+    doc.style.left = `${(s.doc.x - 88).toFixed(1)}px`;
+    doc.style.top = `${(s.doc.y - 111).toFixed(1)}px`;
+    doc.style.transform = `rotate(${(s.doc.rot + j(1)).toFixed(2)}deg) scale(${(s.doc.s ?? 1).toFixed(3)})`;
+  } else doc.style.display = 'none';
+
+  // Le tampon
+  const st = $('stamp');
+  if (s.stamp) {
+    st.style.display = 'block';
+    st.textContent = s.stamp.text;
+    st.style.left = `${s.stamp.x}px`;
+    st.style.top = `${s.stamp.y}px`;
+    st.style.transform = `rotate(${(s.stamp.rot + j(0.6)).toFixed(2)}deg) scale(${(s.stamp.k ?? 1).toFixed(3)})`;
+  } else st.style.display = 'none';
+
+  // La fin
+  const end = $('end');
+  const shelf = $('shelf');
+  if (s.end) {
+    const e = s.end;
+    end.style.display = 'flex';
+    shelf.style.display = 'block';
+    $('endIcon').style.transform = `scale(${e.icon.toFixed(3)}) rotate(${j(1.2).toFixed(2)}deg)`;
+    const words = ['Le', 'Journal', 'de', 'Bord'];
+    $('endTitle').innerHTML = words.map((w, i) => `<span class="w${i < e.title ? ' on' : ''}">${w}</span>`).join(' ');
+    $('endTag').classList.toggle('hide', !e.tag);
+    $('endPill').classList.toggle('hide', !e.pill);
+    $('endUrl').classList.toggle('hide', !e.url);
+    $('endPill').style.transform = `rotate(${j(1).toFixed(2)}deg)`;
+    $('endUrl').style.transform = `rotate(${(-1 + j(0.6)).toFixed(2)}deg)`;
+    const H = [150, 176, 162, 186, 140];
+    const P = [0.34, 0.27, 0.31, 0.29, 0.06].map(p => Math.min(1, p + e.books * 0.6));
+    $('books').innerHTML = H.map((h, i) => `<span class="book" style="left:${40 + i * 92}px;height:${h}px"><i style="height:${(P[i] * 100).toFixed(0)}%"></i></span>`).join('');
+    $('plant').innerHTML = plantSVG(e.plant);
+    $('plant').firstElementChild.setAttribute('width', '170');
+  } else { end.style.display = 'none'; shelf.style.display = 'none'; }
+  await document.fonts.ready;
+  return true;
+};
+window.ready = true;
+</script>
+</body></html>

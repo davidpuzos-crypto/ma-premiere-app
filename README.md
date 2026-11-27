@@ -183,6 +183,16 @@ cd tests && npm install && npm run rules
 
 Les règles de `firestore.rules` face au vrai moteur de règles, sur l'émulateur local de Firestore (Java requis). Si les tests de navigateur ont tourné juste avant, les écritures réellement faites par l'application y sont rejouées.
 
+## Vidéos pour les réseaux sociaux
+
+```bash
+node tests/videos/video-1.cjs
+```
+
+Fabrique, image par image (façon stop motion, 8 images par seconde), une vidéo verticale de 1080 × 1920 pour les Reels, TikTok et les Stories : le site filmé sur un téléphone avec un compte de démonstration fictif et la base simulée des tests, des légendes sur un papillon adhésif, puis l'adresse du site. Le résultat, avec une image de couverture, va dans `tests/.tmp/videos/`. Il faut Playwright et ffmpeg. Relancée après une mise à jour, elle montre la nouvelle version du site.
+
+La thèse de démonstration (`tests/videos/these-demo.docx`, « Les ponts suspendus en France au XIXe siècle ») est fictive ; `these-demo.py` la refait. La scène où sont composées les images est `tests/videos/scene.html`.
+
 ## Publier une nouvelle version
 
 1. Augmenter la version aux trois endroits, avec la même valeur : `VERSION` dans `sw.js`, `APP_VERSION` dans `app.js`, `data-app-version` en tête de `index.html`. Un test vérifie qu'elles concordent.
