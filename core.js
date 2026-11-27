@@ -251,12 +251,43 @@ export function bestStreak(state, today) {
   return best;
 }
 
+/* ------------------------------------------------------------
+   RYTHME ET PRONOSTIC
+   « À ce rythme, quand aurai-je fini ? » Tout dépend de ce qu'on
+   appelle le rythme. Une simple moyenne des quatre dernières
+   semaines varie trop : une page écrite la fait bondir, la même
+   page qui sort de la fenêtre un mois plus tard fait reculer la
+   date de fin d'un coup, sans raison apparente. Sur des rédactions
+   simulées (irrégulières, avec pannes et sprints), c'est aussi elle
+   qui prédit le moins bien.
+   On prend donc une moyenne où chaque jour pèse moitié moins que
+   huit semaines plus tard : les dernières semaines comptent le
+   plus, les anciennes s'effacent en douceur. Les périodes sans
+   rédaction (terrain, congés…) ne comptent ni en pages ni en jours.
+   Quand on écrit peu, huit semaines contiennent trop peu de pages :
+   une seule ferait bondir la date de plusieurs mois. La mémoire
+   s'allonge alors (jusqu'à trente-deux semaines) pour garder une
+   trentaine de pages « en mémoire » : sur les mêmes simulations, les
+   à-coups sont divisés par deux sans rien perdre en justesse. Dès
+   qu'on écrit davantage, elle redevient courte et réactive.
+   Le rythme d'avant le suivi (pages déjà écrites depuis la date de
+   début) sert de point de départ, puis s'efface de la même façon.
+------------------------------------------------------------ */
+const PACE_HALF_LIFE = 56;   // demi-vie de la mémoire, en jours, quand on écrit assez
+const PACE_HALF_MAX = 224;   // demi-vie la plus longue, quand on écrit peu
+const PACE_PAGES = 30;       // pages qu'on cherche à garder « en mémoire »
+const PACE_PRIOR = 28;       // poids, en jours, du rythme d'avant le suivi au premier jour
+
 /**
  * Rythme d'écriture (pages par jour calendaire).
- *  - 'recent'  : 28 derniers jours, dès que l'on a 14 jours de suivi
- *  - 'average' : pages rédigées / jours depuis la date de début, seulement si
- *                cette date précède le début du suivi (on écrivait déjà avant)
- *  - 'early'   : pages notées / jours de suivi (estimation provisoire des débuts)
+ *  forecast : le rythme retenu pour le pronostic (moyenne pondérée décrite ci-dessus)
+ *  basis    : 'recent'  d'après les pages notées ces dernières semaines
+ *             'average' surtout d'après le rythme moyen depuis la date de début (suivi encore jeune)
+ *             'early'   premiers jours de suivi, estimation provisoire
+ *             'none'    rien pour l'estimer
+ *  recent   : moyenne brute des 28 derniers jours (ou depuis le début du suivi)
+ *  half     : demi-vie de la mémoire utilisée (jours)
+ *  pages    : pages « en mémoire » (plus il y en a, plus le rythme est établi)
  * Les pages déjà écrites avant le suivi ne gonflent jamais le rythme.
  */
 export function pace(state, today, written) {
@@ -268,18 +299,118 @@ export function pace(state, today, written) {
   const priorStart = !!state.startDate && state.startDate < since;
   const startDays = priorStart ? Math.max(1, diffDays(state.startDate, today) + 1) : 0;
   const average = priorStart && written > 0 ? written / startDays : 0;
-  const early = Math.max(0, sumRange(state.activity, since, today) / tracked);
-  let forecast = 0;
+
+  // Les jours de suivi, du plus récent au plus ancien, sans les périodes sans rédaction
+  const ranges = pauseRanges(state.pauses);
+  const ages = [];
+  const pages = [];
+  for (let age = 0, max = Math.min(tracked, PACE_HALF_MAX * 4); age < max; age++) {
+    const k = addDays(today, -age);
+    if (ranges.length && ranges.some(r => r[0] <= k && k <= r[1])) continue;
+    ages.push(age);
+    pages.push(Number(state.activity && state.activity[k]) || 0);
+  }
+  // Rythme d'avant le suivi : les pages qui existaient déjà, sur les jours écoulés depuis la date de début
+  let n0 = 0;
+  let before = 0;
+  if (priorStart && written > 0) {
+    const trackedPages = Math.max(0, sumRange(state.activity, since, today));
+    before = Math.max(0, written - trackedPages) / Math.max(1, diffDays(state.startDate, since));
+    if (before > 0) n0 = PACE_PRIOR * Math.pow(0.5, (tracked - 1) / PACE_HALF_LIFE);
+  }
+  // Moyenne pondérée pour une demi-vie donnée : { wp : pages en mémoire, wd : jours en mémoire }
+  const weigh = half => {
+    const span = Math.max(365, half * 4);
+    let wp = before * n0;
+    let wd = n0;
+    for (let i = 0; i < ages.length && ages[i] < span; i++) {
+      const w = Math.pow(0.5, ages[i] / half);
+      wd += w;
+      wp += w * pages[i];
+    }
+    return { wp, wd, half };
+  };
+  // La mémoire la plus courte qui garde assez de pages
+  let m = weigh(PACE_HALF_LIFE);
+  if (m.wp < PACE_PAGES && tracked > PACE_HALF_LIFE) {
+    const long = weigh(PACE_HALF_MAX);
+    if (long.wp < PACE_PAGES) m = long;
+    else {
+      let lo = PACE_HALF_LIFE;
+      let hi = PACE_HALF_MAX;
+      for (let i = 0; i < 10; i++) {
+        const mid = (lo + hi) / 2;
+        if (weigh(mid).wp >= PACE_PAGES) hi = mid; else lo = mid;
+      }
+      m = weigh(hi);
+    }
+  }
+  const forecast = m.wd > 0 ? Math.max(0, m.wp / m.wd) : 0;
   let basis = 'none';
-  if (tracked >= 14 && recent > 0) { forecast = recent; basis = 'recent'; }
-  else if (average > 0) { forecast = average; basis = 'average'; }
-  else if (tracked < 14 && early > 0) { forecast = early; basis = 'early'; }
-  return { recent, recentWindow: win, tracked, average, forecast, basis };
+  if (forecast > 0) basis = n0 > m.wd - n0 ? 'average' : tracked < 14 ? 'early' : 'recent';
+  return { recent, recentWindow: win, tracked, average, forecast, basis, half: Math.round(m.half), pages: Math.max(0, m.wp) };
+}
+
+/** Date à laquelle la dernière page serait écrite, à ce rythme (pages par jour) ; les périodes sans rédaction à venir la repoussent. */
+function endAt(state, today, remaining, perDay) {
+  if (!(perDay > 0) || !(remaining > 0)) return null;
+  const days = Math.ceil(remaining / perDay);
+  if (!(days < 36500)) return null;                       // plus d'un siècle : autant dire jamais
+  let end = addDays(today, days);
+  for (let i = 0, from = today; i < 12; i++) {
+    const off = pausedDays(from, end, state.pauses);
+    if (!off) break;
+    from = addDays(end, 1);
+    end = addDays(end, off);
+  }
+  return end;
+}
+
+/** Pages de chacune des n dernières semaines (du lundi au dimanche), de la plus ancienne à celle en cours. */
+export function weeklyPages(state, today, n = 12) {
+  const monday = mondayOf(today);
+  const out = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const from = addDays(monday, -7 * i);
+    out.push({ monday: from, pages: Math.round(sumRange(state.activity, from, addDays(from, 6)) * 100) / 100 });
+  }
+  return out;
+}
+
+/** La meilleure semaine de tout le suivi : { monday, pages }, ou null. */
+export function bestWeek(state) {
+  const by = new Map();
+  for (const [k, v] of Object.entries(state.activity || {})) {
+    if (!isDayKey(k) || !(Number(v) > 0)) continue;
+    const m = mondayOf(k);
+    by.set(m, (by.get(m) || 0) + Number(v));
+  }
+  let best = null;
+  for (const [monday, pages] of by) if (!best || pages > best.pages) best = { monday, pages: Math.round(pages * 100) / 100 };
+  return best;
+}
+
+/** Une durée en mots, arrondie comme on la dirait : « 5 jours », « 3 semaines », « 14 mois », « 2 ans et demi ». */
+export function spanWords(days) {
+  const n = Math.max(0, Math.round(Number(days) || 0));
+  if (n < 2) return n === 1 ? '1 jour' : 'moins d\'un jour';
+  if (n < 14) return `${n} jours`;
+  if (n < 60) return `${Math.round(n / 7)} semaines`;
+  const months = Math.round(n / 30.44);
+  if (months < 24) return `${months} mois`;
+  const half = Math.round((n / 365.25) * 2) / 2;
+  return Number.isInteger(half) ? `${half} ans` : `${Math.floor(half)} ans et demi`;
 }
 
 /**
- * Tableau de bord prévisionnel : date de fin estimée, rythme requis
- * pour tenir l'échéance, statut (dans les temps / en retard), objectif du jour.
+ * Tableau de bord prévisionnel : date de fin estimée, rythme requis pour tenir l'échéance,
+ * statut (dans les temps / en retard), objectif du jour ; et de quoi donner envie d'écrire :
+ *   velocity     rythme en pages par semaine
+ *   trend        son évolution en quatre semaines (pages par semaine, positive = on accélère) ; null avant six semaines de suivi
+ *   gainToday    jours gagnés sur la date de fin grâce aux pages d'aujourd'hui (0 si rien écrit)
+ *   gainPerPage  jours que ferait gagner une page de plus aujourd'hui
+ *   missing      pages par semaine qui manquent pour arriver à l'heure (0 si l'on y est)
+ *   pause        la période sans rédaction en cours aujourd'hui ({ from, to, kind }), ou null
  */
 export function forecast(state, totals, today) {
   const total = Math.max(0, totals.total || 0);
@@ -293,17 +424,26 @@ export function forecast(state, totals, today) {
     perWritingDay: null, perWeek: null,
     projectedEnd: null, status: 'none', margin: null,
     dailyGoal: 1, goalIsAuto: true,
+    velocity: p.forecast * 7, trend: null, gainToday: 0, gainPerPage: null, missing: 0,
+    pause: pauseOn(state.pauses, today),
   };
-  if (p.forecast > 0 && remaining > 0) {
-    // Les périodes hors rédaction à venir repoussent d'autant la fin estimée
-    let end = addDays(today, Math.ceil(remaining / p.forecast));
-    for (let i = 0, from = today; i < 12; i++) {
-      const off = pausedDays(from, end, state.pauses);
-      if (!off) break;
-      from = addDays(end, 1);
-      end = addDays(end, off);
-    }
-    res.projectedEnd = end;
+  res.projectedEnd = endAt(state, today, remaining, p.forecast);
+  if (res.projectedEnd) {
+    // Ce que change une page : le même calcul, avec une page de plus aujourd'hui, puis sans les pages d'aujourd'hui
+    const day = Number(state.activity && state.activity[today]) || 0;
+    const variant = delta => {
+      const st = { ...state, activity: { ...(state.activity || {}), [today]: day + delta } };
+      const w = written + delta;
+      return endAt(st, today, Math.max(0, total - w), pace(st, today, w).forecast);
+    };
+    if (remaining > 1) { const e = variant(1); if (e) res.gainPerPage = Math.max(0, diffDays(e, res.projectedEnd)); }
+    if (day > 0) { const e = variant(-day); res.gainToday = e ? Math.max(0, diffDays(res.projectedEnd, e)) : 0; }
+  }
+  if (p.tracked >= 42 && p.forecast > 0) {
+    // Le rythme tel qu'on l'aurait calculé il y a quatre semaines (il faut alors déjà deux semaines de suivi pour qu'il veuille dire quelque chose)
+    const then = addDays(today, -28);
+    const sinceThen = sumRange(state.activity, addDays(then, 1), today);
+    res.trend = (p.forecast - pace(state, then, Math.max(0, written - sinceThen)).forecast) * 7;
   }
   if (total > 0 && remaining <= 0) res.status = 'done';
   if (state.deadline) {
@@ -318,6 +458,7 @@ export function forecast(state, totals, today) {
         const free = Math.max(1, res.daysLeft - pausedDays(today, res.writingEnd, state.pauses));
         res.perWritingDay = remaining / Math.max(1, res.writingDaysLeft);
         res.perWeek = remaining / (free / 7);
+        res.missing = Math.max(0, res.perWeek - res.velocity);
         if (!res.projectedEnd) res.status = 'nopace';
         else {
           res.margin = diffDays(res.projectedEnd, res.writingEnd);

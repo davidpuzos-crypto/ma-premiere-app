@@ -1,7 +1,7 @@
 {
   "name": "Le Journal de Bord",
   "short_name": "Journal de Bord",
-  "description": "Le journal de thèse des doctorant·es : pages rédigées, date de dépôt, synchro avec Word, bingo de la semaine.",
+  "description": "Le journal de thèse des doctorant·es : pages rédigées, date de fin à votre rythme, synchro avec votre document (Word, LibreOffice, PDF, Google Docs), bingo de la semaine.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
@@ -41,5 +41,76 @@
         }
       ]
     }
-  ]
+  ],
+  "share_target": {
+    "action": "./?share=1",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "doc",
+          "accept": [
+            ".docx",
+            ".fodt",
+            ".md",
+            ".odt",
+            ".pdf",
+            ".qmd",
+            ".rmd",
+            ".rtf",
+            ".tex",
+            ".txt",
+            ".typ",
+            ".zip",
+            "application/pdf",
+            "application/rtf",
+            "application/vnd.oasis.opendocument.text",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/x-tex",
+            "application/zip",
+            "text/markdown",
+            "text/plain"
+          ]
+        }
+      ]
+    }
+  },
+  "file_handlers": [
+    {
+      "action": "./?open=1",
+      "accept": {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": [
+          ".docx"
+        ],
+        "application/vnd.oasis.opendocument.text": [
+          ".odt"
+        ],
+        "application/pdf": [
+          ".pdf"
+        ],
+        "application/rtf": [
+          ".rtf"
+        ],
+        "application/x-tex": [
+          ".tex"
+        ],
+        "text/markdown": [
+          ".md"
+        ],
+        "text/plain": [
+          ".txt"
+        ]
+      }
+    }
+  ],
+  "launch_handler": {
+    "client_mode": [
+      "focus-existing",
+      "auto"
+    ]
+  }
 }

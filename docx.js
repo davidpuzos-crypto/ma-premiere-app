@@ -1,8 +1,11 @@
 /* ============================================================
    DOCUMENTS — lecture du manuscrit dans le navigateur
    Le fichier n'est jamais envoyé. Formats lus :
-     • Word (.docx) et LibreOffice (.odt) : on décompresse l'archive
-       (JSZip, chargé à la demande) et on lit les titres et le texte ;
+     • PDF (LaTeX et Overleaf, Word, Pages, Scrivener, Typst…) : la
+       pagination est exacte, le plan vient des signets, des titres
+       balisés ou de la mise en forme (pdfread.js, pdfdoc.js) ;
+     • Word (.docx) et LibreOffice (.odt) : on ouvre l'archive (zip.js,
+       sans bibliothèque extérieure) et on lit les titres et le texte ;
      • LaTeX (.tex), Markdown (.md), texte simple (.txt) ;
      • contenu collé : le presse-papiers garde les titres de Google
        Docs, de Word, de LibreOffice (HTML), ou le texte brut.
@@ -13,12 +16,16 @@
    Les pages viennent de la meilleure source disponible (pages.js) :
    pagination réelle du fichier, sinon simulation de sa mise en page.
 ============================================================ */
-import { countWords, parseTextDocument, signs } from './outline.js';
-import { paginate, spans, readPdf } from './pages.js';
+import { countWords, parseTextDocument, signs, guessHeadings } from './outline.js';
+import { paginate, spans, readPdf, byBreaks } from './pages.js';
+import { openZip, canInflate } from './zip.js';
+import { readPdfDocument } from './pdfread.js';
+import { parseRtf, parseTypst, parseOrg, parseAsciidoc, parseRst, texMain, resolveTex, resolveTypst } from './formats.js';
 
 export { countWords };
 
 const W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main';
+// Secours pour les navigateurs d'avant 2023, qui ne savent pas décompresser seuls
 const JSZIP_URL = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
 const JSZIP_SRI = 'sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg==';
 
@@ -50,7 +57,27 @@ function loadJSZip() {
   return _zipPromise;
 }
 
-const TEXT_EXT = /\.(tex|ltx|md|markdown|mdown|txt|text|rst)$/i;
+/** Ouvre une archive : lecteur maison, ou JSZip (chargé à la demande) si le navigateur ne décompresse pas seul. */
+async function openArchive(buf) {
+  if (canInflate()) {
+    try { return openZip(buf); } catch { throw new DocxError('not-docx'); }
+  }
+  const JSZip = await loadJSZip();
+  let zip;
+  try { zip = await JSZip.loadAsync(buf); } catch { throw new DocxError('not-docx'); }
+  return {
+    names: Object.keys(zip.files).filter(n => !zip.files[n].dir),
+    has: n => !!zip.file(n),
+    size: () => -1,
+    bytes: n => { const f = zip.file(n); return f ? f.async('uint8array') : Promise.resolve(null); },
+    text: n => { const f = zip.file(n); return f ? f.async('string') : Promise.resolve(null); },
+  };
+}
+
+const TEXT_EXT = /\.(tex|ltx|rnw|md|markdown|mdown|qmd|rmd|typ|org|adoc|asciidoc|txt|text|rst)$/i;
+// Fichiers qu'un projet (archive .zip, plusieurs fichiers déposés) peut contenir
+const PROJECT_TEXT = /\.(tex|ltx|rnw|typ|md|markdown|qmd|rmd)$/i;
+const INNER_DOC = /\.(docx|docm|odt|pdf|rtf)$/i;
 const MAX_TEXT = 30 * 1024 * 1024;
 
 function decodeText(buf) {
@@ -63,22 +90,38 @@ function decodeText(buf) {
 }
 
 /**
+ * Un PDF comme document suivi. source : File, Uint8Array ou { url }.
+ * opts.planTitles : titres du plan déjà saisi ; opts.onProgress(pagesLues, total).
+ */
+export async function analyzePdf(source, opts = {}) {
+  let r;
+  try { r = await readPdfDocument(source, { planTitles: opts.planTitles, onProgress: opts.onProgress, lib: opts.pdfLib }); }
+  catch (e) { throw new DocxError(e && e.code ? e.code : 'pdf-broken'); }
+  const res = finish('pdf', r.segments.map(s => ({ ...s, bodyWords: 0 })), r.frontWords, null, DEFAULT_WPP,
+    { total: r.totalPages, front: r.frontPages, pages: r.segments.map(s => s.pages), source: 'pdf', layout: null, gen: 'pdf' }, r.frontChars);
+  res.headingSource = r.headingSource;   // 'outline' (signets), 'tags' (titres balisés), 'layout' (mise en forme), 'plan', ''
+  res.scanned = !!r.scanned;             // pages scannées : pas de texte, seulement un nombre de pages
+  res.docTitle = r.docTitle || '';
+  return res;
+}
+
+/**
  * Lit un fichier (File) et renvoie l'analyse commune à tous les formats.
  * opts.pdf : le même document en PDF (Uint8Array), quand on l'a : il donne la pagination exacte.
+ * opts.planTitles, opts.onProgress : voir analyzePdf.
  */
 export async function parseDocumentFile(file, opts = {}) {
+  const name = String(file.name || '');
+  // Un PDF peut peser des centaines de Mo (images) : on ne le charge pas en entier, PDF.js lit ce qu'il lui faut
+  const head = new Uint8Array(await file.slice(0, 8).arrayBuffer());
+  if (head[0] === 0x25 && head[1] === 0x50 && head[2] === 0x44 && head[3] === 0x46) return analyzePdf(file, opts);
   const buf = await file.arrayBuffer();
   const sig = new Uint8Array(buf.slice(0, 5));
-  const name = String(file.name || '');
   if (sig[0] === 0xD0 && sig[1] === 0xCF && sig[2] === 0x11 && sig[3] === 0xE0) throw new DocxError('old-doc');
-  if (sig[0] === 0x25 && sig[1] === 0x50 && sig[2] === 0x44 && sig[3] === 0x46) throw new DocxError('pdf');
-  if (sig[0] === 0x7B && sig[1] === 0x5C && sig[2] === 0x72 && sig[3] === 0x74) throw new DocxError('rtf');
   if (sig[0] === 0x50 && sig[1] === 0x4B) {
-    const JSZip = await loadJSZip();
-    let zip;
-    try { zip = await JSZip.loadAsync(buf); } catch { throw new DocxError('not-docx'); }
-    const read = p => { const f = zip.file(p); return f ? f.async('string') : Promise.resolve(null); };
-    if (zip.file('word/document.xml')) {
+    const zip = await openArchive(buf);
+    const read = p => zip.text(p).catch(e => { throw e instanceof DocxError ? e : new DocxError('bad-xml'); });
+    if (zip.has('word/document.xml')) {
       const [docXml, stylesXml, appXml, footXml, endXml, themeXml, relsXml] = await Promise.all([
         read('word/document.xml'), read('word/styles.xml'), read('docProps/app.xml'),
         read('word/footnotes.xml'), read('word/endnotes.xml'), read('word/theme/theme1.xml'),
@@ -93,15 +136,58 @@ export async function parseDocumentFile(file, opts = {}) {
         const target = /\bTarget="([^"]+)"/.exec(m[0]);
         if (id && target) parts[id[1]] = await read(target[1].startsWith('/') ? target[1].slice(1) : `word/${target[1]}`);
       }
-      return analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeXml, parts, pdf: opts.pdf || null, tune: opts.tune });
+      return analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeXml, parts, pdf: opts.pdf || null, tune: opts.tune, planTitles: opts.planTitles });
     }
-    if (zip.file('content.xml')) {
+    if (zip.has('content.xml')) {
       const [contentXml, stylesXml, metaXml, mime] = await Promise.all([read('content.xml'), read('styles.xml'), read('meta.xml'), read('mimetype')]);
       if (mime && !/opendocument\.text/.test(mime)) throw new DocxError('not-docx'); // tableur, présentation…
-      return analyzeOdt({ contentXml, stylesXml, metaXml });
+      return analyzeOdt({ contentXml, stylesXml, metaXml, planTitles: opts.planTitles });
     }
-    if (/\.pages$/i.test(name) || zip.file('Index/Document.iwa')) throw new DocxError('pages');
-    throw new DocxError('not-docx');
+    if (/\.pages$/i.test(name) || zip.has('Index/Document.iwa')) throw new DocxError('pages');
+    if (zip.names.some(n => /^(xl|ppt)\//.test(n)) || /\.(key|numbers)$/i.test(name)) throw new DocxError('not-text');
+    if (zip.has('META-INF/container.xml')) throw new DocxError('epub');
+    // Une archive : un projet LaTeX ou Typst (Overleaf : Menu, Télécharger, Source), ou un document qu'on a zippé
+    if (opts.depth) throw new DocxError('not-docx');
+    const names = zip.names.filter(n => !/(^|\/)(__MACOSX|\.git)\//.test(n) && !/(^|\/)\._/.test(n));
+    const texts = names.filter(n => PROJECT_TEXT.test(n));
+    if (texts.length) {
+      const files = new Map();
+      let total = 0;
+      for (const n of texts) {
+        if (zip.size(n) > MAX_TEXT) continue;
+        const t = await zip.text(n).catch(() => null);
+        if (t === null) continue;
+        total += t.length;
+        if (total > 2 * MAX_TEXT) throw new DocxError('too-big');
+        files.set(n, t);
+      }
+      const res = analyzeProject(files);
+      if (res) return res;
+    }
+    const inner = names.filter(n => INNER_DOC.test(n)).sort((a, b) => zip.size(b) - zip.size(a))[0];
+    if (inner) {
+      const bytes = await zip.bytes(inner).catch(() => null);
+      if (bytes) return parseDocumentFile(new File([bytes], inner.split('/').pop()), { ...opts, depth: 1 });
+    }
+    throw new DocxError('zip-empty');
+  }
+  if (sig[0] === 0x7B && sig[1] === 0x5C && sig[2] === 0x72 && sig[3] === 0x74) {
+    if (buf.byteLength > 4 * MAX_TEXT) throw new DocxError('too-big');
+    return analyzeRtf(decodeText(buf), opts.planTitles);
+  }
+  if (/\.(gdoc|gddoc)$/i.test(name) && buf.byteLength < 4000) {
+    // Raccourci créé par Google Drive pour ordinateur : il contient l'adresse du document, pas son texte
+    const e = new DocxError('gdoc-shortcut');
+    try { const j = JSON.parse(decodeText(buf)); e.link = String(j.doc_id || j.url || ''); } catch { e.link = ''; }
+    throw e;
+  }
+  if (/\.(scriv|scrivx)$/i.test(name)) throw new DocxError('scriv');
+  if (/^image\//.test(file.type || '') || /\.(png|jpe?g|gif|heic|webp|tiff?)$/i.test(name)) throw new DocxError('image');
+  if (/\.fodt$/i.test(name) || (sig[0] === 0x3C && /<office:document\b[^>]*opendocument\.text/.test(new TextDecoder('utf-8').decode(buf.slice(0, 4000))))) {
+    // LibreOffice « à plat » : un seul fichier XML pour le texte, les styles et les statistiques
+    if (buf.byteLength > 4 * MAX_TEXT) throw new DocxError('too-big');
+    const xml = decodeText(buf);
+    return analyzeOdt({ contentXml: xml, stylesXml: null, metaXml: xml, planTitles: opts.planTitles });
   }
   if (/\.html?$/i.test(name) || file.type === 'text/html') {
     if (buf.byteLength > MAX_TEXT) throw new DocxError('too-big');
@@ -109,9 +195,54 @@ export async function parseDocumentFile(file, opts = {}) {
   }
   if (TEXT_EXT.test(name) || /^text\//.test(file.type || '')) {
     if (buf.byteLength > MAX_TEXT) throw new DocxError('too-big');
-    return analyzeText(decodeText(buf));
+    return analyzeText(decodeText(buf), name);
   }
   throw new DocxError('not-docx');
+}
+
+/**
+ * Plusieurs fichiers déposés ensemble (un projet LaTeX : fichier principal et chapitres ; des chapitres
+ * en Markdown ou en Typst). Renvoie l'analyse du document assemblé, ou null si ce n'est pas un projet.
+ */
+export async function parseProjectFiles(fileList) {
+  const list = [...fileList].filter(f => PROJECT_TEXT.test(f.name));
+  if (list.length < 2 || list.length !== [...fileList].length) return null;
+  const files = new Map();
+  let total = 0;
+  for (const f of list) {
+    total += f.size;
+    if (total > 2 * MAX_TEXT) throw new DocxError('too-big');
+    files.set(f.webkitRelativePath || f.name, decodeText(await f.arrayBuffer()));
+  }
+  return analyzeProject(files);
+}
+
+/** Un projet : fichiers LaTeX assemblés autour du fichier principal, ou Typst, sinon chapitres Markdown mis bout à bout. */
+function analyzeProject(files) {
+  const names = [...files.keys()];
+  const tex = names.filter(n => /\.(tex|ltx|rnw)$/i.test(n));
+  let res = null;
+  let main = '';
+  if (tex.length) {
+    main = texMain(files);
+    let text = resolveTex(main, files);
+    // Pas de fichier principal (seulement des chapitres) : on les met bout à bout, dans l'ordre de leurs noms
+    if (!/\\(chapter|section|part)\b/.test(text)) text = tex.slice().sort((a, b) => a.localeCompare(b, 'fr', { numeric: true })).map(n => files.get(n)).join('\n\n');
+    res = analyzeText(text, 'projet.tex');
+  } else {
+    const typ = names.filter(n => /\.typ$/i.test(n));
+    if (typ.length) {
+      main = typ.map(n => [n, (files.get(n).match(/#include\s+"/g) || []).length]).sort((a, b) => b[1] - a[1] || a[0].split('/').length - b[0].split('/').length)[0][0];
+      res = analyzeText(resolveTypst(main, files), 'projet.typ');
+    } else {
+      const md = names.filter(n => /\.(md|markdown|qmd|rmd)$/i.test(n) && !/(^|\/)(readme|license|changelog)\b/i.test(n)).sort((a, b) => a.localeCompare(b, 'fr', { numeric: true }));
+      if (!md.length) return null;
+      main = md[0];
+      res = analyzeText(md.map(n => files.get(n)).join('\n\n'), 'projet.md');
+    }
+  }
+  res.project = { main: main.split('/').pop(), files: names.length };
+  return res;
 }
 
 /** Ancien nom, gardé pour compatibilité. */
@@ -233,6 +364,7 @@ function readPPr(pPr, o) {
       case 'widowControl': o.wc = isOn(c); break;
       case 'contextualSpacing': o.cs = isOn(c); break;
       case 'numPr': { const id = wchild(c, 'numId'); o.num = !id || wattr(id, 'val') !== '0'; break; }
+      case 'jc': o.jc = wattr(c, 'val'); break;
       default: break;
     }
   }
@@ -461,11 +593,16 @@ function layoutParagraph(p, L, tableKey) {
     il: pp.il || 0, ir: pp.ir || 0, fi: pp.fi || 0, st: styleId, mf: mark.f || '', mz: mark.z || 10,
   };
   if (pp.num) { b.num = 1; if (direct && direct.il === undefined && base.p.il === undefined) b.il = 36; }
+  if (pp.jc === 'center') b.jc = 'center';
   if (pp.kn) b.kn = 1;
   if (pp.kl) b.kl = 1;
   if (pp.pb) b.pb = 1;
   if (pp.cs) b.cs = 1;
   if (pp.wc === false) b.wc = false;
+  // Ligne d'une table des matières (ou des figures) : Word n'y laisse pas de repère de page
+  for (const el of p.getElementsByTagNameNS(W_NS, 'instrText')) {
+    if (/\b(PAGEREF|TOC)\b/.test(el.textContent)) { b.nm = 1; break; }
+  }
   const items = b.r;
   let last = null;
 
@@ -646,7 +783,7 @@ const A4_SECTION = { w: 595.3, h: 841.9, mt: 70.9, mb: 70.9, ml: 70.9, mr: 70.9 
 /* ------------------------------------------------------------
    Analyse principale
 ------------------------------------------------------------ */
-export function analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeXml, parts, pdf, tune }) {
+export function analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeXml, parts, pdf, tune, planTitles }) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(docXml, 'application/xml');
   if (doc.getElementsByTagName('parsererror').length) throw new DocxError('bad-xml');
@@ -725,6 +862,9 @@ export function analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeX
       s.bodyWords += n;
     } else front += n;
   };
+  // Le document dans l'ordre : paragraphes (niveau de titre donné par leur style) et tableaux.
+  // Les titres sont fixés après coup : sans styles de titre, on les repère à leur mise en forme.
+  const recs = [];
 
   const handleParagraph = p => {
     const pPr = wchild(p, 'pPr');
@@ -747,15 +887,7 @@ export function analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeX
     const acc = { text: [], notes: 0 };
     collect(p, acc, notes);
     const text = acc.text.join('').replace(/\s+/g, ' ').trim();
-    const words = countWords(text);
-    if (level > 0 && text) {
-      const before = segments.length;
-      pushHeading(segments, level, text, words + acc.notes);
-      if (segments.length > before) block.hd = before;
-    } else {
-      add(words + acc.notes);
-      if (words > 12) { const k = `${block.lr}|${block.lv}`; L.spacing.set(k, (L.spacing.get(k) || 0) + words); }
-    }
+    recs.push({ level: level > 0 && text ? level : 0, text, words: countWords(text), notes: acc.notes, block });
   };
 
   const handleBlock = el => {
@@ -771,7 +903,7 @@ export function analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeX
       case 'tbl': {
         const acc = { text: [], notes: 0 };
         collect(el, acc, notes);
-        add(countWords(acc.text.join('')) + acc.notes);
+        recs.push({ table: true, words: countWords(acc.text.join('')) + acc.notes });
         blocks.push(layoutTable(el, L));
         break;
       }
@@ -789,6 +921,29 @@ export function analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeX
   };
 
   for (const c of body.children) handleBlock(c);
+
+  // Pas de styles de titre (ou un seul, le titre du document) : les titres se reconnaissent à leur mise en forme
+  let headingSource = 'styles';
+  const styled = recs.filter(r => r.level > 0).length;
+  if (styled < 2) {
+    const lv = guessHeadings(recs.map(r => (r.table ? { text: 'tableau', words: r.words, table: true } : paraLook(r, styles))), { planTitles: (planTitles || []).map(t => t.title) });
+    const n = lv.filter(Boolean).length;
+    if (n >= 2 && n > styled) {
+      recs.forEach((r, i) => { r.level = lv[i]; });
+      headingSource = 'layout';
+    }
+  }
+  for (const r of recs) {
+    if (r.table) { add(r.words); continue; }
+    if (r.level > 0 && r.text) {
+      const before = segments.length;
+      pushHeading(segments, r.level, r.text, r.words + r.notes);
+      if (segments.length > before) r.block.hd = before;
+    } else {
+      add(r.words + r.notes);
+      if (r.words > 12) { const k = `${r.block.lr}|${r.block.lv}`; L.spacing.set(k, (L.spacing.get(k) || 0) + r.words); }
+    }
+  }
 
   const pagesMatch = appXml ? /<Pages>(\d+)<\/Pages>/.exec(appXml) : null;
   const pagesMeta = pagesMatch ? parseInt(pagesMatch[1], 10) : null;
@@ -815,7 +970,33 @@ export function analyzeDocx({ docXml, stylesXml, appXml, footXml, endXml, themeX
     };
   } catch (e) { console.warn('Pagination :', e); }
 
-  return finish('docx', segments, front, pagesMeta, DEFAULT_WPP, paged);
+  const res = finish('docx', segments, front, pagesMeta, DEFAULT_WPP, paged);
+  res.headingSource = segments.length ? headingSource : '';
+  return res;
+}
+
+/** L'allure d'un paragraphe, pour reconnaître un titre sans style : corps, gras, capitales, centrage, liste, légende. */
+function paraLook(r, styles) {
+  const b = r.block;
+  let chars = 0;
+  let bold = 0;
+  const sizes = new Map();
+  for (const it of b.r) {
+    if (typeof it.x !== 'string') continue;
+    const n = it.x.replace(/\s/g, '').length;
+    if (!n) continue;
+    chars += n;
+    if (it.b) bold += n;
+    sizes.set(it.z, (sizes.get(it.z) || 0) + n);
+  }
+  let size = 0;
+  let best = -1;
+  for (const [z, n] of sizes) if (n > best) { best = n; size = z; }
+  const st = styles.get(b.st);
+  return {
+    text: r.text, words: r.words, size, bold: chars > 0 && bold >= chars * 0.9, center: b.jc === 'center', list: !!b.num,
+    caption: !!st && /caption|l[ée]gende|beschriftung/i.test(st.name || ''),
+  };
 }
 
 /* ------------------------------------------------------------
@@ -890,9 +1071,319 @@ const ODF_TEXT = 'urn:oasis:names:tc:opendocument:xmlns:text:1.0';
 const ODF_OFFICE = 'urn:oasis:names:tc:opendocument:xmlns:office:1.0';
 const ODF_TABLE = 'urn:oasis:names:tc:opendocument:xmlns:table:1.0';
 const ODF_STYLE = 'urn:oasis:names:tc:opendocument:xmlns:style:1.0';
+const ODF_FO = 'urn:oasis:names:tc:opendocument:xmlns:xsl-fo-compatible:1.0';
+const ODF_DRAW = 'urn:oasis:names:tc:opendocument:xmlns:drawing:1.0';
+const ODF_SVG = 'urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0';
 // Tables générées et coulisses du document : jamais comptées
 const ODF_SKIP = new Set(['table-of-content', 'illustration-index', 'table-index', 'object-index', 'user-index',
-  'alphabetical-index', 'tracked-changes', 'sequence-decls', 'variable-decls', 'user-field-decls', 'forms']);
+  'alphabetical-index', 'bibliography', 'tracked-changes', 'sequence-decls', 'variable-decls', 'user-field-decls', 'forms']);
+// Parmi elles, celles qui occupent des pages (sommaire, index) : leur texte ne compte pas, leur place si
+const ODF_INDEX = new Set(['table-of-content', 'illustration-index', 'table-index', 'object-index', 'user-index', 'alphabetical-index', 'bibliography']);
+
+/** Longueur ODF (« 2.5cm », « 12pt », « 0.5in ») en points ; NaN si ce n'en est pas une. */
+function odfLen(v) {
+  const m = /^(-?[\d.]+)\s*(pt|cm|mm|in|pc|px)?$/.exec(String(v || '').trim());
+  if (!m) return NaN;
+  const n = parseFloat(m[1]);
+  return n * ({ pt: 1, cm: 28.3465, mm: 2.83465, in: 72, pc: 12, px: 0.75 }[m[2] || 'pt']);
+}
+
+/**
+ * Styles d'un document ODF (styles nommés de styles.xml, styles automatiques de content.xml).
+ * Renvoie look(nom) : les propriétés utiles, héritées de style parent en style parent :
+ *   level  niveau de titre (nom « Heading 2 », « Titre 2 », ou niveau de plan du style), 0 sinon
+ *   before, after  saut de page demandé avant / après le paragraphe
+ *   size (points), bold, center, caption
+ */
+function odfStyles(docs) {
+  const raw = new Map();
+  let defSize = 12;
+  for (const d of docs) {
+    if (!d) continue;
+    for (const ds of d.getElementsByTagNameNS(ODF_STYLE, 'default-style')) {
+      if (ds.getAttributeNS(ODF_STYLE, 'family') !== 'paragraph') continue;
+      const tp = ds.getElementsByTagNameNS(ODF_STYLE, 'text-properties')[0];
+      const z = tp ? odfLen(tp.getAttributeNS(ODF_FO, 'font-size')) : NaN;
+      if (z > 0) defSize = z;
+    }
+    for (const st of d.getElementsByTagNameNS(ODF_STYLE, 'style')) {
+      const fam = st.getAttributeNS(ODF_STYLE, 'family') || 'paragraph';
+      if (fam !== 'paragraph' && fam !== 'text' && fam !== 'table') continue;
+      const name = st.getAttributeNS(ODF_STYLE, 'name');
+      if (!name) continue;
+      const o = {
+        parent: st.getAttributeNS(ODF_STYLE, 'parent-style-name') || null,
+        label: (st.getAttributeNS(ODF_STYLE, 'display-name') || name).replace(/_20_/g, ' ').toLowerCase(),
+      };
+      const lvl = parseInt(st.getAttributeNS(ODF_STYLE, 'default-outline-level') || '', 10);
+      if (lvl >= 1 && lvl <= 9) o.outline = lvl;
+      if (st.getAttributeNS(ODF_STYLE, 'master-page-name')) o.before = true;   // changement de style de page : nouvelle page
+      for (let c = st.firstElementChild; c; c = c.nextElementSibling) {
+        if (c.namespaceURI !== ODF_STYLE) continue;
+        if (c.localName === 'paragraph-properties' || c.localName === 'table-properties') {
+          const bb = c.getAttributeNS(ODF_FO, 'break-before');
+          const ba = c.getAttributeNS(ODF_FO, 'break-after');
+          if (bb) o.before = o.before || bb === 'page';
+          if (ba) o.after = ba === 'page';
+          const al = c.getAttributeNS(ODF_FO, 'text-align');
+          if (al) o.center = al === 'center';
+        } else if (c.localName === 'text-properties') {
+          const fs = c.getAttributeNS(ODF_FO, 'font-size');
+          if (fs) { if (/%$/.test(fs)) o.pct = parseFloat(fs) / 100; else if (odfLen(fs) > 0) o.size = odfLen(fs); }
+          const fw = c.getAttributeNS(ODF_FO, 'font-weight');
+          if (fw) o.bold = fw === 'bold' || parseInt(fw, 10) >= 600;
+        }
+      }
+      // Les styles automatiques (content.xml) priment sur un style nommé de même nom ; à nom égal par famille, le paragraphe d'abord
+      const key = fam === 'text' ? `t:${name}` : name;
+      raw.set(key, o);
+    }
+  }
+  const cache = new Map();
+  const look = (name, text, depth = 0) => {
+    const key = text ? `t:${name}` : name;
+    if (cache.has(key)) return cache.get(key);
+    // Un style de caractères ne dit que ce qu'il change (taille, gras) : le reste vient du paragraphe
+    const base = text ? { size: 0, pct: 0, bold: undefined }
+      : { level: 0, before: false, after: false, size: defSize, bold: false, center: false, caption: false };
+    if (!name || depth > 12) return base;
+    const st = raw.get(key);
+    const label = st ? st.label : String(name).replace(/_20_/g, ' ').toLowerCase();
+    let out;
+    if (!st) {
+      const m = text ? null : HEADING_NAME.exec(label);
+      out = m ? { ...base, level: +m[2] } : base;
+    } else {
+      const up = st.parent ? look(st.parent, text, depth + 1) : base;
+      out = { ...up };
+      // le saut de page d'un style parent vaut pour ses dérivés, sauf mention contraire
+      if (st.before !== undefined) out.before = st.before;
+      if (st.after !== undefined) out.after = st.after;
+      if (st.size) { out.size = st.size; if (text) out.pct = 0; }
+      else if (st.pct) { if (text) out.pct = (up.pct || 1) * st.pct; else out.size = up.size * st.pct; }
+      if (st.bold !== undefined) out.bold = st.bold;
+      if (!text) {
+        if (st.center !== undefined) out.center = st.center;
+        if (/^(contents|index|table of|table des|sommaire)/.test(label)) out.level = 0;
+        else {
+          const m = HEADING_NAME.exec(label);
+          if (m) out.level = +m[2];
+          else if (st.outline) out.level = st.outline;
+        }
+        if (/^(caption|légende|legende|illustration|figure|table\b|tableau)/.test(label)) out.caption = true;
+      }
+    }
+    cache.set(key, out);
+    return out;
+  };
+  return look;
+}
+
+/**
+ * LibreOffice (.odt, .fodt). Le texte et les titres comme pour Word ; les pages d'après les sauts
+ * de page que LibreOffice enregistre dans le fichier, quand sa mise en page était terminée.
+ */
+export function analyzeOdt({ contentXml, stylesXml, metaXml, planTitles, doc: given }) {
+  const parser = new DOMParser();
+  const doc = given || parser.parseFromString(contentXml || '', 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length) throw new DocxError('bad-xml');
+  const body = doc.getElementsByTagNameNS(ODF_OFFICE, 'text')[0];
+  if (!body) throw new DocxError('not-docx');
+  let sdoc = null;
+  if (stylesXml) {
+    sdoc = parser.parseFromString(stylesXml, 'application/xml');
+    if (sdoc.getElementsByTagName('parsererror').length) sdoc = null;
+  }
+  const look = odfStyles([sdoc, doc]);
+
+  // Le document dans l'ordre : paragraphes et tableaux (recs), et de quoi retrouver la pagination (atoms)
+  const recs = [];
+  const atoms = [];
+  let placed = false;      // du contenu est-il déjà posé ? (un saut demandé avant le tout premier paragraphe ne crée pas de page)
+  let afterBreak = false;  // le paragraphe précédent demandait un saut après lui
+  const hardBreak = () => { if (placed) atoms.push({ brk: 'hard' }); };
+  const weigh = (w, rec) => { if (w > 0 || rec) { atoms.push(rec ? { w, rec } : { w }); placed = true; } };
+
+  /** Texte d'un paragraphe (ou d'une cellule…), avec l'allure de ses caractères et les sauts de page tombés dedans. */
+  const read = (el, st, sink) => {
+    for (let c = el.firstChild; c; c = c.nextSibling) {
+      if (c.nodeType === 3) { sink.text(c.nodeValue, st); continue; }
+      if (c.nodeType !== 1) continue;
+      const ln = c.localName;
+      if (c.namespaceURI === ODF_TEXT) {
+        if (ln === 'soft-page-break') { sink.brk(); continue; }
+        if (ln === 's') { sink.text(' '.repeat(Math.min(40, parseInt(c.getAttributeNS(ODF_TEXT, 'c') || '1', 10) || 1)), st); continue; }
+        if (ln === 'tab' || ln === 'line-break') { sink.text(' ', st); continue; }
+        if (ln === 'note-citation' || ODF_SKIP.has(ln)) continue;        // appel de note : seul le corps de la note compte
+        if (ln === 'span') { read(c, mergeLook(st, look(c.getAttributeNS(ODF_TEXT, 'style-name'), true)), sink); continue; }
+        if (ln === 'p' || ln === 'h') { sink.text(' ', st); read(c, st, sink); sink.text(' ', st); continue; } // note, cadre : pas collé au mot voisin
+      }
+      if (c.namespaceURI === ODF_OFFICE && ln === 'annotation') continue; // commentaires
+      if (ln === 'title' || ln === 'desc') continue;                      // texte alternatif des images
+      if (c.namespaceURI === ODF_DRAW && ln === 'frame') {
+        const h = odfLen(c.getAttributeNS(ODF_SVG, 'height'));
+        if (h > 0) sink.extra(h * 4.2);                                   // une image occupe à peu près la place de ce texte
+      }
+      read(c, st, sink);
+    }
+  };
+
+  const paragraph = (el, isHeading, listed, counted) => {
+    const st = look(el.getAttributeNS(ODF_TEXT, 'style-name'));
+    if (st.before || afterBreak) hardBreak();
+    afterBreak = st.after;
+    const parts = [];
+    let chars = 0;
+    let bold = 0;
+    let pieceW = 0;
+    const sizes = new Map();
+    const rec = { level: 0, text: '', words: 0, chars: 0, look: null, counted };
+    let first = true;
+    const flush = () => { weigh(pieceW + (first ? 60 : 0), first ? rec : null); first = false; pieceW = 0; };
+    read(el, st, {
+      text: (s, cs) => {
+        parts.push(s);
+        const n = s.replace(/\s/g, '').length;
+        if (!n) { pieceW += s.length; return; }
+        chars += n;
+        pieceW += s.length;
+        if (cs.bold) bold += n;
+        const k = Math.round(cs.size * 2) / 2;
+        sizes.set(k, (sizes.get(k) || 0) + n);
+      },
+      brk: () => { flush(); atoms.push({ brk: 'soft' }); },
+      extra: w => { pieceW += w; },
+    });
+    flush();
+    const text = parts.join('').replace(/\s+/g, ' ').trim();
+    let size = st.size;
+    let best = -1;
+    for (const [z, n] of sizes) if (n > best) { best = n; size = z; }
+    rec.text = text;
+    rec.words = counted ? countWords(text) : 0;
+    rec.chars = counted && text ? text.length + 1 : 0;
+    rec.look = { text, words: rec.words, size, bold: chars > 0 && bold >= chars * 0.9, center: st.center, list: listed, caption: st.caption };
+    if (counted && text) {
+      if (isHeading) {
+        const lv = parseInt(el.getAttributeNS(ODF_TEXT, 'outline-level') || el.getAttribute('text:outline-level') || '1', 10);
+        rec.level = lv >= 1 && lv <= 9 ? lv : 1;
+      } else rec.level = st.level;
+    }
+    recs.push(rec);
+  };
+
+  const table = (el, counted) => {
+    const st = look(el.getAttributeNS(ODF_TABLE, 'style-name'));
+    if (st.before || afterBreak) hardBreak();
+    afterBreak = st.after;
+    const out = [];
+    const rows = node => {
+      for (let c = node.firstElementChild; c; c = c.nextElementSibling) {
+        if (c.namespaceURI === ODF_TEXT && c.localName === 'soft-page-break') { atoms.push({ brk: 'soft' }); continue; }
+        if (c.namespaceURI !== ODF_TABLE) continue;
+        if (c.localName === 'table-row') {
+          const acc = [];
+          odfText(c, acc);
+          const t = acc.join('');
+          out.push(t);
+          weigh(t.length * 1.3 + 50);
+        } else if (c.localName === 'table-header-rows' || c.localName === 'table-rows' || c.localName === 'table-row-group') rows(c);
+      }
+    };
+    rows(el);
+    const text = out.join(' ').replace(/\s+/g, ' ').trim();
+    recs.push({ table: true, words: counted ? countWords(text) : 0, chars: counted && text ? text.length + 1 : 0 });
+  };
+
+  const block = (el, listed, counted) => {
+    const ln = el.localName;
+    if (el.namespaceURI === ODF_TEXT) {
+      if (ln === 'soft-page-break') { atoms.push({ brk: 'soft' }); return; }
+      if (ODF_SKIP.has(ln)) {
+        // sommaire, index : on suit leur place dans les pages, pas leur texte
+        if (ODF_INDEX.has(ln)) for (const c of el.getElementsByTagNameNS(ODF_TEXT, 'index-body')) for (const k of c.children) block(k, false, false);
+        return;
+      }
+      if (ln === 'h' || ln === 'p') { paragraph(el, ln === 'h', listed, counted); return; }
+      if (ln === 'list' || ln === 'list-item' || ln === 'list-header') { for (const c of el.children) block(c, true, counted); return; }
+      if (ln === 'index-title') { for (const c of el.children) block(c, listed, false); return; }
+    }
+    if (el.namespaceURI === ODF_TABLE && ln === 'table') { table(el, counted); return; }
+    for (const c of el.children) block(c, listed, counted); // sections, cadres : on descend
+  };
+  for (const c of body.children) block(c, false, true);
+
+  // Pas de titres marqués (ou un seul) : on les repère à leur mise en forme
+  let headingSource = 'styles';
+  const styled = recs.filter(r => r.level > 0).length;
+  if (styled < 2) {
+    const lv = guessHeadings(recs.map(r => (r.table ? { text: 'tableau', words: r.words, table: true } : r.look)), { planTitles: (planTitles || []).map(t => t.title) });
+    const n = lv.filter(Boolean).length;
+    if (n >= 2 && n > styled) {
+      recs.forEach((r, i) => { r.level = r.table || !r.counted ? 0 : lv[i]; });
+      headingSource = 'layout';
+    }
+  }
+  const segments = [];
+  let front = 0;
+  let frontChars = 0;
+  for (const r of recs) {
+    if (!r.table && r.level > 0 && r.text) {
+      const before = segments.length;
+      pushHeading(segments, r.level, r.text, r.words);
+      if (segments.length > before) r.hd = before;
+      continue;
+    }
+    if (!r.words) continue;
+    if (segments.length) { const s = segments[segments.length - 1]; s.words += r.words; s.bodyWords += r.words; s.chars += r.chars; }
+    else { front += r.words; frontChars += r.chars; }
+  }
+
+  const mm = metaXml ? /meta:page-count="(\d+)"/.exec(metaXml) : null;
+  const metaPages = mm ? parseInt(mm[1], 10) : null;
+  const totalWords = front + segments.reduce((a, x) => a + x.words, 0);
+
+  // Pagination enregistrée : valable si la mise en page était terminée à l'enregistrement
+  let paged = null;
+  let metaTrust = metaPages;
+  const br = byBreaks(atoms.map(a => (a.brk ? a : { w: a.w, hd: a.rec && a.rec.hd !== undefined ? a.rec.hd : -1 })));
+  if (br.soft >= 1 || (br.total === 1 && metaPages === 1)) {
+    let total = br.total;
+    let scale = 1;
+    let ok = true;
+    if (metaPages) {
+      const d = metaPages - total;
+      if (Math.abs(d) <= Math.max(1, total * 0.04)) { /* concordant */ }
+      else if (d > 0 && d <= br.hard) { scale = metaPages / total; total = metaPages; }   // pages blanches insérées (chapitres en belle page)
+      else ok = false;
+    }
+    // Une page qui porterait bien plus de texte que les autres : la mise en page n'était pas allée au bout
+    if (br.median > 0 && (br.last > br.median * 2.5 || br.max > br.median * 4.5)) ok = false;
+    const wpp = totalWords / total;
+    if (totalWords > 200 && (wpp < 40 || wpp > 1200)) ok = false;
+    if (ok) {
+      const starts = [];
+      let prev = 0;
+      for (let i = 0; i < segments.length; i++) {
+        let v = br.starts.has(i) ? br.starts.get(i) * scale : prev;
+        if (v < prev) v = prev;
+        starts.push(v);
+        prev = v;
+      }
+      const sp = spans(starts, total);
+      paged = { total, front: sp.front, pages: sp.pages, source: 'word', layout: null, gen: 'libreoffice' };
+    } else metaTrust = null;   // mise en page inachevée : le nombre de pages enregistré avec elle ne vaut pas mieux
+  }
+  const res = finish('odt', segments, front, metaTrust, DEFAULT_WPP, paged, frontChars);
+  res.headingSource = segments.length ? headingSource : '';
+  return res;
+}
+
+/** Allure d'un passage (text:span) : celle du paragraphe, corrigée par le style de caractères. */
+function mergeLook(st, span) {
+  if (!span.size && !span.pct && span.bold === undefined) return st;
+  return { ...st, size: span.size || (span.pct ? st.size * span.pct : st.size), bold: span.bold === undefined ? st.bold : span.bold };
+}
 
 function odfText(el, out) {
   for (let c = el.firstChild; c; c = c.nextSibling) {
@@ -908,92 +1399,6 @@ function odfText(el, out) {
     if (ln === 'title' || ln === 'desc') continue;                      // texte alternatif des images
     odfText(c, out);
   }
-}
-
-/**
- * Niveau de titre des styles de paragraphe. Un document né dans LibreOffice marque ses titres (text:h),
- * mais un document converti depuis Word n'a souvent que des paragraphes au style « Heading 2 » :
- * on remonte donc la chaîne des styles, comme pour Word.
- */
-function odfStyleLevels(docs) {
-  const styles = new Map();
-  for (const d of docs) {
-    if (!d) continue;
-    for (const st of d.getElementsByTagNameNS(ODF_STYLE, 'style')) {
-      const fam = st.getAttributeNS(ODF_STYLE, 'family');
-      if (fam && fam !== 'paragraph') continue;
-      const name = st.getAttributeNS(ODF_STYLE, 'name');
-      if (!name) continue;
-      const lvl = parseInt(st.getAttributeNS(ODF_STYLE, 'default-outline-level') || '', 10);
-      styles.set(name, {
-        parent: st.getAttributeNS(ODF_STYLE, 'parent-style-name') || null,
-        label: (st.getAttributeNS(ODF_STYLE, 'display-name') || name).replace(/_20_/g, ' ').toLowerCase(),
-        outline: lvl >= 1 && lvl <= 9 ? lvl : 0,
-      });
-    }
-  }
-  const level = (name, depth = 0) => {
-    if (!name || depth > 12) return 0;
-    const st = styles.get(name);
-    const label = st ? st.label : String(name).replace(/_20_/g, ' ').toLowerCase();
-    if (/^(contents|index|table of|table des)/.test(label)) return 0;
-    const m = HEADING_NAME.exec(label);
-    if (m) return +m[2];
-    if (!st) return 0;
-    if (st.outline) return st.outline;
-    return level(st.parent, depth + 1);
-  };
-  return level;
-}
-
-export function analyzeOdt({ contentXml, stylesXml, metaXml }) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(contentXml || '', 'application/xml');
-  if (doc.getElementsByTagName('parsererror').length) throw new DocxError('bad-xml');
-  const body = doc.getElementsByTagNameNS(ODF_OFFICE, 'text')[0];
-  if (!body) throw new DocxError('not-docx');
-  let sdoc = null;
-  if (stylesXml) {
-    sdoc = parser.parseFromString(stylesXml, 'application/xml');
-    if (sdoc.getElementsByTagName('parsererror').length) sdoc = null;
-  }
-  const styleLevelOf = odfStyleLevels([sdoc, doc]);
-
-  const segments = [];
-  let front = 0;
-  let frontChars = 0;
-  const add = text => {
-    const n = countWords(text);
-    if (!n) return;
-    if (segments.length) { const s = segments[segments.length - 1]; s.words += n; s.bodyWords += n; s.chars += text.length + 1; }
-    else { front += n; frontChars += text.length + 1; }
-  };
-  const textOf = el => { const out = []; odfText(el, out); return out.join('').replace(/\s+/g, ' ').trim(); };
-  const block = el => {
-    const ln = el.localName;
-    if (el.namespaceURI === ODF_TEXT) {
-      if (ODF_SKIP.has(ln)) return;
-      if (ln === 'h') {
-        const text = textOf(el);
-        const level = parseInt(el.getAttributeNS(ODF_TEXT, 'outline-level') || el.getAttribute('text:outline-level') || '1', 10);
-        if (text) pushHeading(segments, level >= 1 && level <= 9 ? level : 1, text, countWords(text));
-        return;
-      }
-      if (ln === 'p') {
-        const text = textOf(el);
-        const level = text ? styleLevelOf(el.getAttributeNS(ODF_TEXT, 'style-name')) : 0;
-        if (level) pushHeading(segments, level, text, countWords(text));
-        else add(text);
-        return;
-      }
-    }
-    if (el.namespaceURI === ODF_TABLE && ln === 'table') { add(textOf(el)); return; }
-    for (const c of el.children) block(c); // listes, sections, cadres : on descend
-  };
-  for (const c of body.children) block(c);
-
-  const m = metaXml ? /meta:page-count="(\d+)"/.exec(metaXml) : null;
-  return finish('odt', segments, front, m ? parseInt(m[1], 10) : null, DEFAULT_WPP, null, frontChars);
 }
 
 /* ------------------------------------------------------------
@@ -1049,8 +1454,44 @@ export function analyzeHtml(html) {
 /* ------------------------------------------------------------
    Texte brut : LaTeX, Markdown, texte simple
 ------------------------------------------------------------ */
-export function analyzeText(text) {
-  const r = parseTextDocument(text);
-  // Une page de thèse composée en LaTeX contient un peu plus de texte qu'une page Word à interligne 1,5
-  return finish(r.kind, r.segments.map(x => ({ ...x, bodyWords: 0 })), r.frontWords, null, r.kind === 'latex' ? 420 : DEFAULT_WPP, null, r.frontChars || 0);
+export function analyzeText(text, name = '') {
+  const ext = (/\.([a-z0-9]+)$/i.exec(String(name)) || ['', ''])[1].toLowerCase();
+  const r = ext === 'typ' ? parseTypst(text) : ext === 'org' ? parseOrg(text) : ext === 'adoc' || ext === 'asciidoc' ? parseAsciidoc(text)
+    : ext === 'rst' ? parseRst(text) : parseTextDocument(text);
+  // Une page de thèse composée en LaTeX ou en Typst contient un peu plus de texte qu'une page Word à interligne 1,5
+  const dense = r.kind === 'latex' || r.kind === 'typst';
+  return finish(dense ? 'latex' : r.kind, r.segments.map(x => ({ ...x, bodyWords: 0 })), r.frontWords, null, dense ? 420 : DEFAULT_WPP, null, r.frontChars || 0);
+}
+
+/* ------------------------------------------------------------
+   RTF (Scrivener, Nisus Writer, Mellel, TextEdit, anciens Word)
+------------------------------------------------------------ */
+export function analyzeRtf(text, planTitles) {
+  const { paras, pagesMeta } = parseRtf(text);
+  const recs = paras.map(p => {
+    const m = HEADING_NAME.exec(p.style || '');
+    return { ...p, level: p.table || !p.text ? 0 : p.outline || (m ? +m[2] : 0) };
+  });
+  let headingSource = 'styles';
+  const styled = recs.filter(r => r.level > 0).length;
+  if (styled < 2) {
+    const lv = guessHeadings(recs.map(r => ({ text: r.text, words: r.words, size: r.size, bold: r.bold, center: r.center, table: r.table, caption: /caption|l[ée]gende/.test(r.style || '') })),
+      { planTitles: (planTitles || []).map(t => t.title) });
+    const n = lv.filter(Boolean).length;
+    if (n >= 2 && n > styled) { recs.forEach((r, i) => { r.level = lv[i]; }); headingSource = 'layout'; }
+  }
+  const segments = [];
+  let front = 0;
+  let frontChars = 0;
+  for (const r of recs) {
+    if (r.level > 0 && r.text) { pushHeading(segments, r.level, r.text, r.words + r.notes); continue; }
+    const w = r.words + r.notes;
+    if (!w) continue;
+    const c = r.text.length + 1 + r.notes * 6;
+    if (segments.length) { const s = segments[segments.length - 1]; s.words += w; s.bodyWords += w; s.chars += c; }
+    else { front += w; frontChars += c; }
+  }
+  const res = finish('rtf', segments, front, pagesMeta, DEFAULT_WPP, null, frontChars);
+  res.headingSource = segments.length ? headingSource : '';
+  return res;
 }

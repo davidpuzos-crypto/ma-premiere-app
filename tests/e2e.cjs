@@ -73,7 +73,7 @@ async function newPage(browser, { viewport = { width: 1280, height: 900 }, user 
     localStorage.clear();
     if (user) localStorage.setItem('__fbuser', JSON.stringify(user));
     if (store) localStorage.setItem('__fbstore', JSON.stringify(store));
-    if (seenNews) localStorage.setItem('jdb_whatsnew', '5');
+    if (seenNews) localStorage.setItem('jdb_whatsnew', '6');
   }, { user, store, config, seenNews });
   const page = await ctx.newPage();
   page._errors = [];
@@ -150,7 +150,13 @@ const clone = o => JSON.parse(JSON.stringify(o));
     let d = await docOf(page, uid);
     assert.equal(written(d), 42);
     assert.ok(!d.activity || !d.activity[TODAY], 'mise à jour initiale non comptée : ' + JSON.stringify(d.activity));
-    assert.equal(await page.textContent('#sEndDate'), '—', 'pas de date de fin fantaisiste');
+    // Pas encore de rythme : une hypothèse clairement présentée comme telle, jamais un pronostic tiré des pages saisies le premier jour
+    assert.equal(await page.textContent('#sEndKicker'), 'À une page par jour d\'écriture, fin le', 'pas de date de fin fantaisiste');
+    assert.match(await page.getAttribute('#sEndDate', 'class'), /is-hypo/);
+    assert.match(await page.textContent('#sEndDate'), /^\d{1,2} \S+ \d{4}$/);
+    assert.match(await page.textContent('#sEndIn'), /dès vos premières pages notées/);
+    assert.ok((await page.textContent('#sEndQuip')).length > 20, 'une phrase pour donner envie de commencer');
+    assert.equal(await page.isVisible('#heroPace'), false, 'pas de vélocité sans page notée ni date de dépôt');
     assert.match(await page.textContent('#tdVal'), /^0 \//);
     await page.click('#setupBanner >> text=C\'est à jour');
     assert.equal(await page.isVisible('#setupBanner'), false);
@@ -177,15 +183,21 @@ const clone = o => JSON.parse(JSON.stringify(o));
     d = await docOf(page, uid);
     assert.equal(d.activity[TODAY], 2);
     assert.equal(written(d), 44);
-    assert.notEqual(await page.textContent('#sEndDate'), '—', 'première estimation affichée');
+    assert.equal(await page.textContent('#sEndKicker'), 'À ce rythme, dernière page le', 'première estimation affichée');
+    assert.doesNotMatch(await page.getAttribute('#sEndDate', 'class'), /is-hypo|is-empty/);
     assert.match(await page.textContent('#sEndLbl'), /première estimation/);
+    assert.match(await page.textContent('#sEndIn'), /^(demain|dans \d+ (jours|semaines|mois|ans))/);
+    assert.equal(await page.textContent('#sEndGain'), '', 'le premier jour, la date apparaît : il n\'y a pas encore de gain à annoncer');
+    assert.match(await page.textContent('#paceNow'), /^\d+,\d\sp\.\/sem\.$/);
+    assert.match(await page.textContent('#paceLever'), /^$|estimation se précise/);
+    assert.equal(await page.locator('#pacePlot .pc-col').count(), 0, 'pas de graphique avant trois semaines de suivi');
 
     // Date de dépôt : directement dans le tableau de bord
     await page.fill('#dlInline', addDays(TODAY, 300));
     await page.waitForSelector('.dl-show');
     assert.match(await page.textContent('#dbDeadline .dl-date'), /\d{4}$/);
     assert.match(await page.textContent('#dbDeadline .dl-count'), /^J\u2212300$/, 'compte à rebours');
-    assert.match(await page.textContent('#dbDeadline .dl-verdict'), /à tenir|dans les temps|en retard/);
+    assert.match(await page.textContent('#dbDeadline .dl-verdict'), /à tenir|dans les temps|en avance|en retard/);
     assert.match(await page.textContent('#paceNeed'), /p\.\/sem\./, 'rythme à tenir affiché');
     // L'étagère : un livre par chapitre, celui de la partie en cours porte le marque-page
     assert.equal(await page.locator('#shelfBooks .book').count(), 7);
@@ -196,6 +208,185 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(d.deadline, addDays(TODAY, 300));
     assert.equal(d.startDate, null, 'aucune date de début demandée');
     await page.screenshot({ path: path.join(SHOTS, '21-02-apres-demarrage.png') });
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('Pronostic : « à ce rythme, dernière page le… », vélocité, tendance, record, ce que change une page, calcul expliqué', async () => {
+    const C = await import(path.join(DIR, '..', 'core.js'));
+    const H = await import(path.join(DIR, '..', 'humour.js'));
+    const NB = String.fromCharCode(160);
+    const txt = async (page, sel) => (await page.textContent(sel)).split(NB).join(' ');
+    const fr = k => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }); };
+    const pool = moods => moods.flatMap(m => H.PROGNOSIS[m]).map(l => H.typo(l).split(NB).join(' '));
+    const by = n => (n === 1 ? 'd\'un jour' : `de ${C.spanWords(n)}`);
+    const uid = 'u_fin';
+    const key = `users/${uid}/thesis/main`;
+    // Trois mois de suivi, des semaines inégales : 115 pages visées, 38 écrites
+    const mk = () => {
+      const d = Object.assign(clone(V1_DOC), { version: 2, writingDays: [1, 2, 3, 4, 5], trackedSince: addDays(TODAY, -90), deadline: addDays(TODAY, 300), marginDays: 21,
+        activity: {}, journal: {}, docFiles: {}, docIgnore: [], startDate: null });
+      for (let i = 1; i <= 90; i++) if (i % 2 && Math.floor(i / 7) % 3 !== 1) d.activity[addDays(TODAY, -i)] = 1 + (i % 3) * 0.5;
+      return d;
+    };
+    const totals = { total: 115, written: 38 };
+    let { ctx, page } = await newPage(browser, { user: { uid, email: 'fin@example.com' }, store: { [key]: mk() } });
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    let fc = C.forecast(mk(), totals, TODAY);
+    assert.equal(fc.pace.basis, 'recent');
+    assert.ok(fc.pace.pages >= 12, 'assez de pages en mémoire pour chiffrer : ' + fc.pace.pages);
+    // La date, en grand, et dans combien de temps
+    assert.equal(await page.textContent('#sEndKicker'), 'À ce rythme, dernière page le');
+    assert.equal(await txt(page, '#sEndDate'), fr(fc.projectedEnd));
+    assert.equal(await txt(page, '#sEndIn'), `dans ${C.spanWords(C.diffDays(TODAY, fc.projectedEnd))}`);
+    assert.equal(await page.textContent('#sEndLbl'), '', 'rythme établi : pas de mention « première estimation »');
+    assert.equal(await page.textContent('#sEndGain'), '', 'rien écrit aujourd\'hui : pas de gain affiché');
+    const fontSize = sel => page.$eval(sel, e => parseFloat(getComputedStyle(e).fontSize));
+    assert.ok(await fontSize('#sEndDate') >= 34, 'la date de fin est le deuxième grand chiffre de la page');
+    assert.ok(await fontSize('#sEndDate') > await fontSize('#dbDeadline .dl-count'), 'elle passe avant le compte à rebours');
+    // La petite phrase : celle du jour, pour cette situation
+    const ctxOf = f => ({ status: f.status, basis: f.pace.basis, hasEnd: !!f.projectedEnd, paused: !!f.pause, margin: f.margin,
+      daysToEnd: C.diffDays(TODAY, f.projectedEnd), gainToday: f.gainToday, velocity: f.velocity, trend: f.trend });
+    assert.equal(await txt(page, '#sEndQuip'), H.prognosisLine(ctxOf(fc), TODAY).split(NB).join(' '));
+    assert.ok(pool(H.prognosisMoods(ctxOf(fc))).includes(await txt(page, '#sEndQuip')));
+    // Le verdict, par rapport au dépôt
+    assert.equal(fc.status === 'ontrack' || fc.status === 'behind', true);
+    assert.equal(await txt(page, '#dbDeadline .dl-verdict'), fc.status === 'ontrack' ? (fc.margin > 0 ? `en avance ${by(fc.margin)}` : 'pile dans les temps') : `en retard ${by(-fc.margin)}`);
+    assert.equal(await page.textContent('#dbDeadline .dl-count'), 'J\u2212300');
+    // La vélocité : pages par semaine, tendance sur quatre semaines, record, rythme à tenir
+    const one = n => n.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+    assert.equal(await txt(page, '#paceNow'), `${one(fc.velocity)} p./sem.`);
+    assert.equal(await txt(page, '#paceNeed'), `${one(fc.perWeek)} p./sem.`);
+    assert.ok(fc.trend != null, 'six semaines de suivi : une tendance');
+    assert.match(await txt(page, '#paceTrend'), /^(stable|[+\u2212]\d+(,\d)?)$/);
+    assert.match(await page.getAttribute('#paceTrend', 'aria-label'), /quatre semaines/);
+    const best = C.bestWeek(mk());
+    assert.equal(await txt(page, '#paceBest'), `${String(best.pages).replace('.', ',')} p./sem.`);
+    assert.match(await page.getAttribute('#paceBest', 'title'), /meilleure semaine/);
+    // Les semaines : douze barres, la semaine en cours en avant, le rythme à tenir en repère
+    assert.equal(await page.locator('#pacePlot .pc-col').count(), 12);
+    assert.equal(await page.locator('#pacePlot .pc-col.is-now').count(), 1);
+    assert.equal(await page.locator('#pacePlot .pc-need').count(), 1);
+    assert.match(await page.getAttribute('#pacePlot .pc-plot', 'aria-label'), /^Pages par semaine : .+cette semaine .+ ; à tenir : /);
+    await page.hover('#pacePlot .pc-col:nth-child(5)');
+    assert.match(await page.$eval('#pacePlot .pc-col:nth-child(5)', e => getComputedStyle(e, '::after').content), /semaine du .+ p\./, 'le détail d\'une semaine au survol');
+    // Le levier : ce que ferait gagner une page aujourd'hui
+    assert.ok(fc.gainPerPage > 0);
+    assert.ok((await txt(page, '#paceLever')).endsWith(`Une page aujourd'hui, et la fin avance ${by(fc.gainPerPage)}.`), await txt(page, '#paceLever'));
+    assert.equal(await page.evaluate(() => !!document.getElementById('heroPace').closest('.hero')), true, 'sur ordinateur, la vélocité est dans le bandeau');
+    await page.screenshot({ path: path.join(SHOTS, '50-01-pronostic.png') });
+
+    // Une page de plus : la date avance, et on le voit
+    const dateBefore = await txt(page, '#sEndDate');
+    await page.click('#tdPrimary');
+    await flush(page);
+    let d = await docOf(page, uid);
+    assert.equal(d.activity[TODAY], 1);
+    const fc1 = C.forecast(d, { total: 115, written: 39 }, TODAY);
+    assert.ok(fc1.projectedEnd < fc.projectedEnd, 'la fin estimée avance');
+    assert.equal(C.diffDays(fc1.projectedEnd, fc.projectedEnd), fc1.gainToday, 'du nombre de jours annoncé');
+    assert.equal(await txt(page, '#sEndDate'), fr(fc1.projectedEnd));
+    assert.notEqual(await txt(page, '#sEndDate'), dateBefore);
+    assert.match(await page.getAttribute('#sEndDate', 'class'), /bump/, 'la date sursaute');
+    const won = C.spanWords(fc1.gainToday);
+    assert.equal(await txt(page, '#sEndGain'), `${won} ${/semaines$/.test(won) ? 'gagnées' : won === '1 jour' ? 'gagné' : 'gagnés'} aujourd'hui`);
+    assert.ok((await txt(page, '#paceLever')).startsWith(`Votre page d'aujourd'hui a avancé la fin ${by(fc1.gainToday)}.`), await txt(page, '#paceLever'));
+    assert.ok(pool(H.prognosisMoods(ctxOf(fc1))).includes(await txt(page, '#sEndQuip')));
+    assert.equal(H.prognosisMoods(ctxOf(fc1))[0], 'gain', 'le jour où l\'on écrit, on fête');
+    // Annuler : tout revient
+    await page.click('.toast[data-key="quick"] .toast-act');
+    assert.equal(await txt(page, '#sEndDate'), dateBefore);
+    assert.equal(await page.textContent('#sEndGain'), '');
+
+    // « Comment c'est calculé » : la règle, avec les chiffres du moment
+    assert.equal(await page.isVisible('#paceHow'), false);
+    await page.click('#paceHowBtn');
+    assert.equal(await page.getAttribute('#paceHowBtn', 'aria-expanded'), 'true');
+    const how = await txt(page, '#paceHow');
+    assert.match(how, /une semaine vieille de (deux|trois|quatre|cinq|six|sept) mois compte moitié moins/);
+    assert.match(how, new RegExp(`il reste 77 pages ; à ${one(fc.velocity)} pages? par semaine, cela fait \\d+ semaines`));
+    assert.match(how, /C'est un pronostic, pas une promesse : comptez un tiers de marge, en plus ou en moins\. Ici, (entre .+ et .+ \d{4}|courant .+ \d{4})\./);
+    assert.match(how, /À tenir : le rythme pour écrire la dernière page le .+, soit 21 jours avant le dépôt/);
+    await page.screenshot({ path: path.join(SHOTS, '50-02-pronostic-calcul.png') });
+    await page.click('#paceHowBtn');
+    assert.equal(await page.isVisible('#paceHow'), false);
+    assert.equal(await page.getAttribute('#paceHowBtn', 'aria-expanded'), 'false');
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+
+    // Rédaction terminée : plus de pronostic, on fête
+    const done = mk();
+    done.chapters.forEach(c => { if (c.subsections.length) c.subsections.forEach(s => { s.writtenPages = s.targetPages; }); else c.writtenPages = c.targetPages; });
+    ({ ctx, page } = await newPage(browser, { user: { uid, email: 'fin@example.com' }, store: { [key]: done } }));
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    assert.equal(await page.textContent('#sEndKicker'), 'Rédaction');
+    assert.equal(await page.textContent('#sEndDate'), 'Terminée');
+    assert.ok(pool(['done']).includes(await txt(page, '#sEndQuip')));
+    assert.equal(await txt(page, '#dbDeadline .dl-verdict'), 'place à la relecture');
+    assert.equal(await page.isVisible('#heroPace'), false);
+    await ctx.close();
+
+    // Suivi tout jeune (cinq jours) et thèse commencée il y a un an : le rythme moyen sert de point de départ, sans rien chiffrer
+    const young = Object.assign(mk(), { trackedSince: addDays(TODAY, -5), startDate: addDays(TODAY, -365), activity: { [addDays(TODAY, -2)]: 1 } });
+    ({ ctx, page } = await newPage(browser, { user: { uid, email: 'fin@example.com' }, store: { [key]: young } }));
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    assert.equal(C.forecast(young, totals, TODAY).pace.basis, 'average');
+    assert.equal(await page.textContent('#sEndLbl'), 'd\'après votre rythme moyen');
+    assert.match(await txt(page, '#paceLever'), /Une page aujourd'hui, et l'estimation se précise\.$/);
+    assert.equal(await page.locator('#pacePlot .pc-col').count(), 0, 'pas de graphique avant trois semaines');
+    assert.equal(await page.isVisible('#paceBest'), false, 'pas de record au bout de cinq jours');
+    await page.click('#paceHowBtn');
+    assert.match(await txt(page, '#paceHow'), /Le suivi est encore jeune : en attendant, le calcul s'appuie surtout sur votre rythme moyen depuis le /);
+    await page.click('#tdPrimary');
+    assert.match(await txt(page, '#sEndGain'), /^la date a avancé$/, 'gain salué, pas chiffré');
+    await ctx.close();
+
+    // On écrit peu (une page toutes les deux semaines) : le calcul prend du recul, et le dit
+    const sparse = Object.assign(mk(), { trackedSince: addDays(TODAY, -400), deadline: null, activity: {} });
+    for (let i = 3; i <= 400; i += 14) sparse.activity[addDays(TODAY, -i)] = 1;
+    ({ ctx, page } = await newPage(browser, { user: { uid, email: 'fin@example.com' }, store: { [key]: sparse } }));
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    const fs0 = C.forecast(sparse, totals, TODAY);
+    assert.equal(fs0.pace.half, 224, 'mémoire longue');
+    assert.equal(await txt(page, '#sEndDate'), fr(fs0.projectedEnd));
+    assert.equal(await txt(page, '#paceNow'), `${one(fs0.velocity)} p./sem.`);
+    assert.equal(await page.isVisible('#paceNeed'), false, 'pas de rythme à tenir sans date de dépôt');
+    assert.equal(await page.locator('#pacePlot .pc-need').count(), 0);
+    await page.click('#paceHowBtn');
+    assert.match(await txt(page, '#paceHow'), /une semaine vieille de sept mois compte moitié moins.+Vous écrivez par petites touches : le calcul prend donc plus de recul/);
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+
+    // Téléphone : le bandeau reste court (la date de fin au premier écran), la vélocité passe sous « Aujourd'hui »
+    ({ ctx, page } = await newPage(browser, { viewport: { width: 390, height: 844 }, user: { uid, email: 'fin@example.com' }, store: { [key]: mk() } }));
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    const pos = await page.evaluate(() => {
+      const top = sel => document.querySelector(sel).getBoundingClientRect().top + scrollY;
+      const pace = document.getElementById('heroPace');
+      return { date: top('#sEndDate'), today: top('.today-strip'), pace: top('#heroPace'), plan: top('.workspace'), inHero: !!pace.closest('.hero'),
+        how: document.getElementById('paceHow').parentElement.id, overflow: document.documentElement.scrollWidth - innerWidth,
+        dateW: document.getElementById('sEndDate').scrollWidth - document.getElementById('sEndDate').clientWidth };
+    });
+    assert.equal(pos.inHero, false);
+    assert.ok(pos.date < 700, 'la date de fin au premier écran : ' + pos.date);
+    assert.ok(pos.today < pos.pace && pos.pace < pos.plan, 'bandeau, « Aujourd\'hui », vélocité, puis le plan : ' + JSON.stringify(pos));
+    assert.equal(pos.how, 'heroPace', 'l\'explication s\'ouvre dans la carte de la vélocité');
+    assert.ok(pos.overflow <= 0 && pos.dateW <= 0, 'rien ne déborde : ' + JSON.stringify(pos));
+    await page.evaluate(() => document.getElementById('heroPace').scrollIntoView({ block: 'center' }));
+    await page.click('#paceHowBtn');
+    assert.ok(await page.isVisible('#paceHow'));
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth) <= 0);
+    await page.screenshot({ path: path.join(SHOTS, '50-03-pronostic-mobile.png') });
+    // L'écran s'élargit (tablette en paysage) : la vélocité retourne dans le bandeau
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.waitForFunction(() => !!document.getElementById('heroPace').closest('.hero'));
+    assert.equal(await page.evaluate(() => document.getElementById('paceHow').parentElement.classList.contains('dashboard-banner')), true);
     assert.deepEqual(page._errors, []);
     await ctx.close();
   });
@@ -346,6 +537,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.match(await page.textContent('#docxSummary'), /5\s270 mots, ≈ 12 pages\. 5 parties détectées, 4 sous-sections/, 'douze pages, comme dans le traitement de texte');
     assert.equal(await page.inputValue('#docxPages'), '12');
     assert.match(await page.textContent('#docxPagesHint'), /mise en page \(Times New Roman 12, interligne 1,5, A4\)/, 'le nombre de pages vient de la mise en page du fichier');
+    assert.deepEqual(page._requests.filter(u => /cdnjs|jszip/i.test(u)), [], 'le fichier Word est ouvert sans bibliothèque extérieure (donc aussi hors ligne)');
     assert.equal(await page.isVisible('#docxScopeRow'), false, 'plan vide : pas de question superflue');
     assert.deepEqual(await page.$$eval('#docxModes input', os => os.map(o => [o.value, o.checked])), [['match', true], ['add', false]], 'tout le manuscrit, ou un seul chapitre');
     assert.equal(await page.isVisible('#docxRecount'), false);
@@ -365,6 +557,16 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.deepEqual([d.docFiles.these.pv, d.docFiles.these.src, d.docFiles.these.pages, d.docFiles.these.k], [2, 'layout', 12, null]);
     assert.equal(d.chapters[1].docFile, 'these');
     assert.equal(await page.textContent('#wordBtn'), 'Synchroniser mon document');
+    // L'historique des synchros : la première y est, avec ce qu'elle a changé
+    const logText = async () => (await page.textContent('#syncLogLast')).split(String.fromCharCode(160)).join(' ');
+    assert.equal(d.syncLog.length, 1);
+    assert.deepEqual([d.syncLog[0].k, d.syncLog[0].n, d.syncLog[0].x, d.syncLog[0].a, d.syncLog[0].p, d.syncLog[0].d], ['these', 'these.docx', 'new', 0, 10, TODAY]);
+    await page.evaluate(() => window.openDocxModal());
+    await page.waitForSelector('#docxModal:not(.hidden)');
+    assert.match(await logText(), /^these\.docx, aujourd'hui à \d{2} h \d{2} : première synchro, \+10 p\. sans toucher au journal\./);
+    assert.match(await logText(), /Chapitre 1 : État de l’art : \+5 p\./, 'le détail par partie');
+    assert.equal(await page.isVisible('#syncLogMore'), false, 'une seule synchro : pas de liste à déplier');
+    await page.click('#docxModal >> text=Fermer');
 
     // Le lendemain : le même fichier, enrichi. Un geste, pas d'aperçu.
     await page.waitForTimeout(400);
@@ -378,6 +580,9 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(d.docFiles.these.inclWords, 5245);
     assert.equal(d.docFiles.these.pages, 13);
     assert.match(await page.textContent('#tdVal'), /^1,3 \//);
+    assert.match((await toasts(page)).join('|'), /synchronisé : \+1,3 p\. aujourd'hui · Chapitre 2 : Méthodologie/, 'le message dit où');
+    assert.equal(d.syncLog.length, 2);
+    assert.deepEqual([d.syncLog[1].x, d.syncLog[1].a, d.syncLog[1].p, d.syncLog[1].w, d.syncLog[1].c], ['', 1.3, 1, 600, [{ n: 'Chapitre 2 : Méthodologie', d: 1 }]]);
     // Annuler
     await page.click('.toast .toast-act');
     await page.waitForTimeout(200);
@@ -385,14 +590,47 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(written(d), 10);
     assert.ok(!d.activity || !d.activity[TODAY], 'activité annulée : ' + JSON.stringify(d.activity));
     assert.equal(d.docFiles.these.inclWords, 4645);
-    // On recommence, puis le même fichier une 2e fois : « déjà à jour »
+    assert.equal(d.syncLog.length, 1, 'la synchro annulée quitte l\'historique');
+    // La même, annulée cette fois depuis la fenêtre « Mon document » (le message a disparu depuis longtemps)
     await sendDocx(page, 'these_v2.docx', 'these.docx');
     await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /synchronisé/.test(t.textContent)));
+    await page.evaluate(() => document.querySelectorAll('.toast').forEach(x => x.remove()));
+    await page.evaluate(() => window.openDocxModal());
+    await page.waitForSelector('#docxModal:not(.hidden)');
+    assert.match(await logText(), /^these\.docx, aujourd'hui à \d{2} h \d{2} : \+1,3 p\. au journal d'aujourd'hui, \+600 mots\.Chapitre 2 : Méthodologie : \+1 p\./);
+    assert.equal(await page.isVisible('#syncLogMore'), true);
+    assert.equal(await page.textContent('#syncLogCount'), 'Synchros précédentes (1)');
+    await page.click('#syncLogCount');
+    assert.match(await page.textContent('#syncLogList'), /première synchro/);
+    await page.click('#syncLogLast >> text=Annuler cette synchro');
+    await page.waitForTimeout(200);
+    d = await docOf(page, uid);
+    assert.deepEqual([written(d), d.docFiles.these.inclWords, d.syncLog.length, !!(d.activity && d.activity[TODAY])], [10, 4645, 1, false], 'synchro annulée depuis l\'historique');
+    assert.equal(await page.locator('#syncLogLast button').count(), 0);
+    await page.click('#docxModal >> text=Fermer');
+    // Dès qu'on a modifié autre chose, l'annulation n'est plus proposée (elle effacerait ce qui a suivi)
+    await sendDocx(page, 'these_v2.docx', 'these.docx');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /synchronisé/.test(t.textContent)));
+    await page.evaluate(() => window.openDocxModal());
+    await page.waitForSelector('#docxModal:not(.hidden)');
+    assert.equal(await page.locator('#syncLogLast button').count(), 1);
+    await page.click('#docxModal >> text=Fermer');
+    await page.fill('#document-title', 'Ma thèse, titre provisoire');
+    await page.locator('#document-title').blur();
+    await page.evaluate(() => window.openDocxModal());
+    await page.waitForSelector('#docxModal:not(.hidden)');
+    assert.match(await logText(), /\+1,3 p\. au journal d'aujourd'hui/);
+    assert.equal(await page.locator('#syncLogLast button').count(), 0, 'plus d\'annulation après une autre modification');
+    await page.click('#docxModal >> text=Fermer');
+    d = await docOf(page, uid);
+    assert.equal(written(d), 11);
+    // Le même fichier une 2e fois : « déjà à jour », et rien de plus dans l'historique
     await page.waitForTimeout(300);
     await sendDocx(page, 'these_v2.docx', 'these.docx');
     await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Déjà à jour/.test(t.textContent)));
     d = await docOf(page, uid);
     assert.equal(d.activity[TODAY], 1.3, 'pas de double comptage');
+    assert.equal(d.syncLog.length, 2);
 
     // Une nouvelle sous-partie apparaît dans le document : là, on demande
     await sendDocx(page, 'these_v3.docx', 'these.docx');
@@ -511,6 +749,44 @@ const clone = o => JSON.parse(JSON.stringify(o));
   });
 
   /* ------------------------------------------------------------ */
+  await test('Word sans styles de titre : titres repérés à leur mise en forme (gras, taille, numérotation), plan à vérifier', async () => {
+    const uid = 'u_manuel';
+    const { ctx, page } = await newPage(browser, { user: { uid, email: 'manuel@example.com' } });
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+    await sendDocx(page, 'manuel.docx');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.match(await page.textContent('#docxSummary'), /manuel\.docx : 2\s554 mots, ≈ 12 pages\. 4 parties détectées, 4 sous-sections/);
+    assert.ok(await page.isVisible('#docxHeadNote'), 'on dit d\'où vient le plan');
+    assert.match(await page.textContent('#docxHeadNote'), /repéré vos titres à leur mise en forme/);
+    assert.deepEqual(await page.$$eval('#docxRows .dx-row .dx-title', els => els.map(e => e.textContent)),
+      ['INTRODUCTION', 'CHAPITRE 1 : Le fer', '1.1 Les forges', '1.2 Les ingénieurs', 'CHAPITRE 2 : La pierre', '2.1 Les carrières', '2.2 Les maçons', 'CONCLUSION'],
+      'ni la page de garde, ni le sommaire, ni la légende de figure, ni la phrase en gras ne sont pris pour des titres');
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    await flush(page);
+    let d = await docOf(page, uid);
+    assert.deepEqual(d.chapters.map(c => [c.title, c.subsections.map(s => s.title)]),
+      [['INTRODUCTION', []], ['CHAPITRE 1 : Le fer', ['1.1 Les forges', '1.2 Les ingénieurs']], ['CHAPITRE 2 : La pierre', ['2.1 Les carrières', '2.2 Les maçons']], ['CONCLUSION', []]]);
+    const before = written(d);
+    // La suite : quatre paragraphes de plus dans « 2.1 ». Le plan est reconnu, un seul geste.
+    await sendDocx(page, 'manuel_v2.docx', 'manuel.docx');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /manuel\.docx synchronisé/.test(t.textContent)), null, { timeout: 15000 });
+    assert.equal(await page.isVisible('#docxModal'), false, 'pas d\'aperçu : rien de nouveau dans le plan');
+    await flush(page);
+    d = await docOf(page, uid);
+    assert.equal(written(d), before + 1, 'une page de plus');
+    assert.ok(d.activity[TODAY] > 0.5 && d.activity[TODAY] < 1.5, 'journal du jour : ' + d.activity[TODAY]);
+    // Un document qui a ses styles de titre n'affiche pas cet avertissement
+    await sendDocx(page, 'these.docx');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.equal(await page.isVisible('#docxHeadNote'), false);
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
   await test('Fichier lié (Chrome / Edge) : relu tout seul au retour sur l\'onglet, conservé après rechargement', async () => {
     const uid = 'u_link';
     const { ctx, page } = await newPage(browser, { user: { uid, email: 'link@example.com' } });
@@ -586,6 +862,167 @@ const clone = o => JSON.parse(JSON.stringify(o));
   });
 
   /* ------------------------------------------------------------ */
+  await test('Synchro en continu et datée juste : fichier relu sans changer de fenêtre, pages portées au jour de son enregistrement', async () => {
+    const C2 = await import(path.join(DIR, '..', 'core.js'));
+    const uid = 'u_watch';
+    const { ctx, page } = await newPage(browser, { user: { uid, email: 'watch@example.com' } });
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    const b64 = n => fs.readFileSync(FIX(n)).toString('base64');
+    await page.evaluate(() => {
+      window.__writeDocx = async base64 => {
+        const root = await navigator.storage.getDirectory();
+        const fh = await root.getFileHandle('these.docx', { create: true });
+        const w = await fh.createWritable();
+        await w.write(Uint8Array.from(atob(base64), c => c.charCodeAt(0)));
+        await w.close();
+        return fh;
+      };
+    });
+    await page.evaluate(async b => { const fh = await window.__writeDocx(b); window.showOpenFilePicker = async () => [fh]; }, b64('these.docx'));
+    await page.click('.ob-drop');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    // L'état de la synchro se lit sous le bouton
+    await page.waitForFunction(() => /^these\.docx · à jour à \d{1,2} h \d\d$/.test(document.getElementById('tdCap').textContent), null, { timeout: 8000 });
+    let d = await docOf(page, uid);
+    assert.equal(written(d), 10);
+    // On écrit dans Word et on enregistre, SANS revenir sur le Journal (il est resté à l'écran, dans une autre fenêtre) :
+    // il revérifie le fichier de lui-même
+    await page.waitForTimeout(1100);
+    await page.evaluate(async b => { await window.__writeDocx(b); }, b64('these_v2.docx'));
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /synchronisé\s:\s\+1,3\sp\./.test(t.textContent)), null, { timeout: 35000 });
+    assert.match((await toasts(page)).join('|'), /these\.docx synchronisé : \+1,3 p\. aujourd'hui/);
+    d = await docOf(page, uid);
+    assert.equal(written(d), 11);
+    assert.equal(d.activity[TODAY], 1.3);
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+
+    // Sans fichier lié (Firefox, Safari) : dernière synchro il y a trois jours ; le fichier a été enregistré hier soir,
+    // on ne le dépose que ce matin. Les pages sont portées à hier, pas à aujourd'hui.
+    const second = await newPage(browser, { user: { uid: 'u_watch2', email: 'watch2@example.com' } });
+    const p2 = second.page;
+    await p2.goto(BASE);
+    await p2.waitForSelector('.onboarding');
+    await p2.evaluate(() => { window.showOpenFilePicker = undefined; });
+    await sendDocx(p2, 'these.docx');
+    await p2.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    await p2.click('#docxApply');
+    await p2.waitForSelector('.chapter-card');
+    await flush(p2);
+    await p2.waitForTimeout(700);
+    await p2.evaluate(({ u, day }) => window.__fbStore.remoteSet(`users/${u}/thesis/main`, { docFiles: { these: { at: day } }, updatedAt: new Date().toISOString(), clientId: 'autre-appareil' }), { u: 'u_watch2', day: addDays(TODAY, -3) });
+    await p2.waitForTimeout(1900);
+    const yesterdayEvening = (() => { const [y, m, dd] = addDays(TODAY, -1).split('-').map(Number); return new Date(y, m - 1, dd, 22, 30).getTime(); })();
+    const dropAt = (fixture, ts) => p2.evaluate(async ({ b, ts }) => {
+      await window.handleDocxFile(new File([Uint8Array.from(atob(b), c => c.charCodeAt(0))], 'these.docx', { lastModified: ts }));
+    }, { b: b64(fixture), ts });
+    await dropAt('these_v2.docx', yesterdayEvening);
+    await p2.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /jour où le fichier/.test(t.textContent)), null, { timeout: 15000 });
+    assert.match((await toasts(p2)).join('|'), /these\.docx synchronisé : \+1,3 p\. hier, jour où le fichier a été enregistré/);
+    await flush(p2);
+    d = await docOf(p2, 'u_watch2');
+    assert.equal(d.activity[addDays(TODAY, -1)], 1.3, 'ce qui a été écrit hier est porté à hier');
+    assert.ok(!d.activity[TODAY], 'rien aujourd\'hui');
+    assert.equal(d.docFiles.these.at, TODAY, 'la synchro, elle, date d\'aujourd\'hui');
+    assert.deepEqual(C2.streak(d, TODAY), { count: 1, includesToday: false }, 'la série tient compte du jour réel d\'écriture');
+    // Un fichier enregistré aujourd'hui : aujourd'hui, comme toujours
+    await dropAt('these_v3.docx', Date.now());
+    await p2.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.match(await p2.textContent('#docxCountLbl'), /à mon journal d'aujourd'hui/);
+    assert.deepEqual(p2._errors, []);
+    await second.ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('Application installée : « Ouvrir avec » (ordinateur) et « Partager » (téléphone) amènent le document au Journal', async () => {
+    // --- « Ouvrir avec » : le système remet le fichier à l'application (launchQueue) ; il reste lié, comme s'il avait été choisi
+    const uid = 'u_open';
+    let { ctx, page } = await newPage(browser, { user: { uid, email: 'open@example.com' } });
+    await ctx.addInitScript(() => { Object.defineProperty(window, 'launchQueue', { configurable: true, value: { setConsumer(fn) { window.__launch = fn; } } }); });
+    await page.goto(BASE + '?open=1');
+    await page.waitForSelector('.onboarding');
+    assert.equal(new URL(page.url()).search, '', 'l\'adresse est nettoyée');
+    assert.equal(await page.evaluate(() => typeof window.__launch), 'function', 'l\'application écoute les fichiers remis par le système');
+    await page.evaluate(async b64 => {
+      const root = await navigator.storage.getDirectory();
+      const fh = await root.getFileHandle('these.docx', { create: true });
+      const w = await fh.createWritable();
+      await w.write(Uint8Array.from(atob(b64), c => c.charCodeAt(0)));
+      await w.close();
+      window.__launch({ files: [fh] });
+    }, fs.readFileSync(FIX('these.docx')).toString('base64'));
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.match(await page.textContent('#docxSummary'), /these\.docx/);
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    await page.waitForFunction(() => document.getElementById('tdPrimary').textContent.includes('Synchroniser'), null, { timeout: 15000 });
+    assert.match(await page.textContent('#tdCap'), /these\.docx/, 'le fichier ouvert reste lié à l\'application');
+    assert.equal(written(await docOf(page, uid)), 10);
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+
+    // --- « Partager » : le service worker reçoit le fichier, le met de côté, et la page le reprend
+    const user = { uid: 'u_share', email: 'share@example.com' };
+    ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'allow', locale: 'fr-FR', timezoneId: 'Europe/Paris' });
+    for (const n of ['app', 'auth', 'firestore']) {
+      await ctx.route(`https://www.gstatic.com/firebasejs/10.8.1/firebase-${n}.js`, r => r.fulfill({ contentType: 'application/javascript', body: STUB(`firebase-${n}.js`) }));
+    }
+    await ctx.addInitScript(({ user }) => {
+      if (sessionStorage.getItem('__init')) return;
+      sessionStorage.setItem('__init', '1');
+      localStorage.clear();
+      localStorage.setItem('__fbuser', JSON.stringify(user));
+      localStorage.setItem('jdb_whatsnew', '6');
+    }, { user });
+    page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    await page.waitForFunction(async () => { const r = await navigator.serviceWorker.getRegistration(); return !!(r && r.active && r.active.state === 'activated'); }, null, { timeout: 20000 });
+    await page.reload();
+    await page.waitForSelector('.onboarding');
+    assert.equal(await page.evaluate(() => !!navigator.serviceWorker.controller), true, 'la page est servie par le service worker');
+    const manifest = JSON.parse(fs.readFileSync(path.join(DIR, '..', 'manifest.json'), 'utf8'));
+    assert.deepEqual([manifest.share_target.action, manifest.share_target.method, manifest.share_target.enctype, manifest.share_target.params.files[0].name], ['./?share=1', 'POST', 'multipart/form-data', 'doc']);
+    assert.ok(manifest.file_handlers[0].accept['application/pdf'].includes('.pdf'));
+    // Le système envoie le fichier, comme le décrit le manifeste : un formulaire en POST vers ./?share=1
+    const share = async fill => {
+      await page.evaluate(({ action }) => {
+        const f = document.createElement('form');
+        f.method = 'post'; f.enctype = 'multipart/form-data'; f.action = action; f.id = '__share';
+        f.innerHTML = '<input type="file" name="doc" id="__shareFile"><input name="title"><input name="text"><input name="url">';
+        document.body.appendChild(f);
+      }, { action: manifest.share_target.action });
+      await fill();
+      await Promise.all([page.waitForNavigation(), page.evaluate(() => document.getElementById('__share').submit())]);
+    };
+    await share(() => page.setInputFiles('#__shareFile', { name: 'these.docx', mimeType: DOCX, buffer: fs.readFileSync(FIX('these.docx')) }));
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 20000 });
+    assert.match(await page.textContent('#docxSummary'), /these\.docx.+12 pages/);
+    assert.equal(new URL(page.url()).search, '', 'l\'adresse est nettoyée : un rechargement ne rejoue rien');
+    assert.equal(await page.evaluate(() => caches.has('journal-de-bord-partage')), false, 'le fichier mis de côté est effacé dès qu\'il est repris');
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    assert.equal(written(await docOf(page, user.uid)), 10);
+    // Le même fichier partagé de nouveau, enrichi : un geste, pas d'aperçu
+    await page.waitForTimeout(400);
+    await share(() => page.setInputFiles('#__shareFile', { name: 'these.docx', mimeType: DOCX, buffer: fs.readFileSync(FIX('these_v2.docx')) }));
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /these\.docx synchronisé/.test(t.textContent)), null, { timeout: 20000 });
+    assert.equal(written(await docOf(page, user.uid)), 11);
+    // Un lien partagé (depuis Google Drive, Dropbox…) : il est reconnu ; ici un dossier, refusé avec son explication
+    await share(() => page.fill('#__share input[name="text"]', 'Ma thèse https://drive.google.com/drive/folders/1AbCdEfGhIjKlMnOpQrStUvWxYz012345'));
+    await page.waitForSelector('#docxModal:not(.hidden)', { timeout: 20000 });
+    await page.waitForFunction(() => { const e = document.getElementById('docxError'); return e && !e.classList.contains('hidden') && e.textContent.length > 10; });
+    assert.match(await page.textContent('#docxError'), /dossier/i);
+    assert.deepEqual(errors, []);
+    await ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
   await test('Déposer le fichier n\'importe où dans la page', async () => {
     const uid = 'u_drop';
     const { ctx, page } = await newPage(browser, { user: { uid, email: 'drop@example.com' }, store: { [`users/${uid}/thesis/main`]: clone(V1_DOC) } });
@@ -613,6 +1050,102 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.waitForSelector('#docxError:not(.hidden)');
     assert.match(await page.textContent('#docxError'), /PDF/);
     assert.deepEqual(page._errors.filter(e => !/document :/.test(e)), []);
+    await ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('PDF (LaTeX, Overleaf, Pages…) : pages exactes, plan par les signets, les balises ou la mise en forme, mise à jour en un geste', async () => {
+    const uid = 'u_pdf';
+    const sendPdf = (page, fixture, name) => page.setInputFiles('#docxInput', { name: name || fixture, mimeType: 'application/pdf', buffer: fs.readFileSync(FIX(fixture)) });
+    let { ctx, page } = await newPage(browser, { user: { uid, email: 'pdf@example.com' } });
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+    assert.deepEqual(page._requests.filter(u => /vendor\/pdfjs/.test(u)), [], 'le lecteur de PDF n\'est chargé que si l\'on ouvre un PDF');
+    await sendPdf(page, 'memoire.pdf');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 30000 });
+    assert.match(await page.textContent('#docxSummary'), /memoire\.pdf : 3\s517 mots, 13 pages\. 6 parties détectées, 4 sous-sections\. Pages liminaires non comptées : 1 p\./, 'treize pages, sans « environ »');
+    assert.equal(await page.inputValue('#docxPages'), '13');
+    assert.match(await page.textContent('#docxPagesHint'), /pagination du PDF, exacte · plan lu dans ses signets/);
+    const rows = () => page.$$eval('#docxRows .dx-row', rs => rs.map(r => [r.querySelector('.dx-title').textContent, r.querySelector('input').checked, r.querySelector('.dx-meta b').textContent]));
+    assert.deepEqual(await rows(), [
+      ['Remerciements', false, '1 p.'],
+      ['Introduction générale', true, '2 p.'],
+      ['Chapitre 1 : État de l’art', true, '4 p.'], ['1.1 Contexte général', true, '2 p.'], ['1.2 Travaux existants', true, '2 p.'],
+      ['Chapitre 2 : Méthodologie', true, '3 p.'], ['2.1 Terrain', true, '2 p.'], ['2.2 Entretiens', true, '1 p.'],
+      ['Conclusion générale', true, '1 p.'],
+      ['Bibliographie', false, '1 p.'],
+    ], 'remerciements et bibliographie laissés de côté, comme pour un fichier Word');
+    assert.ok(page._requests.some(u => /vendor\/pdfjs\/pdf\.min\.js/.test(u)) && page._requests.some(u => /vendor\/pdfjs\/pdf\.worker\.min\.js/.test(u)), 'lecteur servi par le site lui-même');
+    assert.deepEqual(page._requests.filter(u => /pdf/i.test(u) && !u.startsWith(BASE)), [], 'le PDF est lu sans aucun service extérieur');
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    await flush(page);
+    let d = await docOf(page, uid);
+    assert.deepEqual(d.chapters.map(c => [c.title, c.subsections.length ? c.subsections.map(s => s.writtenPages) : c.writtenPages]),
+      [['Introduction générale', 2], ['Chapitre 1 : État de l’art', [2, 2]], ['Chapitre 2 : Méthodologie', [2, 1]], ['Conclusion générale', 1]]);
+    let f = d.docFiles.memoire_pdf;
+    assert.deepEqual([f.name, f.src, f.pages, f.pv], ['memoire.pdf', 'pdf', 13, 2], 'un PDF est un document à part entière (clé distincte de memoire.docx)');
+    assert.ok(f.inclWords > 2900 && f.inclWords < 3400, 'mots des parties suivies : ' + f.inclWords);
+    // La suite du travail : le même fichier, cinq paragraphes de plus. Un seul geste, pas d'aperçu.
+    await sendPdf(page, 'memoire_v2.pdf', 'memoire.pdf');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /memoire\.pdf synchronisé/.test(t.textContent)), null, { timeout: 30000 });
+    assert.match((await toasts(page)).join('|'), /memoire\.pdf synchronisé : \+1,\d p\. aujourd'hui/);
+    await flush(page);
+    d = await docOf(page, uid);
+    assert.equal(d.docFiles.memoire_pdf.pages, 14);
+    assert.deepEqual(d.chapters[2].subsections.map(s => s.writtenPages), [2, 2], 'le chapitre 2 passe de trois à quatre pages (2,5 + 1,6 arrondis ensemble)');
+    assert.equal(written(d), 11, 'une page de plus au total');
+    assert.ok(d.activity[TODAY] > 1 && d.activity[TODAY] < 2, 'journal du jour : au mot près, ' + d.activity[TODAY]);
+    assert.deepEqual(page._errors, []);
+    await ctx.close();
+
+    // Sans signets : les titres balisés (export Word « accessible »), sinon la mise en forme. Le même plan.
+    for (const [fixture, hint] of [['memoire-balise.pdf', /plan lu dans ses titres balisés/], ['memoire-sans-signets.pdf', /titres repérés d'après la mise en forme, à vérifier/]]) {
+      ({ ctx, page } = await newPage(browser, { user: { uid: 'u_pdf2', email: 'pdf2@example.com' } }));
+      await page.goto(BASE);
+      await page.waitForSelector('.onboarding');
+      await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+      await sendPdf(page, fixture);
+      await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 30000 });
+      assert.match(await page.textContent('#docxSummary'), /13 pages\. 6 parties détectées, 4 sous-sections/, fixture);
+      assert.match(await page.textContent('#docxPagesHint'), hint);
+      assert.deepEqual((await page.$$eval('#docxRows .dx-row .dx-title', els => els.map(e => e.textContent))).slice(1, 5), ['Introduction générale', 'Chapitre 1 : État de l’art', '1.1 Contexte général', '1.2 Travaux existants'], fixture);
+      assert.deepEqual(page._errors, []);
+      await ctx.close();
+    }
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('LibreOffice (.odt) : la pagination enregistrée dans le fichier, exacte, comme pour Word', async () => {
+    const uid = 'u_odt';
+    const ODT = 'application/vnd.oasis.opendocument.text';
+    const { ctx, page } = await newPage(browser, { user: { uid, email: 'odt@example.com' } });
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+    // Enregistré par LibreOffice, mise en page terminée : ses sauts de page sont dans le fichier
+    await page.setInputFiles('#docxInput', { name: 'memoire.odt', mimeType: ODT, buffer: fs.readFileSync(FIX('memoire.odt')) });
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.match(await page.textContent('#docxSummary'), /memoire\.odt : 3\s610 mots, 13 pages\. 6 parties détectées, 4 sous-sections\. Pages liminaires non comptées : 1 p\./, 'treize pages, comme dans LibreOffice, sans « environ »');
+    assert.match(await page.textContent('#docxPagesHint'), /pagination enregistrée par LibreOffice, exacte/);
+    assert.deepEqual(await page.$$eval('#docxRows .dx-row', rs => rs.map(r => [r.querySelector('.dx-title').textContent, r.querySelector('.dx-meta b').textContent])), [
+      ['Remerciements', '1 p.'], ['Introduction générale', '2 p.'],
+      ['Chapitre 1 : État de l’art', '4 p.'], ['1.1 Contexte général', '2 p.'], ['1.2 Travaux existants', '2 p.'],
+      ['Chapitre 2 : Méthodologie', '3 p.'], ['2.1 Terrain', '2 p.'], ['2.2 Entretiens', '1 p.'],
+      ['Conclusion générale', '1 p.'], ['Bibliographie', '1 p.'],
+    ], 'les mêmes pages que le PDF du même document');
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    await flush(page);
+    const d = await docOf(page, uid);
+    assert.deepEqual([d.docFiles.memoire.src, d.docFiles.memoire.pages], ['word', 13]);
+    // Le même document « à plat » (.fodt), sans mise en page enregistrée : une estimation, annoncée comme telle
+    await page.setInputFiles('#docxInput', { name: 'brouillon.fodt', mimeType: 'application/vnd.oasis.opendocument.text-flat-xml', buffer: fs.readFileSync(FIX('memoire.fodt')) });
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 15000 });
+    assert.match(await page.textContent('#docxSummary'), /brouillon\.fodt : 3\s610 mots, ≈ 9 pages/);
+    assert.match(await page.textContent('#docxPagesHint'), /estimation sans mise en page/);
+    assert.deepEqual(page._errors, []);
     await ctx.close();
   });
 
@@ -668,10 +1201,13 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.evaluate(() => window.openDocxModal());
     await page.waitForSelector('#gdocUrl');
     assert.equal(await page.textContent('#docxAddTitle'), 'Choisir mon document');
-    // Un lien qui n'est pas un Google Doc : on dit quoi coller
-    await page.fill('#gdocUrl', 'https://www.example.com/mon-document');
+    // Ce qui n'est pas un lien, ou pas un document texte : on dit quoi coller
+    await page.fill('#gdocUrl', 'mon document');
     await page.click('#gdocBox button');
-    assert.match(await page.textContent('#docxError'), /n'est pas celui d'un document Google Docs/);
+    assert.match(await page.textContent('#docxError'), /Ce n'est pas un lien que le Journal sait lire/);
+    await page.fill('#gdocUrl', 'https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/edit');
+    await page.click('#gdocBox button');
+    assert.match(await page.textContent('#docxError'), /n'est pas celui d'un document texte \(Google Docs\)/);
     // Document pas encore partagé : on explique le réglage à changer
     remote.shared = false;
     await page.fill('#gdocUrl', `https://docs.google.com/document/d/${ID}/edit`);
@@ -757,6 +1293,110 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await other.page.click('.toast .toast-act'); // Annuler
     await other.page.waitForFunction(() => document.getElementById('tdPrimary').textContent.includes('Synchroniser'));
     await other.ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('Dropbox : fichier lié par son lien de partage, relu tout seul, sur tous les appareils ; liens refusés avec une explication', async () => {
+    const uid = 'u_dbx';
+    const SHARE = 'https://www.dropbox.com/scl/fi/m9glhahs4vqurgqr3tp7o/Ma%20th%C3%A8se.docx?rlkey=jeiam6bpfmw4ky2g5ndwbc6js&st=abcd1234&dl=0';
+    const DL = 'https://dl.dropboxusercontent.com/scl/fi/m9glhahs4vqurgqr3tp7o/Ma%20th%C3%A8se.docx?rlkey=jeiam6bpfmw4ky2g5ndwbc6js&dl=1';
+    const PDF_DL = 'https://dl.dropboxusercontent.com/s/09ctqeg1hd9soi2/memoire.pdf?dl=1';
+    const remote = { file: 'these.docx', up: true };
+    const hits = { HEAD: 0, GET: 0 };
+    const serve = ctx => ctx.route(u => u.hostname === 'dl.dropboxusercontent.com' || u.hostname === 'www.dropbox.com', route => {
+      const req = route.request();
+      const url = req.url();
+      // www.dropbox.com redirige sans autoriser la lecture : le Journal ne doit jamais s'y adresser
+      if (!remote.up || (url !== DL && url !== PDF_DL)) return route.abort('failed');
+      const pdf = url === PDF_DL;
+      if (!pdf) hits[req.method()]++;
+      const body = fs.readFileSync(FIX(pdf ? 'memoire.pdf' : remote.file));
+      const name = pdf ? 'memoire.pdf' : 'Ma%20th%C3%A8se.docx';
+      const headers = { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'Accept-Ranges, Content-Disposition, Content-Encoding, Content-Length, Content-Range',
+        'content-disposition': `attachment; filename="document"; filename*=UTF-8''${name}`, 'cache-control': 'max-age=60' };
+      if (req.method() === 'HEAD') return route.fulfill({ status: 200, headers: { ...headers, 'content-length': String(body.length) }, contentType: pdf ? 'application/pdf' : 'application/binary', body: '' });
+      return route.fulfill({ status: 200, headers, contentType: pdf ? 'application/pdf' : 'application/binary', body });
+    });
+    let { ctx, page } = await newPage(browser, { user: { uid, email: 'dbx@example.com' } });
+    await serve(ctx);
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+    await page.evaluate(() => window.openDocxModal());
+    await page.waitForSelector('#gdocUrl');
+    // Ce qu'un navigateur ne peut pas lire est refusé avec la marche à suivre
+    for (const [link, msg] of [
+      ['https://www.dropbox.com/scl/fo/6y7hlsyisit2rb0bjepzh/AKOfmeyr?rlkey=x&dl=0', /mène à un dossier/],
+      ['https://1drv.ms/w/s!AbCdEfGh', /OneDrive et SharePoint ne laissent pas un site lire/],
+      ['https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/view?usp=sharing', /fichier stocké dans Google Drive, pas à un document Google Docs/],
+      ['https://www.overleaf.com/read/abcdefgh', /téléchargez le PDF/],
+    ]) {
+      await page.fill('#gdocUrl', link);
+      await page.click('#gdocBox button');
+      assert.match(await page.textContent('#docxError'), msg, link);
+    }
+    // Le lien de partage Dropbox, tel qu'on le copie
+    await page.fill('#gdocUrl', SHARE);
+    await page.press('#gdocUrl', 'Enter');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 20000 });
+    assert.match(await page.textContent('#docxSummary'), /^Ma thèse\.docx : 5\s270 mots, ≈ 12 pages\. 5 parties détectées, 4 sous-sections/, 'le nom du fichier vient de Dropbox');
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Fichier lié/.test(t.textContent)), null, { timeout: 8000 });
+    assert.match((await toasts(page)).join('|'), /Fichier lié : vos pages se mettront à jour toutes seules, sur tous vos appareils/);
+    await flush(page);
+    let d = await docOf(page, uid);
+    const key = Object.keys(d.docFiles)[0];
+    assert.match(key, /^u_[a-z0-9]+$/);
+    let f = d.docFiles[key];
+    assert.deepEqual([f.name, f.url, f.src, f.pv, f.gdoc], ['Ma thèse.docx', DL, 'layout', 2, null], 'on garde l\'adresse lisible du fichier, pas le lien d\'origine');
+    assert.match(f.sig, /^\d+\.[a-z0-9]+$/, 'signature légère : la taille du fichier');
+    assert.deepEqual(hits, { HEAD: 1, GET: 1 });
+    const pages1 = written(d);
+    assert.equal(await page.textContent('#wordBtn'), 'Synchroniser mon document');
+    await page.evaluate(() => window.openDocxModal());
+    assert.match(await page.textContent('#linkedList .lk-meta'), /lié par son lien \(Dropbox\) · synchro : aujourd'hui · 12 p\./);
+    assert.equal(await page.getAttribute('#linkedList a.lk-btn', 'href'), 'https://www.dropbox.com/scl/fi/m9glhahs4vqurgqr3tp7o/Ma%20th%C3%A8se.docx?rlkey=jeiam6bpfmw4ky2g5ndwbc6js&dl=0', '« Ouvrir » mène à la page Dropbox du fichier');
+    await page.click('#docxModal >> text=Fermer');
+    // À la demande, le fichier est relu en entier : rien n'a changé
+    await page.click('#wordBtn');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Déjà à jour/.test(t.textContent)), null, { timeout: 15000 });
+    assert.deepEqual(hits, { HEAD: 2, GET: 2 });
+    // On a écrit (le fichier a grossi) : au retour dans le Journal, une vérification légère puis la mise à jour, sans rien demander
+    remote.file = 'these_v2.docx';
+    await page.reload();
+    await page.waitForSelector('.chapter-card');
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Ma thèse\.docx synchronisé/.test(t.textContent)), null, { timeout: 20000 });
+    assert.match((await toasts(page)).join('|'), /Ma thèse\.docx synchronisé : \+1,\d p\. aujourd'hui/);
+    await flush(page);
+    d = await docOf(page, uid);
+    assert.equal(written(d), pages1 + 1, 'une page de plus');
+    assert.notEqual(d.docFiles[key].sig, f.sig);
+    assert.deepEqual(hits, { HEAD: 3, GET: 3 });
+    await ctx.close();
+
+    // Un autre appareil (téléphone) : le document est déjà lié, rien n'a changé, une seule requête légère
+    ({ ctx, page } = await newPage(browser, { user: { uid, email: 'dbx@example.com' }, store: { [`users/${uid}/thesis/main`]: d }, viewport: { width: 390, height: 844 } }));
+    await serve(ctx);
+    await page.goto(BASE);
+    await page.waitForSelector('.chapter-card');
+    await page.waitForTimeout(1500);
+    assert.deepEqual(hits, { HEAD: 4, GET: 3 }, 'fichier inchangé : pas de nouveau téléchargement');
+    // Lien coupé (partage désactivé) : on le dit, les pages ne bougent pas
+    remote.up = false;
+    await page.evaluate(() => window.wordAction());
+    await page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(t => /Le Journal n'a pas pu lire ce lien/.test(t.textContent)), null, { timeout: 15000 });
+    assert.equal(written(await docOf(page, uid)), pages1 + 1);
+    remote.up = true;
+    // Un PDF sur Dropbox : pages exactes, lu directement depuis son lien
+    await page.evaluate(() => window.openDocxModal());
+    await page.fill('#gdocUrl', 'https://www.dropbox.com/s/09ctqeg1hd9soi2/memoire.pdf?dl=0');
+    await page.click('#gdocBox button');
+    await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 30000 });
+    assert.match(await page.textContent('#docxSummary'), /^memoire\.pdf : 3\s517 mots, 13 pages/);
+    assert.match(await page.textContent('#docxPagesHint'), /pagination du PDF, exacte · plan lu dans ses signets/);
+    assert.deepEqual(page._errors.filter(e => !/Lien :|Failed to fetch|net::ERR/.test(e)), []);
+    await ctx.close();
   });
 
   /* ------------------------------------------------------------ */
@@ -936,6 +1576,8 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.match(await page.textContent('#tdSub'), /Colloque jusqu'au .+: le Journal n'attend pas de pages/);
     assert.equal(await page.locator('#weekBars .wk-col.is-today.rest').count(), 1, 'jour marqué comme un jour sans écriture');
     assert.notEqual(await page.textContent('#paceNeed'), paceBefore, 'soixante jours de moins pour écrire : le rythme à tenir augmente');
+    assert.match(await page.textContent('#paceLever'), /^Période sans rédaction jusqu'au .+ni votre rythme ni la date ne bougent\.$/);
+    assert.match(await page.textContent('#sEndQuip'), /Période sans rédaction|En pause déclarée/);
     await flush(page);
     d = await docOf(page, 'u_vie2');
     assert.deepEqual(d.pauses, [{ from: TODAY, to: addDays(TODAY, 59), kind: 'colloque' }]);
@@ -1037,7 +1679,8 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(await page.textContent('#calGoogle'), 'Ajouté');
     await flush(page);
     let d = await docOf(page, uid);
-    assert.deepEqual([d.sessionTime, d.sessionMinutes, d.slots, d.alarmMin, d.meetWeeks], ['09:00', 90, [[5, '14:00', 120]], 30, 6]);
+    assert.deepEqual([d.sessionTime, d.sessionMinutes, d.slots, d.alarmMin, d.meetWeeks], ['09:00', 90, [{ d: 5, t: '14:00', m: 120 }], 30, 6],
+      'l\'horaire propre à un jour est enregistré en objets : la base refuse un tableau dans un tableau');
     // Le fichier .ics contient la même chose, rappels compris
     const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#calendarModal >> text=fichier agenda (.ics)')]);
     const ics = fs.readFileSync(await dl.path(), 'utf8').replace(/\r\n /g, '');
@@ -1063,6 +1706,47 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.deepEqual([d.sessionTime, d.slots], ['08:30', []]);
     assert.match((await page.textContent('#tdNextTxt')).replace(/[  ]/g, ' '), /à 8 h 30 \(1 h 30\)$/);
     assert.deepEqual(page._errors, []);
+    // Réparation : en 4.1.0, l'horaire propre à un jour faisait refuser tous les enregistrements suivants. Le serveur n'a
+    // donc ni cet horaire ni les journées notées depuis ; la copie tenue sur l'appareil, si. À l'ouverture, on les reprend.
+    const lost = { uid: 'u_lost', email: 'lost@example.com' };
+    const server = Object.assign(clone(V1_DOC), { version: 2, trackedSince: addDays(TODAY, -30), sessionTime: '09:00', sessionMinutes: 90, writingDays: [1, 2, 3, 4, 5],
+      activity: { [addDays(TODAY, -6)]: 2 }, journal: { [addDays(TODAY, -6)]: [{ p: 2, s: 'c1', n: 'Avant', m: 0, t: '10:00' }] }, docFiles: {}, docIgnore: [] });
+    const local = { slots: [[5, '14:00', 120]], sessionTime: '09:00', writingDays: [1, 2, 3, 4, 5],
+      activity: { [addDays(TODAY, -6)]: 5, [addDays(TODAY, -2)]: 3 },
+      journal: { [addDays(TODAY, -2)]: [{ p: 3, s: 'c1', n: 'Jamais arrivé au serveur', m: 0, t: '18:00' }] } };
+    const rec = await newPage(browser, { user: lost, store: { [`users/${lost.uid}/thesis/main`]: server } });
+    await rec.ctx.addInitScript(({ k, v }) => { if (!localStorage.getItem(k)) localStorage.setItem(k, v); }, { k: `jdb_v2_${lost.uid}`, v: JSON.stringify(local) });
+    await rec.page.goto(BASE);
+    await rec.page.waitForSelector('.chapter-card');
+    await rec.page.waitForFunction(() => [...document.querySelectorAll('.toast')].some(x => /retrouvés sur cet appareil/.test(x.textContent)), null, { timeout: 8000 });
+    await flush(rec.page);
+    d = await docOf(rec.page, lost.uid);
+    assert.deepEqual(d.slots, [{ d: 5, t: '14:00', m: 120 }], 'l\'horaire retrouvé est enregistré, sous une forme que la base accepte');
+    assert.equal(d.activity[addDays(TODAY, -2)], 3, 'la journée que le serveur n\'avait jamais reçue');
+    assert.equal(d.activity[addDays(TODAY, -6)], 2, 'ce que le serveur connaît n\'est pas écrasé');
+    assert.equal(d.journal[addDays(TODAY, -2)][0].n, 'Jamais arrivé au serveur');
+    assert.equal(d.journal[addDays(TODAY, -6)][0].n, 'Avant');
+    assert.deepEqual(JSON.parse(await rec.page.evaluate(k => localStorage.getItem(k), `jdb_v2_${lost.uid}`)).slots, [{ d: 5, t: '14:00', m: 120 }], 'la copie locale est réécrite sous la nouvelle forme');
+    // Rechargement : plus rien à réparer, pas de message
+    await rec.page.reload();
+    await rec.page.waitForSelector('.chapter-card');
+    await rec.page.waitForTimeout(2200);
+    assert.equal((await toasts(rec.page)).filter(x => /retrouvés/.test(x)).length, 0);
+    assert.deepEqual(rec.page._errors, []);
+    await rec.ctx.close();
+    // Pas de fausse réparation : depuis la 5.0, la copie locale garde l'horaire en objets. Un horaire effacé depuis un autre
+    // appareil (le serveur n'en a plus) ne revient donc pas, et aucune journée supprimée ailleurs ne ressuscite.
+    const calm = { uid: 'u_calm', email: 'calm@example.com' };
+    const local5 = { slots: [{ d: 5, t: '14:00', m: 120 }], activity: { [addDays(TODAY, -2)]: 3 }, journal: {} };
+    const sane = await newPage(browser, { user: calm, store: { [`users/${calm.uid}/thesis/main`]: server } });
+    await sane.ctx.addInitScript(({ k, v }) => { if (!localStorage.getItem(k)) localStorage.setItem(k, v); }, { k: `jdb_v2_${calm.uid}`, v: JSON.stringify(local5) });
+    await sane.page.goto(BASE);
+    await sane.page.waitForSelector('.chapter-card');
+    await sane.page.waitForTimeout(2500);
+    d = await docOf(sane.page, calm.uid);
+    assert.deepEqual([d.slots || [], d.activity[addDays(TODAY, -2)]], [[], undefined], 'rien n\'est repris d\'une copie locale saine');
+    assert.equal((await toasts(sane.page)).filter(x => /retrouvés/.test(x)).length, 0);
+    await sane.ctx.close();
     await ctx.close();
   });
 
@@ -1111,7 +1795,21 @@ const clone = o => JSON.parse(JSON.stringify(o));
     const { ctx, page } = await newPage(browser, { viewport: { width: 360, height: 740 }, user: { uid, email: 'mob@example.com' }, store: { [`users/${uid}/thesis/main`]: doc } });
     await page.goto(BASE);
     await page.waitForSelector('.chapter-card');
-    assert.ok(await page.evaluate(() => { const r = document.getElementById('tdPrimary').getBoundingClientRect(); return r.bottom <= window.innerHeight + 200; }), 'action du jour proche du premier écran');
+    const reach = () => page.evaluate(() => Math.round(document.getElementById('tdPrimary').getBoundingClientRect().bottom + scrollY) - window.innerHeight);
+    assert.ok(await reach() <= 200, 'action du jour proche du premier écran : ' + await reach());
+    // …quelle que soit la phrase du jour sous la date de fin (elle change chaque jour, et tient parfois sur trois lignes)
+    const tallest = await page.evaluate(async () => {
+      const H = await import('./humour.js');
+      const el = document.getElementById('sEndQuip');
+      const keep = el.textContent;
+      let max = 0;
+      let worst = keep;
+      for (const lines of Object.values(H.PROGNOSIS)) for (const l of lines) { el.textContent = H.typo(l); const h = el.getBoundingClientRect().height; if (h > max) { max = h; worst = el.textContent; } }
+      el.textContent = worst;
+      return keep;
+    });
+    assert.ok(await reach() <= 200, 'même avec la phrase la plus longue : ' + await reach());
+    await page.evaluate(t0 => { document.getElementById('sEndQuip').textContent = t0; }, tallest);
     await page.screenshot({ path: path.join(SHOTS, '21-09-mobile.png') });
     const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert.ok(await overflow() <= 0, 'pas de défilement horizontal : ' + await overflow());
@@ -1252,7 +1950,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     const a = await newPage(browser, { user: { uid, email: 'maj@example.com' }, store: { [`users/${uid}/thesis/main`]: V1_DOC }, seenNews: false });
     await a.page.goto(BASE);
     await a.page.waitForSelector('#whatsNewModal:not(.hidden)');
-    assert.match(await a.page.textContent('#wnTitle'), /Vos vraies pages/);
+    assert.match(await a.page.textContent('#wnTitle'), /Votre date de fin/);
     assert.equal(await a.page.isVisible('#wnPromo'), false, 'la promo n\'est pas annoncée tant qu\'elle est fermée');
     assert.equal(await a.page.textContent('#sWritten'), '38', 'les données sont intactes derrière l\'annonce');
     await a.page.click('#whatsNewModal >> text=C\'est parti');
@@ -1699,7 +2397,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.ok(await page.evaluate(() => document.querySelector('#whatsNewModal .modal').contains(document.activeElement)), 'le focus est dans la fenêtre');
     await page.keyboard.press('Escape');
     await page.waitForSelector('#whatsNewModal.hidden', { state: 'attached' });
-    assert.equal(await page.evaluate(() => localStorage.getItem('jdb_whatsnew')), '5');
+    assert.equal(await page.evaluate(() => localStorage.getItem('jdb_whatsnew')), '6');
     // Anciens marqueurs supprimés, réglages conservés
     assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter(k => /^jdb_(goal|streak|bingo)_/.test(k))), []);
     assert.equal(await page.evaluate(() => localStorage.getItem('jdb_lastSection_u_fin')), 's2');
@@ -2032,13 +2730,94 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.click('#docxModal >> text=Changer de document');
     await page.setInputFiles('#docxInput', { name: 'these.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.7\n%âãÏÓ\n1 0 obj\n') });
     await page.waitForSelector('#docxError:not(.hidden)');
-    assert.match(await page.textContent('#docxError'), /PDF.*collez votre texte/);
+    assert.match(await page.textContent('#docxError'), /PDF est illisible/);
     await page.setInputFiles('#docxInput', { name: 'these.doc', mimeType: 'application/msword', buffer: Buffer.from([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1]) });
     await page.waitForFunction(() => /ancien Word/.test(document.getElementById('docxError').textContent));
     await page.setInputFiles('#docxInput', { name: 'photo.png', mimeType: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4E, 0x47, 1, 2, 3]) });
+    await page.waitForFunction(() => /Une image ne contient pas de texte lisible/.test(document.getElementById('docxError').textContent));
+    await page.setInputFiles('#docxInput', { name: 'donnees.bin', mimeType: 'application/octet-stream', buffer: Buffer.from([1, 2, 3, 4, 5, 6, 7, 8, 9]) });
     await page.waitForFunction(() => /Format non reconnu/.test(document.getElementById('docxError').textContent));
     assert.equal(await page.evaluate(() => window.__fbStore.writes.filter(w => w.data && w.data.chapters).length), 0, 'rien n\'a été écrit');
     assert.deepEqual(page._errors.filter(e => !/document :/.test(e)), []);
+    await ctx.close();
+  });
+
+  /* ------------------------------------------------------------ */
+  await test('Autres formats : projet LaTeX en .zip ou en plusieurs fichiers, RTF, Typst, plusieurs documents à la suite, raccourci Google Drive', async () => {
+    const uid = 'u_formats';
+    const { ctx, page } = await newPage(browser, { user: { uid, email: 'formats@example.com' } });
+    // Un raccourci .gdoc mène au document Google : on sert ce document
+    const GID = '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd';
+    await ctx.route(u => u.hostname === 'docs.google.com', route => {
+      const fmt = new URL(route.request().url()).searchParams.get('format');
+      const headers = { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'Content-Disposition', 'content-disposition': `attachment; filename="Ma these.${fmt}"` };
+      if (fmt === 'docx') return route.fulfill({ status: 200, headers, contentType: DOCX, body: fs.readFileSync(FIX('these.docx')) });
+      if (fmt === 'txt') return route.fulfill({ status: 200, headers, contentType: 'text/plain', body: 'texte' });
+      return route.fulfill({ status: 500, headers, body: '' });
+    });
+    await page.goto(BASE);
+    await page.waitForSelector('.onboarding');
+    await page.evaluate(() => { window.showOpenFilePicker = undefined; });
+    const send = files => page.setInputFiles('#docxInput', files.map(([name, mimeType, buffer]) => ({ name, mimeType, buffer })));
+    const preview = async () => {
+      try { await page.waitForSelector('#docxStep2:not(.hidden)', { timeout: 20000 }); }
+      catch (e) { throw new Error(`pas d'aperçu · erreur affichée : « ${await page.textContent('#docxError')} » · messages : ${(await toasts(page)).join(' | ')} · erreurs : ${page._errors.join(' | ')}`); }
+      return [await page.textContent('#docxSummary'), await page.$$eval('#docxRows .dx-row .dx-title', els => els.map(e => e.textContent))];
+    };
+    const back = async () => { await page.click('#docxModal >> text=Changer de document'); await page.waitForSelector('#docxStep1:not(.hidden)'); };
+
+    // Projet LaTeX téléchargé depuis Overleaf (Menu, Télécharger, Source) : le fichier principal et ses chapitres sont assemblés
+    await send([['projet-latex.zip', 'application/zip', fs.readFileSync(FIX('projet-latex.zip'))]]);
+    let [sum, titles] = await preview();
+    assert.match(sum, /^projet-latex\.zip : [\d\s]+ mots, ≈ \d+ pages\. 3 parties détectées, 2 sous-sections/);
+    assert.deepEqual(titles, ['Introduction', 'Problématique', 'Méthode', 'Corpus', 'Résultats']);
+    await back();
+    // Les mêmes fichiers déposés ensemble, sans archive
+    const zipDir = { 'main.tex': null, 'chapitres/intro.tex': null, 'chapitres/methode.tex': null, 'chapitres/resultats.tex': null };
+    const Z = await import(path.join(DIR, '..', 'zip.js'));
+    const zip = Z.openZip(fs.readFileSync(FIX('projet-latex.zip')));
+    for (const n of Object.keys(zipDir)) zipDir[n] = Buffer.from(await zip.bytes(n));
+    await send(Object.entries(zipDir).map(([n, b]) => [n.split('/').pop(), 'text/x-tex', b]));
+    [sum, titles] = await preview();
+    assert.match(sum, /^main\.tex \(projet de 4 fichiers\) : /);
+    assert.deepEqual(titles, ['Introduction', 'Problématique', 'Méthode', 'Corpus', 'Résultats']);
+    await back();
+    // RTF (Scrivener, Nisus, TextEdit) et Typst
+    for (const [file, type] of [['notes.rtf', 'application/rtf'], ['notes.typ', 'text/plain']]) {
+      await send([[file, type, fs.readFileSync(FIX(file))]]);
+      [sum, titles] = await preview();
+      assert.match(sum, /4 parties détectées, 3 sous-sections/, file);
+      assert.deepEqual(titles, ['Introduction générale', 'Chapitre 1 : État de l’art', '1.1 Contexte général', '1.2 Travaux existants', 'Chapitre 2 : Méthodologie', 'Un détail de méthode', 'Conclusion générale'], file);
+      await back();
+    }
+    // Ce qui ne se lit pas est refusé avec la marche à suivre
+    for (const [name, type, msg] of [['these.scriv', 'application/octet-stream', /Scrivener : Fichier, Compiler/], ['page.png', 'image/png', /Une image ne contient pas de texte/]]) {
+      await send([[name, type, Buffer.from('xxxxxxxx')]]);
+      await page.waitForFunction(m => new RegExp(m).test(document.getElementById('docxError').textContent), msg.source, { timeout: 8000 });
+    }
+    await page.click('#docxModal >> text=Fermer');
+
+    // Deux documents déposés ensemble (un fichier par chapitre) : lus l'un après l'autre
+    await send([['these.docx', DOCX, fs.readFileSync(FIX('these.docx'))], ['discussion.docx', DOCX, fs.readFileSync(FIX('discussion.docx'))]]);
+    [sum] = await preview();
+    assert.match(sum, /^these\.docx : /);
+    assert.match((await toasts(page)).join('|'), /2 fichiers : ils sont lus l'un après l'autre/);
+    await page.click('#docxApply');
+    await page.waitForSelector('.chapter-card');
+    await page.waitForFunction(() => /^discussion\.docx/.test(document.getElementById('docxSummary').textContent) && !document.getElementById('docxStep2').classList.contains('hidden') && !document.getElementById('docxModal').classList.contains('hidden'), null, { timeout: 15000 });
+    assert.equal(await page.isChecked('#docxModes input[value="add"]'), true, 'le second fichier, sans titres, est proposé comme un chapitre de plus');
+    await page.click('#docxApply');
+    await page.waitForSelector('#docxModal.hidden', { state: 'attached' });
+    await flush(page);
+    let d = await docOf(page, uid);
+    assert.deepEqual(Object.keys(d.docFiles).sort(), ['discussion', 'these']);
+    assert.equal(d.chapters[d.chapters.length - 1].title, 'Discussion');
+
+    // Raccourci créé par Google Drive pour ordinateur (.gdoc) : le Journal lie le document qu'il désigne
+    await send([['Ma thèse.gdoc', 'application/json', Buffer.from(JSON.stringify({ url: `https://docs.google.com/open?id=${GID}`, doc_id: GID, email: 'quelquun@example.com' }))]]);
+    [sum] = await preview();
+    assert.match(sum, /^Ma these : 5\s270 mots/);
+    assert.deepEqual(page._errors.filter(e => !/document :|PDF Google Docs|status of 500/.test(e)), []);
     await ctx.close();
   });
 
@@ -2152,7 +2931,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(d.deadlineMonth, true);
     assert.equal(await page.textContent('#dlLabel'), 'Dépôt visé');
     assert.equal(await page.textContent('#dbDeadline .dl-date'), `septembre ${year}`);
-    assert.match(await page.textContent('#dbDeadline .dl-verdict'), /dans les temps|en retard|à tenir/);
+    assert.match(await page.textContent('#dbDeadline .dl-verdict'), /dans les temps|en avance|en retard|à tenir/);
     assert.equal(await page.textContent('#dbDeadline .cal-month'), 'sept.', 'l\'éphéméride montre le mois, pas un jour');
     assert.ok(await page.locator('.due-chip:not(:empty)').count() >= 3, 'les échéances des chapitres suivent');
     // La fenêtre se rouvre sur le mois ; l'agenda parle de période

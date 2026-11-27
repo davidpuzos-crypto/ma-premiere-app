@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="fr" data-app-version="4.1.0">
+<html lang="fr" data-app-version="5.0.0">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -49,6 +49,11 @@
   <link rel="modulepreload" href="humour.js" />
   <link rel="modulepreload" href="visuals.js" />
   <link rel="modulepreload" href="pages.js" />
+  <link rel="modulepreload" href="zip.js" />
+  <link rel="modulepreload" href="pdfdoc.js" />
+  <link rel="modulepreload" href="pdfread.js" />
+  <link rel="modulepreload" href="links.js" />
+  <link rel="modulepreload" href="formats.js" />
   <link rel="modulepreload" href="promo.js" />
   <link rel="modulepreload" href="docx.js" />
   <link rel="modulepreload" href="ics.js" />
@@ -157,11 +162,11 @@
 
       <ul class="lp-points">
         <li><span class="lp-ico"><svg class="ic" aria-hidden="true"><use href="#i-upload"/></svg></span>
-          <span><b>Vos pages, comptées toutes seules.</b> Déposez votre document (Word, LibreOffice, LaTeX) ou liez votre Google Doc&nbsp;: le Journal retrouve vos chapitres et compte vos pages comme votre traitement de texte.</span></li>
+          <span><b>Vos pages, comptées toutes seules.</b> Déposez votre document (Word, LibreOffice, PDF, LaTeX) ou liez-le (Google Docs, Dropbox)&nbsp;: le Journal retrouve vos chapitres et compte vos pages comme votre traitement de texte.</span></li>
         <li><span class="lp-ico"><svg class="ic" aria-hidden="true"><use href="#i-plus"/></svg></span>
           <span><b>Une page, un geste.</b> Un bouton «&nbsp;+1 page&nbsp;». Rien à calculer.</span></li>
         <li><span class="lp-ico"><svg class="ic" aria-hidden="true"><use href="#i-flag"/></svg></span>
-          <span><b>Dans les temps&nbsp;?</b> Le Journal vous dit si vous tiendrez votre dépôt, quel rythme tenir, et met vos séances dans votre agenda.</span></li>
+          <span><b>Fini quand&nbsp;?</b> À votre rythme, le Journal vous donne la date de votre dernière page, vous dit si vous tiendrez votre dépôt, et met vos séances dans votre agenda.</span></li>
         <li><span class="lp-ico"><svg class="ic" aria-hidden="true"><use href="#i-grid"/></svg></span>
           <span><b>Entre doctorant·es.</b> Le bingo de la semaine et la note de bas de page du jour, les mêmes pour tout le monde.</span></li>
       </ul>
@@ -319,7 +324,7 @@
           <div class="hero-progress">
             <div class="hero-figure" id="gaugePct">0&nbsp;%</div>
             <div class="hero-pages">
-              <p><b id="sWritten">0</b> pages rédigées sur <span id="sTotal">0</span></p>
+              <p><b id="sWritten">0</b> pages rédigées sur&nbsp;<span id="sTotal">0</span></p>
               <p class="hidden" id="dbPagesRest">reste <span id="sRemaining">0</span> pages</p>
             </div>
           </div>
@@ -335,17 +340,35 @@
           </div>
         </div>
 
-        <!-- Le dépôt, comme une éphéméride -->
+        <!-- Quand j'aurai fini : le pronostic à ce rythme, puis le dépôt (une éphéméride) -->
         <div class="hero-side">
-          <p class="eyebrow" id="dlLabel">Dépôt</p>
-          <div class="db-deadline" id="dbDeadline"></div>
-          <dl class="pace">
-            <div><dt>Votre rythme</dt><dd id="paceNow">—</dd></div>
-            <div><dt>À tenir</dt><dd id="paceNeed">—</dd></div>
-            <div><dt>Fin estimée</dt><dd id="sEndDate">—</dd></div>
-          </dl>
-          <p class="pace-note" id="sEndLbl"></p>
+          <div class="prog" id="prog">
+            <p class="eyebrow" id="sEndKicker">À ce rythme, dernière page le</p>
+            <p class="prog-date" id="sEndDate">—</p>
+            <p class="prog-in"><span id="sEndIn"></span><span class="prog-tag" id="sEndLbl"></span><span id="sEndGain"></span></p>
+            <p class="prog-quip" id="sEndQuip"></p>
+          </div>
+          <div class="hero-dl">
+            <p class="eyebrow" id="dlLabel">Dépôt</p>
+            <div class="db-deadline" id="dbDeadline"></div>
+          </div>
         </div>
+
+        <!-- À quelle vitesse : la vélocité, semaine après semaine -->
+        <div class="hero-pace" id="heroPace">
+          <dl class="pace">
+            <div><dt>Vélocité</dt><dd><span id="paceNow">—</span><span class="pace-trend" id="paceTrend"></span></dd></div>
+            <div><dt>À tenir</dt><dd id="paceNeed">—</dd></div>
+            <div><dt>Record</dt><dd id="paceBest">—</dd></div>
+          </dl>
+          <div class="pace-plot" id="pacePlot"></div>
+          <div class="pace-say">
+            <p class="pace-lever" id="paceLever"></p>
+            <button type="button" class="pace-how" id="paceHowBtn" aria-expanded="false" aria-controls="paceHow"
+                    onclick="togglePaceHow()">Comment c'est calculé</button>
+          </div>
+        </div>
+        <div class="pace-how-body hidden" id="paceHow"></div>
       </section>
 
       <div class="board">
@@ -363,10 +386,10 @@
               </div>
               <div class="word-tools">
                 <button type="button" class="btn btn-neutral btn-sm word-btn" onclick="wordAction()"
-                        title="Mettre à jour mon plan et mes pages depuis mon document : Word, LibreOffice, Google Docs, LaTeX, ou texte collé (vous pouvez aussi le déposer ou le coller n'importe où dans la page)">
+                        title="Mettre à jour mon plan et mes pages depuis mon document : Word, LibreOffice, PDF, LaTeX, Google Docs, Dropbox, ou texte collé (vous pouvez aussi le déposer ou le coller n'importe où dans la page)">
                   <svg class="ic ic-sm" aria-hidden="true"><use href="#i-sync"/></svg><span id="wordBtn">Importer mon document</span></button>
                 <button type="button" class="linklike word-change hidden" id="wordChange" onclick="openDocxModal()"
-                        title="Choisir un autre fichier, lier un Google Doc, ajouter un chapitre, oublier un document">Changer de document</button>
+                        title="Choisir un autre fichier, lier un document par son lien, ajouter un chapitre, voir ce que les dernières synchros ont changé">Changer de document</button>
               </div>
             </div>
 
@@ -767,6 +790,14 @@
         <h3 class="box-title">Mes documents</h3>
         <div id="linkedList"></div>
         <p class="form-hint" id="linkedHint"></p>
+        <!-- Ce que la dernière synchro a changé (annulable), et les précédentes -->
+        <div class="sync-log hidden" id="syncLogBox">
+          <p class="sl-last" id="syncLogLast"></p>
+          <details class="sl-more hidden" id="syncLogMore">
+            <summary id="syncLogCount">Synchros précédentes</summary>
+            <ol id="syncLogList"></ol>
+          </details>
+        </div>
       </div>
 
       <h3 class="box-title" id="docxAddTitle">Choisir mon document</h3>
@@ -774,24 +805,31 @@
         <button type="button" class="dropzone" id="docxDrop" onclick="pickWordFile()">
           <svg class="ic ic-lg" aria-hidden="true"><use href="#i-upload"/></svg>
           <span class="dz-main">Choisir mon fichier</span>
-          <span class="dz-sub">Word (.docx), LibreOffice (.odt), LaTeX (.tex), Markdown, texte. Ou le déposer n'importe où dans la page.</span>
+          <span class="dz-sub">Word (.docx), LibreOffice (.odt), PDF, LaTeX (.tex), Markdown, texte. Ou le déposer n'importe où dans la page.</span>
         </button>
         <div class="gdoc-box" id="gdocBox">
-          <label class="gdoc-title" for="gdocUrl"><svg class="ic" aria-hidden="true"><use href="#i-link"/></svg>Lier un Google Doc</label>
+          <label class="gdoc-title" for="gdocUrl"><svg class="ic" aria-hidden="true"><use href="#i-link"/></svg>Lier par un lien</label>
           <div class="gdoc-row">
             <input type="url" id="gdocUrl" class="form-control" inputmode="url" autocomplete="off" spellcheck="false"
-                   placeholder="Collez le lien de votre document" onkeydown="if (event.key === 'Enter') { event.preventDefault(); linkGoogleDoc(); }" />
-            <button type="button" class="btn btn-primary btn-sm" onclick="linkGoogleDoc()">Lier</button>
+                   placeholder="Lien Google Docs ou Dropbox" onkeydown="if (event.key === 'Enter') { event.preventDefault(); linkDocument(); }" />
+            <button type="button" class="btn btn-primary btn-sm" onclick="linkDocument()">Lier</button>
           </div>
-          <p class="form-hint">Pages exactes, mises à jour toutes seules, sur tous vos appareils.</p>
+          <p class="form-hint">Google Docs ou fichier Dropbox (Word, LibreOffice, PDF…)&nbsp;: mis à jour tout seul, sur tous vos appareils.</p>
           <details class="gdoc-how">
             <summary>Comment faire, et ce que cela implique</summary>
+            <p><b>Google Docs</b></p>
             <ol>
               <li>Dans Google Docs, cliquez sur <b>Partager</b>.</li>
               <li>Sous «&nbsp;Accès général&nbsp;», choisissez <b>Tous les utilisateurs disposant du lien</b> (le rôle «&nbsp;Lecteur&nbsp;» suffit).</li>
               <li>Cliquez sur <b>Copier le lien</b>, puis collez-le ici.</li>
             </ol>
-            <p>Avec ce réglage, toute personne à qui vous donnez le lien peut lire le document&nbsp;: ne le diffusez pas. Le Journal le lit depuis votre navigateur, il ne passe par aucun serveur du Journal, et seul l'identifiant du document est enregistré dans votre compte. Vous préférez ne pas le partager&nbsp;? Téléchargez-le (Fichier, Télécharger, Microsoft Word) et déposez le fichier&nbsp;: la mise en page est lue de la même façon.</p>
+            <p><b>Dropbox</b></p>
+            <ol>
+              <li>Dans Dropbox, sur le fichier de votre manuscrit, cliquez sur <b>Partager</b>, puis <b>Copier le lien</b>.</li>
+              <li>Collez ce lien ici. Le fichier reste où il est&nbsp;: continuez d'y travailler comme d'habitude.</li>
+            </ol>
+            <p>Avec un lien de partage, toute personne à qui vous donnez ce lien peut lire le document&nbsp;: ne le diffusez pas. Le Journal le lit depuis votre navigateur, il ne passe par aucun serveur du Journal. Ce qui est enregistré dans votre compte, pour le relire depuis vos autres appareils&nbsp;: l'identifiant du document Google, ou le lien du fichier Dropbox. Vous préférez ne rien partager&nbsp;? Déposez le fichier (depuis Google Docs&nbsp;: Fichier, Télécharger, Microsoft Word)&nbsp;: il est lu de la même façon.</p>
+            <p>OneDrive, SharePoint et Overleaf ne permettent pas cette lecture par lien. Sur Chrome ou Edge (ordinateur), choisissez le fichier dans votre dossier OneDrive&nbsp;: il restera lié à cet appareil et se mettra à jour tout seul. Depuis Overleaf, déposez le PDF.</p>
           </details>
         </div>
       </div>
@@ -802,14 +840,17 @@
       <p class="docx-error hidden" id="docxError" role="alert"></p>
       <p class="privacy-note"><svg class="ic ic-sm" aria-hidden="true"><use href="#i-lock"/></svg>Votre document est lu sur votre appareil et n'est envoyé nulle part. Seuls les titres et les nombres de pages sont enregistrés.</p>
       <details class="docx-tips">
-        <summary>Pour un résultat parfait</summary>
+        <summary>Pour un résultat parfait, selon votre outil</summary>
         <ul>
-          <li><b>Word, LibreOffice, Google Docs</b>&nbsp;: donnez à vos titres les styles «&nbsp;Titre 1&nbsp;», «&nbsp;Titre 2&nbsp;»… (c'est aussi ce qui génère votre table des matières). Peu importe à quel niveau sont vos chapitres&nbsp;: le Journal le repère, et vous pouvez le corriger.</li>
-          <li><b>Les pages</b> sont celles de votre document&nbsp;: la pagination enregistrée par Word, celle de Google Docs quand il est lié, sinon un calcul d'après la mise en page du fichier (police, interligne, marges, notes, images, tableaux). Pour un texte collé, le Journal ne voit pas la mise en page&nbsp;: indiquez-lui le nombre de pages, il s'en souviendra.</li>
-          <li><b>Un fichier par chapitre</b>&nbsp;: à chaque nouveau fichier, choisissez «&nbsp;Ajouter un chapitre&nbsp;».</li>
-          <li><b>LaTeX</b>&nbsp;: déposez votre fichier .tex (ou un fichier par chapitre), ou collez-le&nbsp;: \chapter, \section sont reconnus.</li>
-          <li><b>Ancien Word (.doc), Pages, PDF</b>&nbsp;: enregistrez d'abord en .docx, ou collez votre texte.</li>
-          <li>Sur Chrome ou Edge (ordinateur), le fichier reste lié&nbsp;: vos pages se mettent à jour toutes seules.</li>
+          <li><b>Word</b>&nbsp;: déposez votre .docx tel quel. Les pages sont celles que Word a enregistrées, et vos chapitres sont repérés par les styles «&nbsp;Titre 1&nbsp;», «&nbsp;Titre 2&nbsp;» (ceux qui font votre table des matières). Sans styles, le Journal reconnaît vos titres à leur mise en forme et vous les fait vérifier.</li>
+          <li><b>LibreOffice</b>&nbsp;: déposez votre .odt, enregistré depuis LibreOffice&nbsp;: sa pagination est lue comme celle de Word.</li>
+          <li><b>Google Docs</b>&nbsp;: liez le document par son lien. Pages exactes, mises à jour toutes seules.</li>
+          <li><b>LaTeX, Overleaf, Typst, Pages</b>&nbsp;: déposez le PDF de votre manuscrit, ses pages sont exactes et son plan est lu dans ses signets. Vous pouvez aussi déposer le .tex, plusieurs fichiers d'un coup, ou le .zip du projet (Overleaf&nbsp;: «&nbsp;Menu&nbsp;», «&nbsp;Source&nbsp;»).</li>
+          <li><b>Dropbox</b>&nbsp;: collez le lien de partage du fichier, quel que soit son format.</li>
+          <li><b>Un fichier par chapitre</b>&nbsp;: déposez-les ensemble, ou l'un après l'autre en choisissant «&nbsp;Ajouter un chapitre&nbsp;».</li>
+          <li><b>Texte collé</b>&nbsp;: le Journal ne voit pas la mise en page. Indiquez-lui le nombre de pages, il s'en souviendra.</li>
+          <li><b>Ancien Word (.doc), Scrivener</b>&nbsp;: exportez en .docx ou en PDF.</li>
+          <li><b>Pour que tout se mette à jour seul</b>&nbsp;: un lien (Google Docs, Dropbox), ou, sur Chrome et Edge (ordinateur), le fichier choisi une fois, qui reste lié. Application installée&nbsp;: «&nbsp;Partager&nbsp;» vers le Journal depuis votre téléphone, «&nbsp;Ouvrir avec&nbsp;» sur ordinateur.</li>
         </ul>
       </details>
       <div class="modal-actions">
@@ -822,6 +863,7 @@
       <p class="docx-summary" id="docxSummary"></p>
       <p class="docx-suggest hidden" id="docxRecount">Nouveau&nbsp;: le Journal lit maintenant la vraie pagination de votre document, au lieu d'une moyenne de mots par page. Vos pages rédigées sont recomptées en conséquence&nbsp;; votre journal, lui, ne change pas.</p>
       <p class="docx-suggest hidden" id="docxSuggest">Le Journal sait maintenant repérer vos chapitres même quand ils ne sont pas en «&nbsp;Titre 1&nbsp;». Voici le plan qu'il propose à la place de l'ancien&nbsp;: vérifiez-le, il sera retenu pour les prochaines fois.</p>
+      <p class="docx-suggest hidden" id="docxHeadNote">Ce document n'utilise pas les styles «&nbsp;Titre 1&nbsp;», «&nbsp;Titre 2&nbsp;»&nbsp;: le Journal a repéré vos titres à leur mise en forme (gras, taille, numérotation). Vérifiez le plan ci-dessous. Avec les styles de titre, le repérage ne se trompe jamais, et votre traitement de texte peut générer la table des matières.</p>
       <div class="dx-modes" id="docxModes" role="radiogroup" aria-label="Que faire de ce document"></div>
       <div class="docx-settings">
         <label id="docxScopeRow" class="hidden">Lequel&nbsp;?
@@ -945,7 +987,7 @@
       <div><dt>Où</dt>
         <dd>Le site est hébergé par GitHub Pages. Vos données sont chez Firebase, un service de Google, dans un espace rattaché à votre compte&nbsp;: votre journal ne se lit que depuis ce compte.</dd></div>
       <div><dt>Votre document</dt>
-        <dd>Fichier ou texte collé, il est lu sur votre appareil et n'est envoyé nulle part. Seuls son nom, vos titres et vos nombres de mots et de pages sont gardés. Si vous liez un Google Doc, votre navigateur le télécharge directement chez Google, grâce au lien de partage que vous avez créé&nbsp;: il ne passe par aucun serveur du Journal, et seul l'identifiant du document est gardé avec votre compte. Vous pouvez le délier à tout moment.</dd></div>
+        <dd>Fichier ou texte collé, il est lu sur votre appareil et n'est envoyé nulle part&nbsp;; un fichier reçu par le menu «&nbsp;Partager&nbsp;» est gardé sur l'appareil le temps d'être lu, puis effacé. Seuls son nom, vos titres, vos nombres de mots et de pages, et ce que vos dernières synchros ont changé sont gardés. Si vous liez un Google Doc ou un fichier Dropbox, votre navigateur le télécharge directement chez Google ou Dropbox, grâce au lien de partage que vous avez créé&nbsp;: il ne passe par aucun serveur du Journal. Ce lien (pour Google Docs, l'identifiant du document) est gardé avec votre compte, pour relire le document depuis vos autres appareils. Vous pouvez le délier à tout moment.</dd></div>
       <div><dt>La promo</dt>
         <dd>Elle est facultative. Si vous la rejoignez, les autres voient votre pseudonyme, votre discipline et votre année si vous les indiquez, votre pourcentage d'avancement, vos pages de la semaine, votre série, votre calendrier de régularité et les notes que vous choisissez de partager. Jamais votre nom, votre adresse, votre titre, votre plan ni vos notes privées. Votre fiche se consulte par son lien, même sans compte. Vous pouvez quitter la promo à tout moment&nbsp;: la fiche est alors supprimée.</dd></div>
       <div><dt>Sur votre appareil</dt>
@@ -971,13 +1013,14 @@
 <!-- Quoi de neuf (affiché une fois après chaque mise à jour) -->
 <div class="modal-overlay hidden" id="whatsNewModal" role="dialog" aria-modal="true" aria-labelledby="wnTitle">
   <div class="modal modal-wide">
-    <p class="kicker">Mise à jour · le Journal a appris à compter</p>
-    <h2 id="wnTitle">Vos vraies pages, enfin</h2>
+    <p class="kicker">Mise à jour · le Journal voit plus loin</p>
+    <h2 id="wnTitle">Votre date de fin, en grand</h2>
     <ol class="wn-list">
-      <li><b>Les pages de votre document, pas une moyenne.</b> Le Journal lit la pagination de Word et la mise en page de votre fichier (police, interligne, marges, notes, images). À la prochaine synchro, vos pages sont recomptées&nbsp;; votre journal ne bouge pas.</li>
-      <li><b>Google Docs, par un simple lien.</b> Liez votre document&nbsp;: pages exactes, mises à jour toutes seules, sur tous vos appareils. Et l'on peut changer de document, ou ajouter un chapitre à la fois.</li>
-      <li><b>Un agenda qui vous ressemble.</b> Un horaire par jour si vous voulez, un clic pour Google Agenda, et la prochaine séance annoncée sur votre tableau de bord.</li>
-      <li><b>Une thèse, ce n'est pas que des pages.</b> Terrain, lectures, colloque&nbsp;: ces journées comptent dans votre journal. Avec un joker par semaine, des périodes sans rédaction et, si le cœur vous en dit, un défi.</li>
+      <li><b>«&nbsp;À ce rythme, dernière page le…&nbsp;»</b> La date s'affiche en haut de votre tableau de bord, avec votre vélocité (pages par semaine), sa tendance, et ce que rapporte une page écrite aujourd'hui. Elle avance chaque fois que vous écrivez.</li>
+      <li><b>Presque tous les documents.</b> Un PDF (LaTeX, Overleaf, Pages) donne ses pages exactes, LibreOffice devient aussi précis que Word, les projets LaTeX en .zip, le RTF, Typst ou Markdown sont lus, et vos titres sont reconnus même sans styles.</li>
+      <li><b>Dropbox, par un simple lien.</b> Comme pour Google Docs&nbsp;: collez le lien de partage, vos pages se mettent à jour toutes seules, sur tous vos appareils.</li>
+      <li><b>Une synchro qui dit ce qu'elle fait.</b> Vos pages vont au jour où vous les avez écrites, et l'historique montre ce qui a changé, chapitre par chapitre, avec de quoi annuler.</li>
+      <li><b>Depuis le menu «&nbsp;Partager&nbsp;».</b> Application installée&nbsp;: envoyez votre document au Journal depuis votre téléphone, ou choisissez «&nbsp;Ouvrir avec&nbsp;» sur ordinateur.</li>
       <li class="hidden" id="wnPromo"><b>La promo.</b> Voyez où en sont les autres doctorant·es, sous pseudonyme, et encouragez-vous. Elle a sa place dans le menu.</li>
     </ol>
     <p class="form-hint wn-more">Vos chapitres, vos notes et vos dates sont exactement là où vous les avez laissés.</p>
@@ -1044,8 +1087,8 @@
 <!-- Zone de dépôt plein écran + sélecteur de fichier de secours -->
 <div id="dropOverlay" aria-hidden="true"><div class="drop-box"><svg class="ic ic-lg" aria-hidden="true"><use href="#i-upload"/></svg><b>Déposez votre document</b><span>pour mettre à jour votre avancement</span></div></div>
 <input type="file" id="docxInput" class="visually-hidden" tabindex="-1" aria-hidden="true"
-       accept=".docx,.odt,.tex,.md,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text,text/plain"
-       onchange="handleDocxFile(this.files[0])" />
+       accept=".docx,.docm,.odt,.fodt,.pdf,.rtf,.zip,.tex,.md,.qmd,.rmd,.typ,.org,.adoc,.rst,.txt,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.oasis.opendocument.text,application/pdf,application/rtf,application/zip,text/plain"
+       multiple onchange="handleDocxFiles(this.files)" />
 
 <!-- Messages -->
 <div id="toastBox" aria-live="polite"></div>
@@ -1102,7 +1145,7 @@
       if (n >= 2) return;
       sessionStorage.setItem('jdb_heal', String(n + 1));
     } catch (e) { return; }
-    var files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'ics.js'];
+    var files = ['./', 'style.css', 'app.js', 'core.js', 'outline.js', 'humour.js', 'visuals.js', 'promo.js', 'docx.js', 'pages.js', 'zip.js', 'pdfdoc.js', 'pdfread.js', 'links.js', 'formats.js', 'ics.js'];
     Promise.all(files.map(function (u) { return fetch(u, { cache: 'reload' }).catch(function () {}); }))
       .then(function () { location.reload(); });
   });

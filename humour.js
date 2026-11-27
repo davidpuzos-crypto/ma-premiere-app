@@ -306,6 +306,132 @@ export function streakLine(n) {
   return lines[n] || `${n} jours d'affilée. Respect.`;
 }
 
+/* ============================================================
+   LE PRONOSTIC — la petite phrase sous la date de fin estimée
+   Elle commente la situation (en avance, en retard, en hausse…)
+   sans jamais faire la morale : une date, ça se rattrape.
+============================================================ */
+export const PROGNOSIS = {
+  none: [
+    'Le pronostic attend vos premières pages. Lui aussi sait procrastiner.',
+    'Pas encore de date : il faut au moins une page pour faire une règle de trois.',
+    'Une page notée, et le Journal ose une date. Pas avant : il a sa déontologie.',
+  ],
+  early: [
+    'Première estimation. À lire comme un résumé de colloque : avec bienveillance.',
+    'Quelques jours de données, c\'est mince. On a vu des articles publiés avec moins.',
+    'Estimation de début de suivi : elle se précise à chaque page, comme une problématique.',
+  ],
+  done: [
+    'Dernière page écrite. Il reste la bibliographie, mais ça, personne ne le compte.',
+    'Rédaction terminée. Vous pouvez dire « soutenance » sans que la voix tremble.',
+    'C\'est écrit. Ce qui suit s\'appelle la relecture, et ça se fait avec du thé.',
+  ],
+  paused: [
+    'Période sans rédaction : le pronostic vous attend, sans soupirer.',
+    'En pause déclarée. La date ne bouge pas : elle non plus n\'écrit pas en ce moment.',
+  ],
+  overdue: [
+    'La date prévue est passée. Une date, ça se déplace ; une thèse, ça s\'écrit toujours page par page.',
+  ],
+  gain: [
+    'Aujourd\'hui, la fin s\'est rapprochée. Elle fait ça à chaque page.',
+    'Journée productive : le calendrier vient de perdre une manche.',
+    'Vous venez de gagner des jours de vie après la thèse. On les dit excellents.',
+    'Des pages aujourd\'hui. Quelque part, une date de soutenance vient de frémir.',
+    'C\'est noté, et la date a bougé. Dans le bon sens, pour une fois qu\'une date fait ça.',
+  ],
+  soon: [
+    'La fin est à portée de semaine. Prévenez la famille : cette fois, c\'est vrai.',
+    'Dernière ligne droite. Le crémant du pot de thèse peut aller au frais.',
+  ],
+  ahead_big: [
+    'De l\'avance, et pas qu\'un peu. Ne l\'ébruitez pas, on vous confierait des TD.',
+    'À ce rythme, vous aurez le temps de relire. Voire de dormir.',
+    'Une avance pareille, c\'est suspect. Le Journal a recompté : c\'est bien vous.',
+  ],
+  ahead: [
+    'Dans les temps. Votre direction va croire à une erreur de calcul.',
+    'En avance sur le calendrier. Savourez : c\'est la phrase la plus rare du doctorat.',
+    'Dans les temps, avec un peu de marge pour les imprévus. Il y en aura : c\'est une thèse.',
+  ],
+  exact: [
+    'Pile à l\'heure. Les astres ou la méthode, on ne saura jamais.',
+  ],
+  behind_small: [
+    'Quelques jours de retard : à l\'échelle d\'une thèse, une note de bas de page.',
+    'Un retard de cet ordre se rattrape en deux bonnes semaines. Vous en avez déjà eu.',
+    'Presque dans les temps. Il manque un dimanche pluvieux bien employé.',
+  ],
+  behind: [
+    'En retard sur le papier. Bonne nouvelle : le papier, c\'est vous qui l\'écrivez.',
+    'Le calendrier râle un peu. Une page aujourd\'hui lui clouerait le bec.',
+    'Du retard, oui. Mais une date qui avance à chaque page, ça se négocie.',
+  ],
+  behind_far: [
+    'À ce rythme, le jury aura le temps de changer de coiffure. À vous de le surprendre.',
+    'La date paraît loin ? Elle se rapproche dès que vous écrivez une page. Vraiment : essayez.',
+    'C\'est loin, mais c\'est une date. Hier encore, c\'était « un jour ».',
+  ],
+  free: [
+    'Une date de fin : vous avez enfin une réponse à « alors, cette thèse ? ».',
+    'À ce rythme, la fin existe. C\'est déjà plus que pour beaucoup de thèses.',
+    'Notez cette date quelque part. Vos proches voudront des comptes.',
+  ],
+  far: [
+    'C\'est loin. Mais une date lointaine vaut mieux qu\'un « bientôt ».',
+    'Rendez-vous lointain, mais ferme. Et il avance à chaque page.',
+  ],
+  faster: [
+    'Vous accélérez. Le document commence à s\'inquiéter.',
+    'Rythme en hausse. Quelqu\'un a trouvé son plan.',
+    'Ça accélère. À ce train, il faudra bientôt prévenir l\'imprimeur.',
+  ],
+  slower: [
+    'Petit coup de mou. Même les marathoniens marchent aux ravitaillements.',
+    'Le rythme baisse. Rien d\'irréversible : la date se rattrape une page à la fois.',
+    'Rythme en baisse. Une thèse est une course de fond : on a le droit de reprendre son souffle.',
+  ],
+};
+
+/**
+ * Les registres qui conviennent à la situation.
+ * c : { status, basis, hasEnd, paused, margin, daysToEnd, gainToday, velocity, trend }
+ *   status    'done' | 'overdue' | 'ontrack' | 'behind' | 'nopace' | 'none'
+ *   margin    jours d'avance (positif) ou de retard (négatif) sur la fin de rédaction visée
+ *   daysToEnd jours d'ici la fin estimée
+ *   trend     évolution du rythme en quatre semaines (pages par semaine), ou null
+ */
+export function prognosisMoods(c) {
+  if (c.status === 'done') return ['done'];
+  if (c.paused) return ['paused'];
+  if (!c.hasEnd) return ['none'];
+  if (c.basis === 'early') return ['early'];
+  // Le jour où l'on a écrit, on fête : pas de remarque sur le retard
+  const happy = c.gainToday > 0;
+  const moods = happy ? ['gain'] : [];
+  if (c.daysToEnd != null && c.daysToEnd <= 30) moods.push('soon');
+  if (c.status === 'ontrack') moods.push(c.margin >= 60 ? 'ahead_big' : c.margin > 0 ? 'ahead' : 'exact');
+  else if (!happy) {
+    if (c.status === 'overdue') moods.push('overdue');
+    else if (c.status === 'behind') moods.push(-c.margin <= 30 ? 'behind_small' : -c.margin <= 180 ? 'behind' : 'behind_far');
+    else moods.push(c.daysToEnd > 1095 ? 'far' : 'free');
+  }
+  if (c.trend != null && c.velocity > 0) {
+    const was = Math.max(0.1, c.velocity - c.trend);   // le rythme d'il y a quatre semaines
+    if (c.trend >= 0.3 && c.trend / was >= 0.15) moods.push('faster');
+    else if (!happy && c.trend <= -0.3 && c.trend / was <= -0.15) moods.push('slower');
+  }
+  return moods;
+}
+
+/** La phrase du jour pour cette situation : la même toute la journée, une autre demain. */
+export function prognosisLine(c, dayKey) {
+  const moods = prognosisMoods(c);
+  const pool = moods.flatMap(m => PROGNOSIS[m] || []);
+  return pool.length ? typo(pool[hash(`fin-${dayKey}-${moods.join('+')}`) % pool.length]) : '';
+}
+
 export const GHOST_LINES = [
   "Le yéti n'a toujours pas été aperçu.",
   'Pas de nouvelles, bonnes nouvelles ? Rien n\'est moins sûr.',
