@@ -70,8 +70,29 @@ export function collection(db, ...parts) { return { path: parts.join('/'), kind:
 export function orderBy(field, dir = 'asc') { return { kind: 'orderBy', field, dir }; }
 export function limit(n) { return { kind: 'limit', n }; }
 export function query(col, ...cons) { return { ...col, cons }; }
+/* Ce que la vraie bibliothèque refuse avant tout envoi, et qu'un bouchon trop tolérant laisserait passer en test
+   pour échouer en ligne : un tableau placé directement dans un tableau (« Nested arrays are not supported »),
+   une fonction, un nom de champ vide. Vérifié face au vrai SDK (10.8.1). Les valeurs undefined sont ignorées,
+   comme avec l'option ignoreUndefinedProperties que l'application active. */
+function validate(value, path, inArray) {
+  const fail = why => { const e = new Error(`Function setDoc() called with invalid data. ${why} (found in ${path || 'document'})`); e.code = 'invalid-argument'; e.name = 'FirebaseError'; throw e; };
+  if (typeof value === 'function' || typeof value === 'symbol') fail('Unsupported field value: a function');
+  if (Array.isArray(value)) {
+    if (inArray) fail('Nested arrays are not supported');
+    value.forEach((v, i) => validate(v, `${path}[${i}]`, true));
+  } else if (value && typeof value === 'object') {
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null && !(value instanceof Date)) fail(`Unsupported field value: a custom ${value.constructor && value.constructor.name} object`);
+    for (const [k, v] of Object.entries(value)) {
+      if (!k) fail('Document fields must not be empty');
+      validate(v, path ? `${path}.${k}` : k, false);
+    }
+  }
+}
+
 export async function setDoc(ref, data, opts) {
   if (window.__fbDeny) throw deny();
+  validate(data, '', false);
   check(ref.path, 'write');
   const s = load();
   const clean = JSON.parse(JSON.stringify(data));

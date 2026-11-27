@@ -42,21 +42,109 @@ assert.equal(p0b.forecast, 0);
 // Premiers jours : estimation provisoire sur les pages notées
 const pe = C.pace({ trackedSince: '2026-11-23', startDate: null, activity: { '2026-11-23': 2, '2026-11-25': 1 } }, '2026-11-25', 103);
 assert.equal(pe.basis, 'early');
-assert.equal(pe.forecast, 1); // 3 pages en 3 jours
+assert.ok(Math.abs(pe.forecast - 1) < 0.01, '3 pages en 3 jours : ' + pe.forecast);
+// Deux mois de suivi : le rythme est une moyenne où les dernières semaines pèsent le plus. 28 pages en quatre semaines
+// après un mois sans rien : 7 pages par semaine sur le mois, 3,5 sur les deux mois ; on retient 3,5 (et non 7).
 const p2 = C.pace({ trackedSince: '2026-10-01', startDate: '2026-01-01', activity: { '2026-11-21': 14, '2026-11-01': 14 } }, '2026-11-25', 100);
 assert.equal(p2.basis, 'recent');
 assert.equal(p2.recentWindow, 28);
-assert.equal(p2.forecast, 1); // 28 pages / 28 jours
+assert.equal(p2.recent, 1, 'moyenne brute des 28 derniers jours : 28 pages');
+assert.ok(p2.forecast * 7 > 3.3 && p2.forecast * 7 < 3.7, 'rythme retenu : ' + p2.forecast * 7);
+{
+  // Pas d'à-coup : la page écrite il y a quatre semaines s'efface en douceur, elle ne « sort » pas d'une fenêtre
+  const st = { trackedSince: '2026-06-01', activity: { '2026-10-27': 7, '2026-11-10': 7 } };
+  const v = d => C.pace(st, d, 0).forecast * 7;
+  const drop = v('2026-11-24') - v('2026-11-25');
+  assert.ok(drop > 0 && drop < 0.05, 'un jour sans écrire : le rythme baisse à peine (' + drop + ')');
+  assert.ok(Math.abs((v('2026-11-23') - v('2026-11-24')) - drop) < 0.01, 'et pas plus le jour où la page a vingt-huit jours');
+  // Une page aujourd'hui : le rythme monte, sans bondir
+  const up = C.pace({ ...st, activity: { ...st.activity, '2026-11-25': 1 } }, '2026-11-25', 0).forecast * 7 - v('2026-11-25');
+  assert.ok(up > 0.05 && up < 0.15, 'une page de plus : +' + up + ' page par semaine');
+  // Six semaines de terrain déclarées : ni pages ni jours, le rythme d'avant reste le rythme
+  const before = v('2026-11-25');
+  const paused = C.pace({ ...st, pauses: [{ from: '2026-11-26', to: '2027-01-06', kind: 'terrain' }] }, '2027-01-06', 0).forecast * 7;
+  const idle = C.pace(st, '2027-01-06', 0).forecast * 7;
+  assert.ok(Math.abs(paused - before) < 0.02, 'pendant une période sans rédaction, le rythme ne s\'effondre pas : ' + paused + ' contre ' + before);
+  assert.ok(idle < before * 0.85, 'sans période déclarée, six semaines sans écrire le font baisser : ' + idle);
+  // Peu de pages (14 en six mois) : la mémoire est longue, pour qu'une page ne fasse pas tout basculer
+  const sparse = C.pace(st, '2026-11-25', 0);
+  assert.equal(sparse.half, 224);
+  assert.ok(sparse.pages > 10 && sparse.pages < 14, 'pages en mémoire : ' + sparse.pages);
+  // Rédaction dense (six pages par semaine depuis juin) : mémoire courte et réactive
+  const act = {};
+  for (let k = '2026-06-01'; k <= '2026-11-25'; k = C.addDays(k, 1)) if ([1, 3, 5].includes(C.weekday(k))) act[k] = 2;
+  const dense = { trackedSince: '2026-06-01', activity: act };
+  const d0 = C.pace(dense, '2026-11-25', 0);
+  assert.equal(d0.half, 56);
+  assert.ok(d0.pages > 55, 'une soixantaine de pages en mémoire : ' + d0.pages);
+  assert.ok(Math.abs(d0.forecast * 7 - 6) < 0.2, 'six pages par semaine : ' + d0.forecast * 7);
+  const d6 = C.pace(dense, '2027-01-06', 0);
+  assert.ok(d6.forecast < d0.forecast * 0.65, 'six semaines sans écrire : le rythme d\'une rédaction dense baisse franchement');
+  // Entre les deux, la mémoire s'ajuste sans à-coup : une demi-page de plus ne déplace pas le rythme de plus de 3 %
+  const mid = {};
+  for (let k = '2026-06-01'; k <= '2026-11-25'; k = C.addDays(k, 1)) if (C.weekday(k) === 3) mid[k] = 2.5;
+  const m0 = C.pace({ trackedSince: '2026-06-01', activity: mid }, '2026-11-25', 0);
+  assert.ok(m0.half > 56 && m0.half < 224, 'demi-vie intermédiaire : ' + m0.half);
+  assert.ok(Math.abs(m0.pages - 30) < 0.5, 'trente pages en mémoire : ' + m0.pages);
+  for (let extra = 0.5; extra <= 6; extra += 0.5) {
+    const a0 = C.pace({ trackedSince: '2026-06-01', activity: { ...mid, '2026-11-24': extra - 0.5 } }, '2026-11-25', 0).forecast;
+    const a1 = C.pace({ trackedSince: '2026-06-01', activity: { ...mid, '2026-11-24': extra } }, '2026-11-25', 0).forecast;
+    assert.ok(a1 > a0 && a1 / a0 < 1.03, `de ${extra - 0.5} à ${extra} page : ${a0 * 7} puis ${a1 * 7}`);
+  }
+  // Rythme d'avant le suivi (100 pages en un an) : point de départ, qui s'efface à mesure que le suivi dit autre chose
+  const prior = d => C.pace({ trackedSince: '2026-11-01', startDate: '2025-11-01', activity: {} }, d, 100);
+  assert.equal(prior('2026-11-03').basis, 'average');
+  assert.ok(Math.abs(prior('2026-11-03').forecast * 7 - 1.77) < 0.2, 'au début : le rythme moyen, ' + prior('2026-11-03').forecast * 7);
+  assert.ok(prior('2027-02-01').forecast * 7 < 0.4, 'trois mois sans une page notée : il ne reste presque rien du rythme d\'avant');
+  assert.equal(prior('2027-02-01').basis, 'recent');
+}
 
 // Prévision avec échéance
 const fc = C.forecast({ trackedSince: '2026-10-01', startDate: '2026-01-01', activity: { '2026-11-21': 14, '2026-11-01': 14 }, deadline: '2027-01-15', marginDays: 14, writingDays: [1,2,3,4,5] }, { total: 150, written: 100 }, '2026-11-25');
 assert.equal(fc.writingEnd, '2027-01-01');
 assert.equal(fc.daysLeft, 38);
-assert.equal(fc.projectedEnd, '2027-01-14');
+assert.equal(fc.projectedEnd, '2027-03-05', '50 pages à 3,5 pages par semaine : cent jours');
 assert.equal(fc.status, 'behind');
-assert.equal(fc.margin, -13);
+assert.equal(fc.margin, -63);
+assert.ok(Math.abs(fc.velocity - 3.5) < 0.1);
+assert.ok(Math.abs(fc.perWeek - 9.21) < 0.01, 'à tenir : 50 pages en 38 jours');
+assert.ok(Math.abs(fc.missing - (fc.perWeek - fc.velocity)) < 1e-9 && fc.missing > 5, 'ce qu\'il manque par semaine pour arriver à l\'heure');
+assert.ok(fc.trend > 2, 'on accélère : il y a quatre semaines le rythme était bien plus bas (' + fc.trend + ')');
+assert.equal(fc.gainToday, 0, 'rien écrit aujourd\'hui');
+assert.ok(fc.gainPerPage >= 3 && fc.gainPerPage <= 8, 'une page de plus aujourd\'hui avance la fin de quelques jours : ' + fc.gainPerPage);
 assert.equal(fc.writingDaysLeft, C.countWritingDays('2026-11-25', '2027-01-01', [1,2,3,4,5]));
 assert.equal(fc.dailyGoal, Math.max(0.5, Math.ceil(50 / fc.writingDaysLeft * 2) / 2));
+{
+  // Trois pages aujourd'hui : la fin avance d'autant de jours que le dit « gainToday »
+  const base = { trackedSince: '2026-10-01', activity: { '2026-11-21': 14, '2026-11-01': 14 } };
+  const f0 = C.forecast(base, { total: 150, written: 100 }, '2026-11-25');
+  const f3 = C.forecast({ ...base, activity: { ...base.activity, '2026-11-25': 3 } }, { total: 150, written: 103 }, '2026-11-25');
+  assert.equal(f3.gainToday, C.diffDays(f3.projectedEnd, f0.projectedEnd));
+  assert.ok(f3.gainToday >= 10, 'trois pages : ' + f3.gainToday + ' jours gagnés');
+  // Sans échéance : un pronostic quand même, sans verdict
+  assert.deepEqual([f0.status, f0.perWeek, f0.missing, !!f0.projectedEnd], ['none', null, 0, true]);
+  // Rythme infime : pas de date dans un siècle
+  assert.equal(C.forecast({ trackedSince: '2026-01-01', activity: { '2026-01-02': 0.01 } }, { total: 5000, written: 0 }, '2026-11-25').projectedEnd, null);
+  // Semaines et record
+  const wk = C.weeklyPages(base, '2026-11-25', 5);
+  assert.deepEqual(wk.map(w => [w.monday, w.pages]), [['2026-10-26', 14], ['2026-11-02', 0], ['2026-11-09', 0], ['2026-11-16', 14], ['2026-11-23', 0]]);
+  assert.deepEqual(C.bestWeek({ activity: { '2026-11-02': 3, '2026-11-04': 2.5, '2026-11-10': 4, '2026-11-12': -1 } }), { monday: '2026-11-02', pages: 5.5 });
+  assert.equal(C.bestWeek({ activity: {} }), null);
+}
+{
+  // Durées en mots
+  const w = d => C.spanWords(d);
+  assert.deepEqual([w(0), w(1), w(5), w(13)], ['moins d\'un jour', '1 jour', '5 jours', '13 jours']);
+  assert.deepEqual([w(14), w(20), w(59)], ['2 semaines', '3 semaines', '8 semaines']);
+  assert.deepEqual([w(60), w(423), w(700)], ['2 mois', '14 mois', '23 mois']);
+  assert.deepEqual([w(731), w(900), w(1100), w(1500)], ['2 ans', '2 ans et demi', '3 ans', '4 ans']);
+  // La période sans rédaction en cours est signalée
+  const st = { trackedSince: '2026-06-01', activity: { '2026-11-10': 7 }, pauses: [{ from: '2026-11-20', to: '2026-12-05', kind: 'terrain' }] };
+  assert.equal(C.forecast(st, { total: 100, written: 20 }, '2026-11-25').pause.kind, 'terrain');
+  assert.equal(C.forecast(st, { total: 100, written: 20 }, '2026-12-06').pause, null);
+  // Pendant la période, la date de fin ne bouge pas : ni le rythme ni le reste ne changent, et un jour de pause est passé
+  assert.equal(C.forecast(st, { total: 100, written: 20 }, '2026-11-25').projectedEnd, C.forecast(st, { total: 100, written: 20 }, '2026-11-30').projectedEnd);
+}
 const fcDone = C.forecast({}, { total: 10, written: 12 }, '2026-11-25');
 assert.equal(fcDone.status, 'done');
 const fcOver = C.forecast({ deadline: '2026-11-01', marginDays: 0 }, { total: 10, written: 2 }, '2026-11-25');
@@ -325,6 +413,18 @@ console.log('outline.js : plan de document OK');
   assert.match(wk, /--g:0\.500/, 'ligne d\'objectif à mi-hauteur');
   assert.match(wk, /aria-label="Pages par jour cette semaine : jour0 2, jour1 0, jour2 4"/);
   assert.ok(!/wk-goal/.test(V.weekBarsHTML(days, 0)), 'pas de ligne sans objectif');
+  // La vélocité : une barre par semaine, la semaine en cours en avant, le rythme à tenir en repère
+  const weeks = [0, 3, 0, 6, 1.5].map((pages, i) => ({ label: 'semaine ' + i, pages, now: i === 4, off: i === 0 }));
+  const pc = V.paceBarsHTML(weeks, 4);
+  assert.equal((pc.match(/class="pc-col/g) || []).length, 5);
+  assert.equal((pc.match(/pc-col is-off/g) || []).length, 1, 'avant le suivi : rien à montrer');
+  assert.match(pc, /pc-col is-now" data-tip="semaine 4 : 1,5 p\."/);
+  assert.match(pc, /pc-col is-zero" data-tip="semaine 2 : 0 p\."/);
+  assert.match(pc, /--h:0\.500/, '3 pages sur un maximum de 6');
+  assert.match(pc, /pc-need" style="--g:0\.667"/, 'repère aux deux tiers');
+  assert.match(pc, /aria-label="Pages par semaine : semaine 1 3, semaine 2 0, semaine 3 6, semaine 4 1,5 ; à tenir : 4 par semaine"/);
+  assert.ok(!/pc-need/.test(V.paceBarsHTML(weeks, 0)), 'pas de repère sans échéance');
+  assert.match(V.paceBarsHTML(weeks.map(w => ({ ...w, pages: 0 })), 12), /--g:1\.000/, 'le repère fixe l\'échelle quand il dépasse toutes les semaines');
   // Le niveau : une pastille par grade intermédiaire
   const ticks = V.levelTicksHTML(45, [0, 1, 10, 25, 40, 50, 65, 80, 95, 100]);
   assert.equal((ticks.match(/level-tick/g) || []).length, 8);
@@ -339,6 +439,53 @@ console.log('outline.js : plan de document OK');
   assert.match(V.initials('<img src=x onerror=alert(1)>'), /^[\p{L}\p{N}]{1,2}$/u, 'jamais de balise dans une pastille');
 }
 console.log('visuals.js : dessins OK');
+
+/* ------------------------------------------------------------
+   humour.js : la petite phrase du pronostic
+------------------------------------------------------------ */
+{
+  const H = await import('../humour.js');
+  const base = { hasEnd: true, basis: 'recent', daysToEnd: 300, velocity: 4, trend: 0, gainToday: 0 };
+  const moods = c => H.prognosisMoods({ ...base, ...c }).join('+');
+  assert.equal(moods({ status: 'done' }), 'done');
+  assert.equal(moods({ status: 'behind', margin: -40, paused: true }), 'paused', 'en pause, on ne parle pas de retard');
+  assert.equal(moods({ status: 'nopace', hasEnd: false }), 'none');
+  assert.equal(moods({ status: 'behind', margin: -40, basis: 'early' }), 'early', 'les premiers jours, l\'estimation reste modeste');
+  assert.equal(moods({ status: 'ontrack', margin: 90 }), 'ahead_big');
+  assert.equal(moods({ status: 'ontrack', margin: 12 }), 'ahead');
+  assert.equal(moods({ status: 'ontrack', margin: 0 }), 'exact');
+  assert.equal(moods({ status: 'behind', margin: -20 }), 'behind_small');
+  assert.equal(moods({ status: 'behind', margin: -62 }), 'behind');
+  assert.equal(moods({ status: 'behind', margin: -400 }), 'behind_far');
+  assert.equal(moods({ status: 'none' }), 'free');
+  assert.equal(moods({ status: 'none', daysToEnd: 2000 }), 'far');
+  assert.equal(moods({ status: 'overdue' }), 'overdue');
+  assert.equal(moods({ status: 'ontrack', margin: 5, daysToEnd: 12 }), 'soon+ahead');
+  assert.equal(moods({ status: 'behind', margin: -62, trend: 1.2 }), 'behind+faster');
+  assert.equal(moods({ status: 'behind', margin: -62, trend: -1.2 }), 'behind+slower');
+  assert.equal(moods({ status: 'behind', margin: -62, trend: -0.1 }), 'behind', 'une variation infime n\'est pas une tendance');
+  assert.equal(moods({ status: 'behind', margin: -62, trend: null }), 'behind');
+  // Le jour où l'on a écrit, on fête : ni retard, ni baisse de rythme
+  assert.equal(moods({ status: 'behind', margin: -62, trend: -1.2, gainToday: 9 }), 'gain');
+  assert.equal(moods({ status: 'ontrack', margin: 12, trend: 1.2, gainToday: 9 }), 'gain+ahead+faster');
+  // Une phrase pour chaque registre, la même toute la journée, typographiée, sans tiret d'incise
+  for (const [mood, lines] of Object.entries(H.PROGNOSIS)) {
+    assert.ok(lines.length >= 1, mood);
+    for (const l of lines) {
+      assert.ok(l.length > 20 && l.length <= 110, `${mood} : « ${l} » (${l.length} signes)`);
+      assert.ok(!/[—–]| - /.test(l), `pas de tiret : ${l}`);
+    }
+  }
+  const c = { ...base, status: 'behind', margin: -62 };
+  const line = H.prognosisLine(c, '2026-11-26');
+  assert.equal(line, H.prognosisLine(c, '2026-11-26'));
+  assert.ok(H.PROGNOSIS.behind.map(H.typo).includes(line));
+  const week = new Set(Array.from({ length: 14 }, (_, i) => H.prognosisLine(c, C.addDays('2026-11-26', i))));
+  assert.ok(week.size >= 2, 'la phrase change d\'un jour à l\'autre');
+  assert.match(H.prognosisLine({ ...base, status: 'none' }, '2026-11-27'), /\u00A0[:?»]|^[^:?»]*$/, 'espaces insécables à la française');
+  assert.equal(H.prognosisLine({ status: 'weird', hasEnd: true, basis: 'recent', daysToEnd: 10 }, '2026-11-26').length > 0, true);
+}
+console.log('humour.js : pronostic OK');
 
 /* ------------------------------------------------------------
    Périodes hors rédaction, activités de thèse, joker, défi de la semaine
@@ -518,6 +665,11 @@ console.log('core.js : périodes, joker, défi OK');
   near(r.starts[0], 1, 0.001, 'le titre ne reste pas seul en bas de page');
   r = P.paginate(lay([...fill, p('Titre', { hd: 0 }), p(SENT.repeat(4))]), 1);
   assert.ok(r.starts[0] < 1, 'sans « paragraphes solidaires », il reste en bas de page');
+  // …mais la chaîne s'arrête au paragraphe qui ouvre de toute façon une page : le titre et sa légende restent en bas de page
+  const three = Array.from({ length: 3 }, () => p(SENT.repeat(4)));       // 24 lignes : il en reste neuf
+  r = P.paginate(lay([...three, p('Figure', { hd: 0, kn: 1 }), p('Légende', { kn: 1 }), p('Chapitre suivant', { hd: 1, pb: 1, kn: 1 }), p(SENT.repeat(40))]), 2);
+  assert.ok(r.starts[0] < 1, 'la figure reste sur la première page : ' + r.starts[0]);
+  near(r.starts[1], 1, 0.001, 'le chapitre suivant ouvre la deuxième');
   // Notes de bas de page : elles prennent la place du texte
   const note = [p('Archives départementales de l’Ardèche, rapport de l’ingénieur ordinaire. '.repeat(6), { lv: 1 })];
   const noted = long.map(b => ({ ...b, r: [...b.r, { k: 'fn', n: 0 }], notes: [note] }));
@@ -539,6 +691,21 @@ console.log('core.js : périodes, joker, défi OK');
   r = P.paginate({ sections: [A4, { ...A4, type: 'continuous' }], blocks: [p('Un', { hd: 0 }), p('Deux', { hd: 1, s: 1 })], gen: 'other' }, 2);
   assert.equal(r.total, 1);
 
+  // Saut de page, puis paragraphe vide qui porte la fin de section, puis nouvelle section : Word n'en fait pas une page blanche
+  const brk = (text = SENT) => p(text, { r: [...(text ? [run(text)] : []), { k: 'pb' }] });
+  r = P.paginate({ sections: [A4, { ...A4, type: '' }], gen: 'other', blocks: [p('Un', { hd: 0 }), brk(), p(''), p('Deux', { hd: 1, s: 1 })] }, 2);
+  assert.equal(r.total, 2);
+  near(r.starts[1], 1, 0.001);
+  // …alors qu'une ligne de texte sur cette page en fait une vraie page, et que deux sauts de page à la suite laissent une page blanche
+  r = P.paginate({ sections: [A4, { ...A4, type: '' }], gen: 'other', blocks: [p('Un', { hd: 0 }), brk(), p('Une ligne.'), p('Deux', { hd: 1, s: 1 })] }, 2);
+  assert.equal(r.total, 3);
+  r = P.paginate(lay([p('Un', { hd: 0 }), brk(), brk(''), p('Deux', { hd: 1 })]), 2);
+  assert.equal(r.total, 3);
+  // Quelques lignes qui débordent juste avant un saut de page : comptées (une page de plus), sauf réglage du banc de mesure
+  const spill = [...Array.from({ length: 4 }, () => p(SENT.repeat(4))), brk(SENT.repeat(2)), p('Deux', { hd: 0 })];
+  assert.equal(P.paginate(lay(spill), 1).total, 3);
+  assert.equal(P.paginate(lay(spill), 1, { tune: { tiny: 0.12 } }).total, 2);
+
   // Pagination réelle : les repères de Word l'emportent sur la simulation
   const marked = [p('Un', { hd: 0 }), p(SENT), p('Deux', { hd: 1, r: [{ k: 'mk' }, run('Deux')] }), p(SENT),
     p(SENT + SENT, { r: [run(SENT), { k: 'mk' }, run(SENT)] }), p('Trois', { hd: 2 }), p(SENT)];
@@ -548,6 +715,28 @@ console.log('core.js : périodes, joker, défi OK');
   near(r.starts[0], 0, 0.001);
   near(r.starts[1], 1, 0.001, 'le titre qui porte le repère ouvre la page 2');
   assert.ok(r.starts[2] > 2 && r.starts[2] < 3, 'le troisième titre est en cours de page 3');
+  /* Une table des matières de deux pages : Word n'y laisse pas de repère. Trois repères (quatre pages), mais Word a
+     enregistré cinq pages : la page manquante est rendue à la table, et tout ce qui suit est décalé d'autant. */
+  const toc = Array.from({ length: 50 }, (_, i) => p(`Chapitre ${i + 1} ........ ${i + 3}`, { nm: 1 }));     // 50 lignes : une page et demie
+  const withToc = [p('Sommaire', { hd: 0 }), ...toc,
+    p('Introduction', { hd: 1, r: [{ k: 'mk' }, run('Introduction')] }), p(SENT.repeat(30)),
+    p(SENT.repeat(4), { r: [run(SENT), { k: 'mk' }, run(SENT.repeat(3))] }), p('Chapitre 1', { hd: 2, r: [{ k: 'mk' }, run('Chapitre 1')] }), p(SENT)];
+  r = P.paginate(lay(withToc, { gen: 'word', pagesMeta: 5 }), 3);
+  assert.equal(r.source, 'word');
+  assert.equal(r.total, 5, 'le total de Word, repères plus la page sans repère');
+  near(r.starts[1], 2, 0.001, 'l\'introduction commence page 3, après les deux pages de la table');
+  near(r.starts[2], 4, 0.001);
+  // Sans indication du fichier, ou avec un total inférieur aux repères : les repères seuls
+  assert.equal(P.paginate(lay(withToc, { gen: 'word' }), 3).total, 4);
+  assert.equal(P.paginate(lay(withToc, { gen: 'word', pagesMeta: 4 }), 3).total, 4);
+  // L'écart ne tombe pas dans du texte courant (un saut de page y aurait laissé son repère) : la page manquante va en fin de document
+  const plain = withToc.map(b => (b.nm ? { ...b, nm: 0 } : b));
+  r = P.paginate(lay(plain, { gen: 'word', pagesMeta: 5 }), 3);
+  assert.equal(r.total, 5);
+  near(r.starts[1], 1, 0.001, 'les titres restent où les repères les placent');
+  // Un écart trop grand pour être celui d'une table des matières : on ne suit pas le fichier
+  assert.equal(P.paginate(lay(withToc, { gen: 'word', pagesMeta: 9 }), 3).total, 4);
+
   // Repères incohérents avec le fichier et avec la simulation : on ne s'y fie pas
   r = P.paginate(lay([p('Un', { hd: 0, r: [{ k: 'mk' }, run('Un')] }), ...long], { gen: 'word', pagesMeta: 15 }), 1);
   assert.equal(r.source, 'meta');
@@ -609,5 +798,453 @@ console.log('core.js : périodes, joker, défi OK');
   assert.ok(r.starts[1] > 2 && r.starts[1] < 4.5, 'le titre sans signet est placé au prorata : ' + r.starts[1]);
   const sp = P.spans(r.starts, r.total);
   near(sp.front + sp.pages.reduce((a, b) => a + b, 0), 10, 1e-9, 'la somme des parties est le nombre de pages');
+
+  // Sauts de page enregistrés par LibreOffice : nombre de pages, page de chaque titre, place dans la page
+  const A = [{ w: 300, hd: 0 }, { w: 2700 }, { brk: 'soft' }, { w: 1500 }, { w: 100, hd: 1 }, { w: 1400 }, { brk: 'soft' }, { w: 3000 }, { brk: 'hard' }, { w: 60, hd: 2 }, { w: 900 }];
+  const br = P.byBreaks(A);
+  assert.deepEqual([br.total, br.soft, br.hard], [4, 2, 1]);
+  assert.equal(br.starts.get(0), 0);
+  near(br.starts.get(1), 1.5, 1e-9, 'au milieu de la page 2');
+  near(br.starts.get(2), 3, 1e-9, 'en haut de la page 4');
+  assert.deepEqual([br.median, br.last, br.max], [3000, 960, 3000]);
+  // Titre sur la dernière page, à moitié pleine : rapporté à une page courante, pas à ce qui s'y trouve
+  near(P.byBreaks([{ w: 3000 }, { brk: 'soft' }, { w: 3000 }, { brk: 'soft' }, { w: 600 }, { w: 60, hd: 0 }, { w: 300 }]).starts.get(0), 2.2, 1e-9);
+  assert.deepEqual([P.byBreaks([]).total, P.byBreaks([{ w: 10, hd: 0 }]).starts.get(0)], [1, 0]);
 }
 console.log('pages.js : pagination OK');
+
+// -----------------------------------------------------------
+// zip.js : lecture des archives (docx, odt) sans bibliothèque
+// -----------------------------------------------------------
+{
+  const Z = await import('../zip.js');
+  const fs = await import('node:fs');
+  const { execFileSync } = await import('node:child_process');
+  const fix = n => new URL('./fixtures/' + n, import.meta.url).pathname;
+  assert.equal(Z.canInflate(), true);
+  for (const [file, entry] of [['these.docx', 'word/document.xml'], ['these-titre-unique.odt', 'content.xml'], ['natif.odt', 'styles.xml']]) {
+    const buf = fs.readFileSync(fix(file));
+    const zip = Z.openZip(buf);
+    assert.ok(zip.has(entry), `${file} contient ${entry}`);
+    assert.equal(zip.has('absent.xml'), false);
+    assert.equal(await zip.bytes('absent.xml'), null);
+    const ref = execFileSync('unzip', ['-p', fix(file), entry], { maxBuffer: 1 << 28 });
+    const got = await zip.bytes(entry);
+    assert.equal(got.length, ref.length, `${file} : même taille que l'outil unzip`);
+    assert.equal(zip.size(entry), ref.length);
+    assert.ok(Buffer.from(got).equals(ref), `${file} : mêmes octets que l'outil unzip`);
+    assert.equal(await zip.text(entry), ref.toString('utf8').replace(/^﻿/, ''));
+    // Toutes les entrées se lisent (compressées ou simplement rangées)
+    for (const n of zip.names) assert.equal((await zip.bytes(n)).length, zip.size(n), `${file} : ${n}`);
+  }
+  // Un ArrayBuffer convient aussi ; un fichier qui n'est pas une archive est refusé proprement
+  const ab = fs.readFileSync(fix('these.docx'));
+  assert.ok(Z.openZip(ab.buffer.slice(ab.byteOffset, ab.byteOffset + ab.byteLength)).names.length > 3);
+  assert.throws(() => Z.openZip(new Uint8Array(10)), e => e.code === 'not-zip');
+  assert.throws(() => Z.openZip(new TextEncoder().encode('%PDF-1.7 ' + 'x'.repeat(400))), e => e.code === 'not-zip');
+  // Archive tronquée : pas de répertoire central
+  assert.throws(() => Z.openZip(ab.subarray(0, ab.length - 200)), e => e.code === 'not-zip');
+  // Noms accentués (UTF-8 sans drapeau, comme l'archiveur de macOS) et texte UTF-16
+  assert.equal(Z.decodeBytes(new Uint8Array([0xFF, 0xFE, 0xE9, 0x00, 0x74, 0x00, 0xE9, 0x00])), 'été');
+  assert.equal(Z.decodeBytes(new Uint8Array([0xEF, 0xBB, 0xBF, 0x61])), 'a');
+  assert.equal(Z.decodeBytes(null), null);
+}
+console.log('zip.js : archives OK');
+{
+  const Z = await import('../zip.js');
+  const fs = await import('node:fs');
+  // Projet LaTeX zippé : une entrée au format Zip64, un fichier rangé sans compression, des noms accentués
+  const zip = Z.openZip(fs.readFileSync(new URL('./fixtures/projet-latex.zip', import.meta.url)));
+  assert.deepEqual(zip.names, ['main.tex', 'chapitres/intro.tex', 'chapitres/methode.tex', 'chapitres/resultats.tex', 'données/été.txt', 'refs.bib', 'figures/pont.png']);
+  assert.match(await zip.text('main.tex'), /\\input\{chapitres\/intro\}/);
+  assert.equal(await zip.text('données/été.txt'), 'Notes de travail, hors manuscrit.\n');
+  assert.equal((await zip.bytes('figures/pont.png')).length, 72);
+}
+console.log('zip.js : projet zippé OK');
+
+// -----------------------------------------------------------
+// outline.js : titres repérés sans styles, niveaux d'après la numérotation
+// -----------------------------------------------------------
+{
+  const O = await import('../outline.js');
+  assert.equal(O.titleKey('  Chapitre 2 : État de l’art  '), 'chapitre 2 etat de l art');
+  const nb = t => { const x = O.titleNumbering(t); return x.kind + (x.kind === 'num' ? x.depth : ''); };
+  assert.deepEqual(['1 Introduction', '2.3.1 Bandes', 'II.3 Les algues', 'I.1.1 Définition', 'A. Preuves', 'IV - Résultats'].map(nb), ['num1', 'num3', 'num2', 'num3', 'num1', 'num1']);
+  assert.deepEqual(['Chapitre 3 : Méthode', 'Deuxième partie', 'Conclusion générale', 'Références bibliographiques', 'List of figures', 'Acknowledgements'].map(nb), ['chap', 'part', 'matter', 'matter', 'matter', 'matter']);
+  assert.deepEqual(['A Scrooge McDuck Theory', '2025 en chiffres', 'Le fer', '3D printing'].map(nb), ['', '', '', ''], 'un article, une année, un mot ne sont pas des numéros');
+
+  const body = 'Les ingénieurs hésitent longtemps entre le fer et la pierre, et les archives gardent la trace de chacune de leurs hésitations.';
+  const P = (text, o = {}) => ({ text, size: 12, ...o });
+  // Mise en forme à la main : page de garde, sommaire, « CHAPITRE 1 » puis son intitulé, sections numérotées en gras
+  const doc = [
+    P('UNIVERSITÉ DE LYON', { size: 16, center: true }), P('Les ponts suspendus', { size: 24, bold: true, center: true }), P('Thèse présentée par Camille Durand', { center: true }),
+    P('Sommaire', { size: 16, bold: true }), P('Introduction'), P('Chapitre 1 : Le fer'), P('Chapitre 2 : La pierre'), P('Conclusion'),
+    P('Introduction', { size: 16, bold: true }), P(body), P(body),
+    P('CHAPITRE 1', { size: 16, bold: true }), P('Le fer', { size: 16, bold: true }), P(body),
+    P('1.1 Les forges', { bold: true }), P(body), P('Figure 1 : une forge', { bold: true }), P(body),
+    P('1.2 Les ingénieurs', { bold: true }), P(body), P('Une phrase en gras qui se termine par un point.', { bold: true }), P(body),
+    P('CHAPITRE 2', { size: 16, bold: true }), P('La pierre', { size: 16, bold: true }), P(body), P('2.1 Les carrières', { bold: true }), P(body),
+    P('Conclusion', { size: 16, bold: true }), P(body),
+  ];
+  const found = lv => doc.map((it, i) => (lv[i] ? `${lv[i]} ${it.text}` : null)).filter(Boolean);
+  assert.deepEqual(found(O.guessHeadings(doc)), ['1 Introduction', '1 CHAPITRE 1', '1 Le fer', '2 1.1 Les forges', '2 1.2 Les ingénieurs', '1 CHAPITRE 2', '1 La pierre', '2 2.1 Les carrières', '1 Conclusion'],
+    'ni la page de garde, ni le sommaire, ni la légende, ni la phrase en gras');
+  // Rien de mis en valeur : on ne devine pas
+  assert.deepEqual(O.guessHeadings([P(body), P(body), P('Une ligne courte'), P(body)]).filter(Boolean), []);
+  const bare = doc.map(it => ({ text: it.text, size: 12 }));
+  assert.deepEqual(O.guessHeadings(bare).map((l, i) => (l ? `${l} ${bare[i].text}` : null)).filter(Boolean), ['1 Introduction', '1 CHAPITRE 1', '1 CHAPITRE 2', '1 Conclusion'],
+    'sans gras ni taille, restent les mots qui ne trompent pas : introduction, chapitre, conclusion (mais pas ceux du sommaire)');
+  assert.deepEqual(O.guessHeadings([]), []);
+  // Un titre du plan déjà saisi est reconnu même sans mise en forme marquée
+  const plain = [P('Méthode'), P(body), P('Terrain'), P(body), P('Résultats'), P(body)];
+  assert.deepEqual(O.guessHeadings(plain).filter(Boolean), []);
+  assert.deepEqual(O.guessHeadings(plain, { planTitles: ['Méthode', 'Terrain', 'Résultats'] }), [1, 0, 1, 0, 1, 0]);
+  // Sans gras (PDF) : mêmes tailles pour 2.1 et 2.1.1, la numérotation départage ; « Chapitre N » puis sections « 1. », « 2. »
+  const pdfLike = [
+    P('Thèse de doctorat', { size: 20 }), P('Résumé', { size: 14 }), P(body),
+    P('Chapter 1 Introduction', { size: 18 }), P(body), P('1.1 Energy', { size: 14 }), P(body), P('1.1.1 Sun', { size: 14 }), P(body), P('References', { size: 14 }), P(body),
+    P('Chapter 2 Cells', { size: 17.6 }), P(body), P('2.1 Principle', { size: 14 }), P(body), P('General conclusions', { size: 18 }), P(body),
+  ];
+  const lvPdf = O.guessHeadings(pdfLike);
+  assert.deepEqual(pdfLike.map((it, i) => (lvPdf[i] ? `${lvPdf[i]} ${it.text}` : null)).filter(Boolean),
+    ['2 Résumé', '1 Chapter 1 Introduction', '2 1.1 Energy', '3 1.1.1 Sun', '2 References', '1 Chapter 2 Cells', '2 2.1 Principle', '1 General conclusions'],
+    'la couverture est écartée ; 18 et 17,6 points sont le même palier ; « References » se range avec les sections');
+  const restart = [P('Chapitre I Problème', { size: 16 }), P(body), P('1. Contexte', { size: 16 }), P(body), P('2. Enjeux', { size: 16 }), P(body), P('Conclusion', { size: 16 }), P(body),
+    P('Chapitre II Étude', { size: 16 }), P(body), P('1. Généralités', { size: 16 }), P(body), P('Conclusion générale', { size: 16 }), P(body)];
+  assert.deepEqual(O.guessHeadings(restart).filter(Boolean), [1, 2, 2, 2, 1, 2, 1],
+    'la numérotation qui repart à 1 dans chaque chapitre désigne ses sections ; une conclusion entre deux chapitres appartient au premier, la dernière est générale');
+
+  // Styles posés au hasard (« Titre 1 » sur les sous-sections) : la numérotation rétablit la hiérarchie
+  const messy = [{ level: 2, title: 'I. Bibliographie' }, { level: 3, title: 'I.1 Les microalgues' }, { level: 1, title: 'I.1.1 Définition' }, { level: 1, title: 'I.1.2 Classification' },
+    { level: 4, title: 'Transfert cyclique' }, { level: 3, title: 'I.2 Réactions' }, { level: 2, title: 'II. Matériel et méthodes' }, { level: 3, title: 'II.1 Souche' }];
+  assert.deepEqual(O.relevelByNumbering(messy), [1, 2, 3, 3, 4, 2, 1, 2]);
+  // Niveaux déjà cohérents : on n'y touche pas
+  assert.equal(O.relevelByNumbering([{ level: 1, title: '1 Un' }, { level: 2, title: '1.1 Deux' }, { level: 2, title: '1.2 Trois' }, { level: 1, title: '2 Quatre' }]), null);
+  assert.equal(O.relevelByNumbering([{ level: 1, title: 'Un' }, { level: 2, title: 'Deux' }, { level: 1, title: 'Trois' }]), null, 'pas de numérotation : rien à dire');
+  // « Partie » au-dessus des chapitres
+  assert.deepEqual(O.relevelByNumbering([{ level: 1, title: 'Première partie' }, { level: 1, title: 'Chapitre 1 : Le fer' }, { level: 1, title: '1.1 Les forges' }, { level: 1, title: 'Chapitre 2 : La pierre' }], { force: true }), [1, 2, 3, 2]);
+}
+console.log('outline.js : titres sans styles OK');
+
+// -----------------------------------------------------------
+// pdfdoc.js : du texte d'un PDF au plan (signets, balises, mise en forme, titres du plan)
+// -----------------------------------------------------------
+{
+  const D = await import('../pdfdoc.js');
+  const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg || ''} (${a} au lieu de ${b})`);
+  // Fragments → lignes : appel de note en exposant, blanc entre deux fragments écartés, gras majoritaire
+  const L = D.linesFromItems([
+    { str: 'Les ponts', x: 70, y: 100, size: 12, w: 50 }, { str: 'suspendus', x: 124, y: 100, size: 12, w: 52 }, { str: '3', x: 176, y: 96, size: 7, w: 4 },
+    { str: ' tiennent.', x: 180, y: 100, size: 12, w: 50, eol: true },
+    { str: 'Chapitre 2', x: 70, y: 140, size: 18, w: 90, bold: true }, { str: '', x: 0, y: 0, size: 0, w: 0, eol: true },
+    { str: 'Texte', x: 70, y: 170, size: 12, w: 30 }, { str: 'en retour', x: 70, y: 185, size: 12, w: 50 },
+  ]);
+  assert.deepEqual(L.map(l => [l.text, l.size, l.bold]), [['Les ponts suspendus3 tiennent.', 12, false], ['Chapitre 2', 18, true], ['Texte', 12, false], ['en retour', 12, false]]);
+  assert.equal(L[0].y, 100, 'la ligne garde la hauteur de son texte, pas celle de l\'appel de note');
+
+  // Un PDF de six pages : en-tête répété, numéros de page, signets
+  const SENT = 'Les ingénieurs des Ponts et Chaussées hésitent longtemps entre le fer et la pierre';
+  const body = (n, from = 150) => Array.from({ length: n }, (_, i) => ({ x: 70, y: from + i * 20, size: 12, text: SENT }));
+  const page = (lines, n) => ({ w: 595, h: 842, lines: [{ x: 200, y: 40, size: 9, text: 'Les ponts suspendus en France' }, ...lines, { x: 290, y: 800, size: 9, text: String(n) }] });
+  const head = (text, y = 110, size = 18) => ({ x: 70, y, size, text });
+  const pages = [
+    page([head('Les ponts suspendus', 300, 24)], 1),
+    page([head('Introduction'), ...body(30)], 2),
+    page([...body(15, 90), head('Chapitre 1 : Le fer', 410), ...body(15, 440)], 3),
+    page([...body(32, 90)], 4),
+    page([head('Chapitre 2 : La pierre'), ...body(10), head('2.1 Les carrières', 370, 14), ...body(18, 400)], 5),
+    page([head('Conclusion'), ...body(8), { x: 70, y: 400, size: 12, text: 'Une coupure de mot en fin de ligne : sus-' }, { x: 70, y: 420, size: 12, text: 'pendus, et la suite.' }], 6),
+  ];
+  const clone = o => JSON.parse(JSON.stringify(o));
+  const outline = [{ title: 'Introduction', level: 1, page: 1, y: 92 }, { title: 'Chapitre 1 : Le fer', level: 1, page: 2, y: 392 }, { title: 'Chapitre 2 : La pierre', level: 1, page: 4, y: null },
+    { title: 'Les carrières', level: 2, page: 4, y: 356 }, { title: 'Conclusion', level: 1, page: 5, y: 92 }];
+  let r = D.analyzePdfModel({ pages: clone(pages), outline });
+  assert.equal(r.kind, 'pdf');
+  assert.equal(r.totalPages, 6);
+  assert.equal(r.headingSource, 'outline');
+  assert.equal(r.bodySize, 12);
+  assert.deepEqual(r.segments.map(s => [s.level, s.title]), [[1, 'Introduction'], [1, 'Chapitre 1 : Le fer'], [1, 'Chapitre 2 : La pierre'], [2, 'Les carrières'], [1, 'Conclusion']]);
+  const W = 14;   // mots d'une ligne de texte
+  assert.deepEqual(r.segments.map(s => s.words), [1 + 45 * W, 4 + 47 * W, 4 + 10 * W, 3 + 18 * W, 1 + 8 * W + 12], 'en-têtes et numéros de page non comptés ; « sus-pendus » recollé');
+  assert.equal(r.frontWords, 3, 'la page de titre');
+  near(r.frontPages + r.segments.reduce((s, x) => s + x.pages, 0), 6, 1e-9, 'la somme des parties est le nombre de pages');
+  near(r.segments[0].pages, 1.4, 0.08, 'du haut de la page 2 au milieu de la page 3');
+  near(r.segments[1].pages, 1.6, 0.08);
+  assert.ok(r.segments[2].pages > 0.3 && r.segments[2].pages < 0.5, 'le signet sans hauteur est situé par le texte du titre');
+  near(r.frontPages, 1, 0.03);
+
+  // Sans signets : titres balisés (niveaux fantaisistes, rétablis par la numérotation), puis mise en forme, puis titres du plan
+  const tags = [{ title: 'Introduction', level: 2, page: 1, y: 92 }, { title: 'Chapitre1:Lefer', level: 2, page: 2, y: 392 }, { title: 'Chapitre 2 : La pierre', level: 2, page: 4, y: 92 },
+    { title: '2.1Lescarrières', level: 1, page: 4, y: 356 }, { title: 'Conclusion', level: 2, page: 5, y: 92 }];
+  r = D.analyzePdfModel({ pages: clone(pages), outline: [], tags });
+  assert.equal(r.headingSource, 'tags');
+  assert.deepEqual(r.segments.map(s => [s.level, s.title]), [[1, 'Introduction'], [1, 'Chapitre 1 : Le fer'], [1, 'Chapitre 2 : La pierre'], [2, '2.1 Les carrières'], [1, 'Conclusion']],
+    'le titre est repris tel qu\'il est composé (avec ses espaces), la section numérotée repasse sous son chapitre');
+  r = D.analyzePdfModel({ pages: clone(pages), outline: [], tags: [] });
+  assert.equal(r.headingSource, 'layout');
+  assert.deepEqual(r.segments.map(s => [s.level, s.title]), [[1, 'Introduction'], [1, 'Chapitre 1 : Le fer'], [1, 'Chapitre 2 : La pierre'], [2, '2.1 Les carrières'], [1, 'Conclusion']], 'le grand titre de couverture est écarté');
+  const flat = clone(pages).map(pg => ({ ...pg, lines: pg.lines.map(l => ({ ...l, size: l.size > 12 ? 12 : l.size })) }));
+  flat[1].lines[1].text = 'Présentation';
+  flat[5].lines[1].text = 'Bilan';
+  // Aucune mise en valeur : les mots « chapitre » et les titres du plan déjà saisi suffisent à s'y retrouver
+  const plan = [{ title: 'Présentation', level: 1 }, { title: 'Chapitre 2 : La pierre', level: 1 }, { title: 'Les carrières', level: 2 }, { title: 'Absent', level: 1 }, { title: 'Bilan', level: 1 }];
+  r = D.analyzePdfModel({ pages: clone(flat) }, { planTitles: plan });
+  assert.equal(r.headingSource, 'layout');
+  assert.deepEqual(r.segments.map(s => [s.level, s.title]), [[1, 'Présentation'], [1, 'Chapitre 1 : Le fer'], [1, 'Chapitre 2 : La pierre'], [2, '2.1 Les carrières'], [1, 'Bilan']]);
+  assert.equal(D.analyzePdfModel({ pages: clone(flat) }).segments.length, 2, 'sans le plan : seulement les deux lignes « Chapitre N »');
+  // Titres collés au texte qui les suit (même corps, même interligne) : rien ne les distingue à l'œil,
+  // on les retrouve par leur texte, dans l'ordre du plan
+  const glued = clone(flat).map(pg => ({ ...pg, lines: pg.lines.map(l => (l.y === 110 ? { ...l, y: 130 } : l.y === 410 ? { ...l, y: 420 } : l.y === 370 ? { ...l, y: 380 } : l)) }));
+  glued[2].lines = glued[2].lines.filter(l => l.text !== 'Chapitre 1 : Le fer');
+  r = D.analyzePdfModel({ pages: glued }, { planTitles: plan });
+  assert.equal(r.headingSource, 'plan');
+  assert.deepEqual(r.segments.map(s => [s.level, s.title]), [[1, 'Présentation'], [1, 'Chapitre 2 : La pierre'], [2, 'Les carrières'], [1, 'Bilan']]);
+  // Deux lignes de couverture en signets pour trois cents pages : la mise en forme prend le relais
+  r = D.analyzePdfModel({ pages: clone(pages), outline: [{ title: 'Couverture', level: 1, page: 0, y: 0 }] });
+  assert.equal(r.headingSource, 'layout');
+  // « Chapter 2 » en signet, son intitulé juste en dessous : un seul titre, les sections remontent d'un cran
+  r = D.analyzePdfModel({ pages: clone(pages), outline: [{ title: 'Introduction', level: 1, page: 1, y: 92 }, { title: 'Chapitre 1 : Le fer', level: 1, page: 2, y: 392 }, { title: 'Chapitre 2', level: 1, page: 4, y: 92 },
+    { title: 'La pierre', level: 2, page: 4, y: 93 }, { title: 'Les carrières', level: 3, page: 4, y: 356 }, { title: 'Conclusion', level: 1, page: 5, y: 92 }] });
+  assert.deepEqual(r.segments.map(s => [s.level, s.title]).slice(2, 4), [[1, 'Chapitre 2 : La pierre'], [2, 'Les carrières']]);
+  // Pages scannées : on connaît le nombre de pages, pas le texte
+  r = D.analyzePdfModel({ pages: Array.from({ length: 40 }, () => ({ w: 595, h: 842, lines: [] })) });
+  assert.deepEqual([r.totalPages, r.totalWords, r.segments.length, r.scanned, r.frontPages], [40, 0, 0, true, 40]);
+  r = D.analyzePdfModel({ pages: [] });
+  assert.deepEqual([r.totalPages, r.segments.length], [0, 0]);
+}
+console.log('pdfdoc.js : PDF OK');
+
+// -----------------------------------------------------------
+// links.js : les liens de partage que le navigateur peut lire
+// -----------------------------------------------------------
+{
+  const K = await import('../links.js');
+  // Google Docs : lien de la page, lien « partager », identifiant nu
+  const ID = '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd';
+  for (const l of [`https://docs.google.com/document/d/${ID}/edit?usp=sharing`, `docs.google.com/document/u/0/d/${ID}/edit#heading=h.x`, ID, `Voici le lien : https://docs.google.com/document/d/${ID}/edit.`]) {
+    assert.deepEqual(K.parseLink(l), { kind: 'gdoc', id: ID, key: 'g_1abcdefghijklmnopqrstuvwxyz0123456789__abcd' }, l);
+  }
+  assert.equal(K.gdocKey(ID), 'g_1abcdefghijklmnopqrstuvwxyz0123456789__abcd');
+  // Dropbox : le même fichier, servi par l'hôte de téléchargement ; la clé du lien est gardée, le reste écarté
+  let r = K.parseLink('https://www.dropbox.com/scl/fi/m9glhahs4vqurgqr3tp7o/Ma%20th%C3%A8se.docx?rlkey=jeiam6bpfmw4ky2g5ndwbc6js&st=abcd1234&dl=0');
+  assert.deepEqual([r.kind, r.url, r.host, r.name], ['file', 'https://dl.dropboxusercontent.com/scl/fi/m9glhahs4vqurgqr3tp7o/Ma%20th%C3%A8se.docx?rlkey=jeiam6bpfmw4ky2g5ndwbc6js&dl=1', 'Dropbox', 'Ma thèse.docx']);
+  assert.match(r.key, /^u_[a-z0-9]+$/);
+  const again = K.parseLink('https://www.dropbox.com/scl/fi/m9glhahs4vqurgqr3tp7o/Ma%20th%C3%A8se.docx?rlkey=jeiam6bpfmw4ky2g5ndwbc6js&st=zzzz9999&dl=1');
+  assert.equal(again.key, r.key, 'le même fichier garde la même clé, quel que soit le lien copié');
+  assert.equal(K.parseLink(r.url).key, r.key, 'relire l\'adresse enregistrée redonne la même clé');
+  r = K.parseLink('https://www.dropbox.com/s/09ctqeg1hd9soi2/these.pdf?dl=0');
+  assert.deepEqual([r.url, r.name], ['https://dl.dropboxusercontent.com/s/09ctqeg1hd9soi2/these.pdf?dl=1', 'these.pdf']);
+  // GitHub : l'adresse « raw » du fichier
+  r = K.parseLink('https://github.com/camille/these/blob/main/chapitres/intro.tex');
+  assert.deepEqual([r.kind, r.url, r.host, r.name], ['file', 'https://raw.githubusercontent.com/camille/these/main/chapitres/intro.tex', 'GitHub', 'intro.tex']);
+  // Un lien direct quelconque
+  r = K.parseLink('https://exemple.fr/docs/memoire.odt#page=2');
+  assert.deepEqual([r.kind, r.url, r.name], ['file', 'https://exemple.fr/docs/memoire.odt', 'memoire.odt']);
+  // Ce qui ne peut pas être lu depuis un navigateur est reconnu, pour l'expliquer
+  const err = l => K.parseLink(l).error;
+  assert.equal(err('https://www.dropbox.com/scl/fo/6y7hlsyisit2rb0bjepzh/AKOfmeyr?rlkey=x&dl=0'), 'link-folder');
+  assert.equal(err('https://www.dropbox.com/sh/gw3itlpyonzkbau/AAA1-8vaAN?dl=0'), 'link-folder');
+  assert.equal(err('https://www.dropbox.com/home/These'), 'link-dropbox');
+  assert.equal(err('https://1drv.ms/w/s!AbCdEf'), 'link-onedrive');
+  assert.equal(err('https://univ-my.sharepoint.com/:w:/g/personal/x/EabC'), 'link-onedrive');
+  assert.equal(err('https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/view?usp=sharing'), 'link-drive');
+  assert.equal(err('https://drive.google.com/drive/folders/1AbCdEf'), 'link-folder');
+  assert.equal(err('https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/edit'), 'link-gother');
+  assert.equal(err('https://www.overleaf.com/read/abcdefgh'), 'link-overleaf');
+  assert.equal(err('http://exemple.fr/these.docx'), 'link-http');
+  assert.equal(err('ceci n\'est pas un lien'), 'link-bad');
+  assert.equal(err(''), 'link-bad');
+  assert.equal(err('javascript:alert(1)'), 'link-bad');
+  // Nom du fichier donné par le serveur
+  assert.equal(K.dispositionName('attachment; filename="these.docx"; filename*=UTF-8\'\'Ma%20th%C3%A8se.docx'), 'Ma thèse.docx');
+  assert.equal(K.dispositionName('attachment; filename=these.pdf'), 'these.pdf');
+  assert.equal(K.dispositionName(null), '');
+  assert.equal(K.shortHash('abc'), K.shortHash('abc'));
+  assert.notEqual(K.shortHash('abc'), K.shortHash('abd'));
+}
+console.log('links.js : liens de partage OK');
+
+// -----------------------------------------------------------
+// formats.js : RTF, Typst, Org, AsciiDoc, reStructuredText, projets en plusieurs fichiers ; Markdown enrichi
+// -----------------------------------------------------------
+{
+  const F = await import('../formats.js');
+  const O = await import('../outline.js');
+  const plan = r => r.segments.map(s => `${s.level} ${s.title}`);
+  // Typst : titres « = », réglages (#set, #let, #show) et commentaires ignorés
+  let r = F.parseTypst(`#set page(paper: "a4")
+#let note(body) = {
+  text(size: 9pt)[#body]
+}
+#show: doc => conf(
+  title: [Ma thèse],
+  doc,
+)
+/* un commentaire
+   sur deux lignes */
+= Introduction générale <intro>
+Les ponts suspendus apparaissent en France. // remarque
+Voir @navier et $x^2$ pour #emph[le détail].
+== Contexte
+Un paragraphe *important* de six mots.
+\`\`\`python
+print("ce code ne compte pas")
+\`\`\`
+= Conclusion
+Fin.`);
+  assert.deepEqual(plan(r), ['1 Introduction générale', '2 Contexte', '1 Conclusion']);
+  assert.equal(r.frontWords, 0, 'le préambule n\'est pas du texte');
+  assert.deepEqual(r.segments.map(s => s.words), [2 + 6 + 5, 1 + 6, 1 + 1]);
+  // Org : tiroirs, blocs de code, mots-clés TODO et étiquettes
+  r = F.parseOrg(`#+title: Ma thèse
+* TODO Introduction générale :brouillon:
+:PROPERTIES:
+:CUSTOM_ID: intro
+:END:
+Les ponts [[https://exemple.fr][suspendus]] apparaissent[fn:1].
+#+begin_src python
+print("non compté")
+#+end_src
+** Contexte
+Trois mots ici.
+* Conclusion
+[fn:1] Une note de quatre mots.`);
+  assert.deepEqual(plan(r), ['1 Introduction générale', '2 Contexte', '1 Conclusion']);
+  assert.deepEqual(r.segments.map(s => s.words), [2 + 4, 1 + 3, 1 + 5]);
+  // AsciiDoc : titre du document, sections, blocs de code, attributs, notes
+  r = F.parseAsciidoc(`= Ma thèse
+:toc:
+
+== Introduction générale
+
+Les ponts suspendusfootnote:[Voir Navier.] apparaissent.
+
+[source,python]
+----
+print("non compté")
+----
+
+=== Contexte
+
+Trois mots ici.`);
+  assert.deepEqual(plan(r), ['1 Ma thèse', '2 Introduction générale', '3 Contexte']);
+  assert.deepEqual(r.segments.map(s => s.words), [2, 2 + 6, 1 + 3]);
+  // reStructuredText : le rang d'un soulignement est son ordre d'apparition
+  r = F.parseRst(`=========
+Ma thèse
+=========
+
+Introduction
+============
+
+Les ponts suspendus apparaissent [1]_.
+
+.. code-block:: python
+
+   print("non compté")
+
+Contexte
+--------
+
+Trois mots ici.
+
+Conclusion
+==========
+
+Fin.`);
+  assert.deepEqual(plan(r), ['1 Ma thèse', '2 Introduction', '3 Contexte', '2 Conclusion']);
+  assert.deepEqual(r.segments.map(s => s.words), [2, 1 + 4, 1 + 3, 1 + 1]);
+
+  // Markdown : en-tête YAML, titres soulignés, blocs Quarto, commentaires, identifiants de titre
+  r = O.parseTextDocument(`---
+title: "Ma thèse"
+author: Camille
+---
+
+Introduction générale
+=====================
+
+Les ponts suspendus apparaissent.
+
+<!-- à revoir
+plus tard -->
+
+Contexte {#sec-contexte}
+--------
+
+::: {.callout-note}
+Trois mots ici.
+:::
+
+\`\`\`{r}
+summary(cars)
+\`\`\`
+
+# Conclusion {.unnumbered}
+
+Fin.
+`);
+  assert.equal(r.kind, 'markdown');
+  assert.deepEqual(plan(r), ['1 Introduction générale', '2 Contexte', '1 Conclusion']);
+  assert.equal(r.frontWords, 0, 'l\'en-tête YAML n\'est pas du texte');
+  assert.deepEqual(r.segments.map(s => s.words), [2 + 4, 1 + 3, 1 + 1]);
+  // Une ligne de tirets après une liste ou un tableau n'est pas un titre
+  r = O.parseTextDocument('# Un\n\n- élément\n---\n\nTexte\n\n| a | b |\n|---|---|\n');
+  assert.deepEqual(plan(r), ['1 Un']);
+
+  // RTF : styles de titre, niveaux de plan, caractères accentués, notes, tableaux, nombre de pages
+  const rtf = String.raw`{\rtf1\ansi\ansicpg1252\deff0{\fonttbl{\f0 Times New Roman;}}
+{\stylesheet{\s0 Normal;}{\s1\b\fs32 heading 1;}{\s2\b\fs28 Titre 2;}}
+{\info{\title Ma th\'e8se}{\nofpages12}{\nofwords3400}}
+{\header\pard Ent\'eate \par}
+\pard\qc\b\fs44 Ma th\'e8se\b0\par
+\pard\s1\b\fs32 Introduction g\u233 ?n\u233 ?rale\par
+\pard\plain\fs24 Les ponts suspendus\~apparaissent{\super\chftn}{\footnote\pard Voir Navier, 1823.\par} en France \'e0 l\rquote \'e9poque.\par
+\pard\s2\b\fs28 Contexte\par
+\pard\plain Trois mots ici.\par
+\trowd\pard\intbl Ouvrage\cell Ann\'e9e\cell\row
+\pard\outlinelevel0\b Conclusion\par
+\pard\plain Fin.{\pict\pngblip 89504e470d0a}\par}`;
+  const R = F.parseRtf(rtf);
+  assert.equal(R.pagesMeta, 12);
+  assert.deepEqual(R.paras.map(p => [p.text, p.style, p.outline, p.words, p.notes]), [
+    ['Ma thèse', 'normal', 0, 2, 0],
+    ['Introduction générale', 'heading 1', 0, 2, 0],
+    ['Les ponts suspendus apparaissent en France à l’époque.', 'normal', 0, 8, 3],
+    ['Contexte', 'titre 2', 0, 1, 0],
+    ['Trois mots ici.', 'normal', 0, 3, 0],
+    ['Ouvrage Année', 'normal', 0, 2, 0],
+    ['Conclusion', 'normal', 1, 1, 0],
+    ['Fin.', 'normal', 0, 1, 0],
+  ], 'en-tête de page, image et tables de polices ignorés ; note comptée à part');
+  assert.deepEqual([R.paras[0].center, R.paras[0].bold, R.paras[0].size, R.paras[5].table, R.paras[2].bold, R.paras[2].size], [true, true, 22, true, false, 12]);
+  assert.deepEqual(F.parseRtf('').paras, []);
+  assert.deepEqual(F.parseRtf('{\\rtf1 Bonjour').paras.map(p => p.text), ['Bonjour'], 'fichier tronqué : on garde ce qui est lisible');
+
+  // Projet LaTeX : fichier principal et chapitres (\input, \include, \subfile, \import)
+  const files = new Map([
+    ['main.tex', '\\documentclass{book}\n% \\input{brouillon}\n\\begin{document}\n\\input{chapitres/intro}\n\\include{chapitres/methode}\n\\subfile{chapitres/resultats.tex}\n\\import{annexes/}{a}\n\\input{absent}\n\\end{document}'],
+    ['chapitres/intro.tex', '\\chapter{Introduction}\nUn deux trois.\n\\input{chapitres/detail}'],
+    ['chapitres/detail.tex', '\\section{Détail}\nQuatre cinq.'],
+    ['chapitres/methode.tex', '\\chapter{Méthode}\nSix sept huit neuf.'],
+    ['chapitres/resultats.tex', '\\documentclass[../main.tex]{subfiles}\n\\begin{document}\n\\chapter{Résultats}\nDix.\n\\end{document}'],
+    ['annexes/a.tex', '\\chapter{Annexe}\nOnze douze.'],
+    ['brouillon.tex', '\\chapter{Brouillon}\nNe doit pas apparaître.'],
+    ['notes/autre.tex', '\\documentclass{article}\n\\begin{document}\nUn autre document.\n\\end{document}'],
+  ]);
+  assert.equal(F.texMain(files), 'main.tex', 'le fichier principal : à la racine, pas un sous-fichier');
+  const whole = F.resolveTex('main.tex', files);
+  r = O.parseTextDocument(whole);
+  assert.equal(r.kind, 'latex');
+  assert.deepEqual(plan(r), ['2 Introduction', '3 Détail', '2 Méthode', '2 Résultats', '2 Annexe'], 'les fichiers sont assemblés dans l\'ordre, l\'appel en commentaire est ignoré');
+  assert.deepEqual(r.segments.map(s => s.words), [1 + 3, 1 + 2, 1 + 4, 1 + 1, 1 + 2]);
+  // Les mêmes fichiers déposés en vrac, sans leurs dossiers : retrouvés par leur nom
+  const flat = new Map([...files].map(([k, v]) => [k.split('/').pop(), v]));
+  assert.deepEqual(plan(O.parseTextDocument(F.resolveTex('main.tex', flat))), ['2 Introduction', '3 Détail', '2 Méthode', '2 Résultats', '2 Annexe']);
+  // Un fichier qui s'inclut lui-même ne fait pas tourner en rond
+  assert.ok(F.resolveTex('a.tex', new Map([['a.tex', 'x \\input{b}'], ['b.tex', 'y \\input{a}']])).includes('y'));
+  assert.equal(F.texMain(new Map([['notes.md', '# x']])), '');
+  // Projet Typst
+  assert.match(F.resolveTypst('main.typ', new Map([['main.typ', '#include "chap/un.typ"\n= Fin'], ['chap/un.typ', '= Un\nTexte.']])), /= Un\nTexte\.[\s\S]*= Fin/);
+}
+console.log('formats.js : autres formats OK');
