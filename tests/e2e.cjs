@@ -197,7 +197,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     await page.waitForSelector('.dl-show');
     assert.match(await page.textContent('#dbDeadline .dl-date'), /\d{4}$/);
     assert.match(await page.textContent('#dbDeadline .dl-count'), /^J\u2212300$/, 'compte à rebours');
-    assert.match(await page.textContent('#dbDeadline .dl-verdict'), /à tenir|dans les temps|en retard/);
+    assert.match(await page.textContent('#dbDeadline .dl-verdict'), /à tenir|dans les temps|en avance|en retard/);
     assert.match(await page.textContent('#paceNeed'), /p\.\/sem\./, 'rythme à tenir affiché');
     // L'étagère : un livre par chapitre, celui de la partie en cours porte le marque-page
     assert.equal(await page.locator('#shelfBooks .book').count(), 7);
@@ -220,6 +220,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     const txt = async (page, sel) => (await page.textContent(sel)).split(NB).join(' ');
     const fr = k => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' }); };
     const pool = moods => moods.flatMap(m => H.PROGNOSIS[m]).map(l => H.typo(l).split(NB).join(' '));
+    const by = n => (n === 1 ? 'd\'un jour' : `de ${C.spanWords(n)}`);
     const uid = 'u_fin';
     const key = `users/${uid}/thesis/main`;
     // Trois mois de suivi, des semaines inégales : 115 pages visées, 38 écrites
@@ -252,7 +253,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.ok(pool(H.prognosisMoods(ctxOf(fc))).includes(await txt(page, '#sEndQuip')));
     // Le verdict, par rapport au dépôt
     assert.equal(fc.status === 'ontrack' || fc.status === 'behind', true);
-    assert.match(await txt(page, '#dbDeadline .dl-verdict'), fc.status === 'ontrack' ? /^dans les temps, .+ d'avance$|^pile dans les temps$/ : /^en retard d.+ à ce rythme$/);
+    assert.equal(await txt(page, '#dbDeadline .dl-verdict'), fc.status === 'ontrack' ? (fc.margin > 0 ? `en avance ${by(fc.margin)}` : 'pile dans les temps') : `en retard ${by(-fc.margin)}`);
     assert.equal(await page.textContent('#dbDeadline .dl-count'), 'J\u2212300');
     // La vélocité : pages par semaine, tendance sur quatre semaines, record, rythme à tenir
     const one = n => n.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
@@ -273,7 +274,6 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.match(await page.$eval('#pacePlot .pc-col:nth-child(5)', e => getComputedStyle(e, '::after').content), /semaine du .+ p\./, 'le détail d\'une semaine au survol');
     // Le levier : ce que ferait gagner une page aujourd'hui
     assert.ok(fc.gainPerPage > 0);
-    const by = n => (n === 1 ? 'd\'un jour' : `de ${C.spanWords(n)}`);
     assert.ok((await txt(page, '#paceLever')).endsWith(`Une page aujourd'hui, et la fin avance ${by(fc.gainPerPage)}.`), await txt(page, '#paceLever'));
     assert.equal(await page.evaluate(() => !!document.getElementById('heroPace').closest('.hero')), true, 'sur ordinateur, la vélocité est dans le bandeau');
     await page.screenshot({ path: path.join(SHOTS, '50-01-pronostic.png') });
@@ -1795,7 +1795,21 @@ const clone = o => JSON.parse(JSON.stringify(o));
     const { ctx, page } = await newPage(browser, { viewport: { width: 360, height: 740 }, user: { uid, email: 'mob@example.com' }, store: { [`users/${uid}/thesis/main`]: doc } });
     await page.goto(BASE);
     await page.waitForSelector('.chapter-card');
-    assert.ok(await page.evaluate(() => { const r = document.getElementById('tdPrimary').getBoundingClientRect(); return r.bottom <= window.innerHeight + 200; }), 'action du jour proche du premier écran');
+    const reach = () => page.evaluate(() => Math.round(document.getElementById('tdPrimary').getBoundingClientRect().bottom + scrollY) - window.innerHeight);
+    assert.ok(await reach() <= 200, 'action du jour proche du premier écran : ' + await reach());
+    // …quelle que soit la phrase du jour sous la date de fin (elle change chaque jour, et tient parfois sur trois lignes)
+    const tallest = await page.evaluate(async () => {
+      const H = await import('./humour.js');
+      const el = document.getElementById('sEndQuip');
+      const keep = el.textContent;
+      let max = 0;
+      let worst = keep;
+      for (const lines of Object.values(H.PROGNOSIS)) for (const l of lines) { el.textContent = H.typo(l); const h = el.getBoundingClientRect().height; if (h > max) { max = h; worst = el.textContent; } }
+      el.textContent = worst;
+      return keep;
+    });
+    assert.ok(await reach() <= 200, 'même avec la phrase la plus longue : ' + await reach());
+    await page.evaluate(t0 => { document.getElementById('sEndQuip').textContent = t0; }, tallest);
     await page.screenshot({ path: path.join(SHOTS, '21-09-mobile.png') });
     const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
     assert.ok(await overflow() <= 0, 'pas de défilement horizontal : ' + await overflow());
@@ -2917,7 +2931,7 @@ const clone = o => JSON.parse(JSON.stringify(o));
     assert.equal(d.deadlineMonth, true);
     assert.equal(await page.textContent('#dlLabel'), 'Dépôt visé');
     assert.equal(await page.textContent('#dbDeadline .dl-date'), `septembre ${year}`);
-    assert.match(await page.textContent('#dbDeadline .dl-verdict'), /dans les temps|en retard|à tenir/);
+    assert.match(await page.textContent('#dbDeadline .dl-verdict'), /dans les temps|en avance|en retard|à tenir/);
     assert.equal(await page.textContent('#dbDeadline .cal-month'), 'sept.', 'l\'éphéméride montre le mois, pas un jour');
     assert.ok(await page.locator('.due-chip:not(:empty)').count() >= 3, 'les échéances des chapitres suivent');
     // La fenêtre se rouvre sur le mois ; l'agenda parle de période

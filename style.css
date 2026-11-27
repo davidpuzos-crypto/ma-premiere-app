@@ -1240,6 +1240,10 @@ body.signed-out #toastBox { left: 50%; max-width: calc(100vw - 28px); }
   .hero-pages b { font-size: 1.06rem; }
   .hero-side { gap: 12px; padding: 14px 15px; }
   .hero-dl { gap: 8px; padding-top: 11px; }
+  /* le compte à rebours, puis la date et « modifier » sur une même ligne */
+  .dl-txt { flex-direction: row; flex-wrap: wrap; align-items: baseline; column-gap: 9px; }
+  .dl-count { flex-basis: 100%; }
+  .dl-edit { margin-top: 0; }
   .cal-leaf { width: 48px; }
   .cal-d { font-size: 1.24rem; }
   .cal-d.cal-month { padding: 6px 0 7px; font-size: .86rem; }
@@ -1315,7 +1319,11 @@ body.signed-out #toastBox { left: 50%; max-width: calc(100vw - 28px); }
 }
 @media (max-width: 380px) {
   .hero-figure { font-size: 3.8rem; }
+  /* petit téléphone : le bandeau se resserre, pour que la carte « Aujourd'hui » reste à portée du premier écran */
   .prog-date { font-size: 2.2rem; }
+  .prog-quip { margin-top: 8px; font-size: .95rem; }
+  .hero-side { gap: 10px; padding: 12px 14px; }
+  .level { margin-top: 14px; }
   .today-goal { gap: 12px; }
   .ring { width: 92px; height: 92px; }
 }

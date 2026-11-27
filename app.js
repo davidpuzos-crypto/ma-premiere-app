@@ -1417,8 +1417,8 @@ function renderDeadline(fc) {
   switch (fc.status) {
     case 'done':    cls = 'ok';   ico = 'check'; verdict = 'place à la relecture'; break;
     case 'overdue': cls = 'late'; ico = 'alert'; verdict = state.deadlineMonth ? 'fin de rédaction dépassée : ajustez la période' : 'fin de rédaction dépassée : ajustez la date'; break;
-    case 'ontrack': cls = 'ok';   ico = 'check'; verdict = fc.margin > 0 ? `dans les temps, ${spanWords(fc.margin)} d'avance` : 'pile dans les temps'; break;
-    case 'behind':  cls = 'warn'; ico = 'alert'; verdict = `en retard ${byWords(-fc.margin)} à ce rythme`; break;
+    case 'ontrack': cls = 'ok';   ico = 'check'; verdict = fc.margin > 0 ? `en avance ${byWords(fc.margin)}` : 'pile dans les temps'; break;
+    case 'behind':  cls = 'warn'; ico = 'alert'; verdict = `en retard ${byWords(-fc.margin)}`; break;
     case 'nopace':  verdict = `à tenir : ${fmt1(fc.perWeek)} ${pageWord(fc.perWeek)} par semaine`; break;
     default: break;
   }
