@@ -59,7 +59,7 @@ import {
 import { createPromo } from './promo.js';
 
 /* Version de l'application : la même que VERSION dans sw.js et que data-app-version dans index.html */
-const APP_VERSION = '5.0.0';
+const APP_VERSION = '5.0.1';
 const APP_URL = 'https://lejournaldebord.org/';
 
 /* Garde-fou de mise à jour (son jumeau est dans index.html) : ce script et la page doivent être de la même
@@ -3320,6 +3320,7 @@ async function handleDocxFile(file, handle = null) {
   if (!file || !requireReady()) return;
   const input = document.getElementById('docxInput');
   if (input) input.value = '';
+  _reading++;
   setDocxError('');
   setDocxBusy(true);
   const busy = toast(`Lecture de ${trunc(file.name, 40)}…`, '', { key: 'docx', duration: 300000 });
@@ -3336,6 +3337,7 @@ async function handleDocxFile(file, handle = null) {
     console.error('document :', e);
     showDocxFailure(DOC_ERRORS[e && e.code] || 'Lecture impossible de ce fichier.');
   } finally {
+    _reading--;
     setDocxBusy(false);
     busy.remove();
     setTimeout(nextQueued, 600);
@@ -3346,6 +3348,7 @@ async function handleDocxFile(file, handle = null) {
    chapitres Markdown), ils sont assemblés en un seul document. Sinon ce sont des documents distincts
    (un fichier par chapitre) : ils sont lus l'un après l'autre, chacun avec son aperçu s'il en faut un. */
 let _fileQueue = [];
+let _reading = 0;    // lectures en cours : la file n'avance pas tant qu'un fichier est encore en train d'être lu
 
 /** list : FileList, ou [{ file, handle }]. */
 async function handleDocxFiles(list) {
@@ -3371,6 +3374,7 @@ async function handleDocxFiles(list) {
 /** Fichier suivant de la file, dès que la fenêtre de synchro est refermée. */
 function nextQueued() {
   if (!_fileQueue.length || !_loaded || !currentUser) { if (!currentUser) _fileQueue = []; return; }
+  if (_reading > 0) return;                                  // la lecture en cours relancera la file en finissant
   const modal = document.getElementById('docxModal');
   if (modal && !modal.classList.contains('hidden')) return;
   const next = _fileQueue.shift();
