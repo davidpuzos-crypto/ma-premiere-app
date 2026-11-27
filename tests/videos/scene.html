@@ -93,6 +93,14 @@ html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--
 #stage.saf #shelf .book i { background: var(--teal7); }
 #stage.saf #shelf .book { background: var(--cream); border-color: #E3D8C3; }
 
+/* Thème cahier (version 4) : grands carreaux d'écolier et marge rouge */
+#stage.cahier #paper { background:
+  linear-gradient(90deg, transparent 150px, rgba(214,80,80,.55) 150px, rgba(214,80,80,.55) 153px, transparent 153px),
+  linear-gradient(90deg, rgba(96,104,190,.22) 1.5px, transparent 1.5px) 0 0 / 64px 64px,
+  linear-gradient(rgba(96,104,190,.26) 1.5px, transparent 1.5px) 0 0 / 64px 64px,
+  linear-gradient(rgba(96,104,190,.11) 1px, transparent 1px) 0 0 / 16px 16px, #FDFBF6; }
+#stage.cahier #grain { opacity: .35; }
+
 /* Les bulles de dialogue, découpées dans du papier */
 #bubbles { position: absolute; inset: 0; z-index: 32; pointer-events: none; }
 .bubble { position: absolute; max-width: 840px; padding: 40px 54px 46px; border-radius: 58px; font-family: 'Fraunces', serif; font-weight: 650; font-size: 78px;
@@ -185,6 +193,7 @@ window.render = async (s) => {
   const j = a => (R() * 2 - 1) * a;
   $('stage').classList.toggle('dark', s.theme === 'dark');
   $('stage').classList.toggle('saf', s.theme === 'saf');
+  $('stage').classList.toggle('cahier', s.theme === 'cahier');
   // Le décor « reprend vie » à chaque image : papier, lumière
   $('paper').style.transform = `translate(${j(8).toFixed(1)}px, ${j(8).toFixed(1)}px)`;
   $('grain').style.transform = `translate(${j(40).toFixed(1)}px, ${j(40).toFixed(1)}px)`;
@@ -196,6 +205,8 @@ window.render = async (s) => {
   if (s.note) {
     note.style.display = 'block';
     note.style.top = `${s.note.y || 120}px`;
+    note.style.width = `${s.note.w || 920}px`;
+    note.style.left = `${540 - (s.note.w || 920) / 2}px`;
     note.style.transform = `rotate(${((s.note.rot ?? -1.4) + j(0.35)).toFixed(2)}deg) translate(${j(2).toFixed(1)}px, ${j(2).toFixed(1)}px)`;
     $('cap').style.fontSize = `${s.note.size || 78}px`;
     $('cap').innerHTML = s.note.tokens.map((t, i) => `<span class="w${i < s.note.shown ? ' on' : ''}${(s.note.hl || []).includes(i) ? ' hl' : ''}">${t}</span>`).join(' ');
@@ -206,8 +217,23 @@ window.render = async (s) => {
   const phone = $('phone');
   if (s.phone) {
     phone.style.display = 'block';
-    phone.style.top = `${(s.phone.top ?? 560) + (s.phone.dy || 0)}px`;
-    phone.style.transform = `rotate(${((s.phone.rot || 0) + j(0.45)).toFixed(2)}deg) translate(${j(3.5).toFixed(1)}px, ${j(3.5).toFixed(1)}px)`;
+    const top = (s.phone.top ?? 560) + (s.phone.dy || 0);
+    phone.style.top = `${top}px`;
+    const wob = `rotate(${((s.phone.rot || 0) + j(0.45)).toFixed(2)}deg)`, nudge = `translate(${j(3.5).toFixed(1)}px, ${j(3.5).toFixed(1)}px)`;
+    const z = s.phone.zoom;
+    if (z) {
+      // La caméra s'approche : le point (x, y) de l'écran, en points CSS, vient se placer en (tx, ty) sur la scène
+      const lx = 16 + z.x * K, ly = 16 + z.y * K;
+      phone.style.transformOrigin = `${lx.toFixed(1)}px ${ly.toFixed(1)}px`;
+      phone.style.transform = `translate(${(z.tx - (540 - 314 + lx)).toFixed(1)}px, ${(z.ty - (top + ly)).toFixed(1)}px) ${wob} scale(${z.z.toFixed(3)}) ${nudge}`;
+      // Le haut du téléphone, sorti du cadre, s'arrête sous la note (clip : la ligne de coupe, en points CSS de l'écran)
+      const c = z.clip == null ? null : (16 + z.clip * K).toFixed(1);
+      phone.style.clipPath = c ? `polygon(-200px ${c}px, 828px ${c}px, 828px 1600px, -200px 1600px)` : '';
+    } else {
+      phone.style.transformOrigin = '';
+      phone.style.transform = `${wob} ${nudge}`;
+      phone.style.clipPath = '';
+    }
     if (s.phone.img !== lastShot) { $('shot').src = s.phone.img; await $('shot').decode(); lastShot = s.phone.img; }
     let svg = '';
     if (s.phone.drop) {
@@ -216,7 +242,17 @@ window.render = async (s) => {
     }
     if (s.phone.circle) {
       const c = s.phone.circle;
-      svg += `<path id="circ" d="${roughEllipse(c.rect, c.seed || 3)}" fill="none" stroke="#E0901F" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" opacity=".95"/>`;
+      svg += `<path id="circ" d="${roughEllipse(c.rect, c.seed || 3)}" fill="none" stroke="${c.color || '#E0901F'}" stroke-width="5.5" stroke-linecap="round" stroke-linejoin="round" opacity=".95"/>`;
+    }
+    if (s.phone.strike) {
+      // Un trait de stylo, tiré à la main d'un point à l'autre
+      const t = s.phone.strike, Q = rng(t.seed || 5), n = 9;
+      let d = '';
+      for (let i = 0; i <= n; i++) {
+        const x = t.x1 + (t.x2 - t.x1) * i / n, y = t.y1 + (t.y2 - t.y1) * i / n + (i && i < n ? (Q() - 0.5) * 3.2 : 0);
+        d += `${i ? ' L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`;
+      }
+      svg += `<path id="strk" d="${d}" fill="none" stroke="${t.color || '#C8372D'}" stroke-width="${t.width || 6}" stroke-linecap="round" stroke-linejoin="round" opacity=".82" style="mix-blend-mode:multiply"/>`;
     }
     if (s.phone.tap) {
       const t = s.phone.tap;
@@ -226,6 +262,8 @@ window.render = async (s) => {
     $('marks').innerHTML = svg;
     const circ = document.getElementById('circ');
     if (circ) { const L = circ.getTotalLength(); circ.style.strokeDasharray = `${L} ${L}`; circ.style.strokeDashoffset = `${(L * (1 - s.phone.circle.p)).toFixed(1)}`; }
+    const strk = document.getElementById('strk');
+    if (strk) { const L = strk.getTotalLength(); strk.style.strokeDasharray = `${L} ${L}`; strk.style.strokeDashoffset = `${(L * (1 - s.phone.strike.p)).toFixed(1)}`; }
   } else phone.style.display = 'none';
 
   // La loupe
@@ -237,7 +275,7 @@ window.render = async (s) => {
     crop.style.width = `${c.w}px`;
     crop.style.height = `${(c.crop.h * sc).toFixed(1)}px`;
     crop.style.backgroundImage = `url("${c.img}")`;
-    crop.style.backgroundSize = `${(CSS_W * sc).toFixed(1)}px auto`;
+    crop.style.backgroundSize = `${((c.base || CSS_W) * sc).toFixed(1)}px auto`;
     crop.style.backgroundPosition = `${(-c.crop.x * sc).toFixed(1)}px ${(-c.crop.y * sc).toFixed(1)}px`;
     co.style.display = 'block';
     co.style.left = `${(540 - c.w / 2 - 5).toFixed(1)}px`;
@@ -282,6 +320,7 @@ window.render = async (s) => {
   if (s.stamp) {
     st.style.display = 'block';
     st.textContent = s.stamp.text;
+    st.style.fontSize = s.stamp.size ? `${s.stamp.size}px` : '';
     st.style.color = s.stamp.color || '';
     st.style.borderColor = s.stamp.color || '';
     // Sur un fond sombre, le tampon garde son papier : sinon il disparaîtrait dans l'encre

@@ -1,5 +1,5 @@
 // Outils communs aux vidéos pour les réseaux sociaux : serveur local, captures du site sur un téléphone,
-// composition image par image sur la scène (scene.html), encodage en MP4. Voir video-1.cjs et video-2.cjs.
+// composition image par image sur la scène (scene.html), encodage en MP4. Voir video-1.cjs à video-4.cjs.
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
@@ -34,13 +34,15 @@ function serve() {
 
 /**
  * Un téléphone (390 × 844, écran Retina) qui ouvre le site avec un compte de démonstration fictif et la base simulée.
- * store : le journal de ce compte (absent : un compte tout neuf). Renvoie de quoi le piloter et le photographier.
+ * store : le journal de ce compte (absent : un compte tout neuf). now : la date du téléphone (absente : maintenant).
+ * Renvoie de quoi le piloter et le photographier.
  */
-async function openPhone(base, { store = null } = {}) {
+async function openPhone(base, { store = null, now = null } = {}) {
   fs.mkdirSync(SHOTS, { recursive: true });
   // Champs de date au format français (jj/mm/aaaa) : nouveau mode sans fenêtre et langue du système
   const b = await chromium.launch({ channel: 'chromium', args: ['--lang=fr-FR'], env: { ...process.env, LANG: 'fr_FR.UTF-8', LANGUAGE: 'fr' } });
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, serviceWorkers: 'block', locale: 'fr-FR', timezoneId: 'Europe/Paris', isMobile: true, hasTouch: true });
+  if (now) await ctx.clock.install({ time: now });              // l'heure part de là, puis avance normalement
   for (const n of ['app', 'auth', 'firestore']) await ctx.route(`https://www.gstatic.com/firebasejs/10.8.1/firebase-${n}.js`, r => r.fulfill({ contentType: 'application/javascript', body: STUB(`firebase-${n}.js`) }));
   await ctx.addInitScript(({ store, news }) => {
     if (sessionStorage.getItem('__init')) return;
@@ -58,6 +60,28 @@ async function openPhone(base, { store = null } = {}) {
   const shot = name => p.screenshot({ path: path.join(SHOTS, name + '.png') });
   const close = async () => { await b.close(); if (errs.length) throw new Error('erreurs dans la page : ' + errs.join(' | ')); };
   return { p, rects, clean, rect, shot, close };
+}
+
+/* Le journal de démonstration des vidéos 3 et 4 : 130 pages sur 240, environ 3,4 pages par semaine depuis cinq mois. */
+const dayKey = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const addDays = (k, n) => { const [y, m, d] = k.split('-').map(Number); return dayKey(new Date(y, m - 1, d + n)); };
+function demoJournal(now = new Date()) {
+  const today = dayKey(now);
+  const activity = {};
+  for (let i = 1; i <= 150; i++) {
+    const k = addDays(today, -i);
+    const wd = new Date(`${k}T12:00:00`).getDay();
+    if (wd === 1 || wd === 3) activity[k] = 1.5;
+    if (wd === 5 && i % 2) activity[k] = 1;
+  }
+  const ch = (id, title, targetPages, writtenPages) => ({ id, title, targetPages, writtenPages, subsections: [] });
+  return {
+    version: 2, documentTitle: 'Les ponts suspendus en France au XIXe siècle',
+    chapters: [ch('c1', 'Introduction générale', 20, 14), ch('c2', 'Chapitre 1 : Le fer et le fil', 60, 52), ch('c3', 'Chapitre 2 : Tournon, le premier pont suspendu', 60, 44),
+      ch('c4', 'Chapitre 3 : Après Angers, le temps de la défiance', 80, 20), ch('c5', 'Conclusion générale', 20, 0)],
+    trackedSince: addDays(today, -150), startDate: addDays(today, -420), deadline: addDays(today, 238), deadlineMonth: false, marginDays: 21,
+    writingDays: [1, 2, 3, 4, 5], activity, journal: {}, milestones: { 25: true, 50: true, 75: false, 100: false }, docFiles: {}, docIgnore: [],
+  };
 }
 
 /* Captures des vidéos 1 et 2 : un compte tout neuf qui dépose sa thèse. */
@@ -146,11 +170,15 @@ const words = (i, n, every = 2, from = 0) => Math.max(0, Math.min(n, Math.floor(
 const boil = i => [11, 29, 47][i % 3];                           // le trait « vibre » d'une image à l'autre
 const growth = [0, 1, 2, 4, 7, 14, 21, 30];                      // la plante de la fin, étape par étape
 
-/** Fabrique la vidéo numéro num : captures, images, MP4 et couverture (l'image numéro cover). */
+/**
+ * Fabrique la vidéo numéro num : captures, images, MP4 et couverture (l'image numéro cover).
+ * Avec SHOTS_ONLY=1, s'arrête après les captures du site (pour les vérifier).
+ */
 async function make(num, storyboard, { cover = 0, shoot = capture } = {}) {
   const srv = await serve();
   const base = `http://localhost:${srv.address().port}/`;
-  const rects = await shoot(base);
+  const rects = await shoot(base).catch(e => { srv.close(); throw e; });
+  if (process.env.SHOTS_ONLY) { srv.close(); console.log(`captures dans ${path.relative(ROOT, SHOTS)}`, JSON.stringify(rects)); return; }
   const scenes = [];
   storyboard(rects, (n, fn) => scenes.push({ n, fn }));
   const frames = path.join(OUT, String(num), 'frames');
@@ -163,4 +191,4 @@ async function make(num, storyboard, { cover = 0, shoot = capture } = {}) {
   console.log(`${n} images (${(n / 8).toFixed(2)} s) → ${path.relative(ROOT, mp4)}`);
 }
 
-module.exports = { make, openPhone, SHOT, NB, K, SX, SY, toStage, pad, step, words, boil, growth };
+module.exports = { make, openPhone, demoJournal, SHOT, NB, K, SX, SY, toStage, pad, step, words, boil, growth };
