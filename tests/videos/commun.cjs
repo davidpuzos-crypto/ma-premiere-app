@@ -15,6 +15,8 @@ const ROOT = path.join(__dirname, '..', '..');
 const OUT = path.join(ROOT, 'tests', '.tmp', 'videos');
 const SHOTS = path.join(OUT, 'shots');
 const STUB = n => fs.readFileSync(path.join(ROOT, 'tests', 'stubs', n), 'utf8');
+// L'annonce de mise à jour déjà vue : sa version est lue dans app.js, pour qu'elle ne s'affiche pas en plein tournage
+const NEWS = (/const WHATSNEW_VER = '([^']+)'/.exec(fs.readFileSync(path.join(ROOT, 'app.js'), 'utf8')) || [])[1] || '';
 
 /* ---------- Le site, sur un téléphone ---------- */
 function serve() {
@@ -30,18 +32,23 @@ function serve() {
   return new Promise(res => srv.listen(0, () => res(srv)));
 }
 
-async function capture(base) {
+/**
+ * Un téléphone (390 × 844, écran Retina) qui ouvre le site avec un compte de démonstration fictif et la base simulée.
+ * store : le journal de ce compte (absent : un compte tout neuf). Renvoie de quoi le piloter et le photographier.
+ */
+async function openPhone(base, { store = null } = {}) {
   fs.mkdirSync(SHOTS, { recursive: true });
   // Champs de date au format français (jj/mm/aaaa) : nouveau mode sans fenêtre et langue du système
   const b = await chromium.launch({ channel: 'chromium', args: ['--lang=fr-FR'], env: { ...process.env, LANG: 'fr_FR.UTF-8', LANGUAGE: 'fr' } });
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, serviceWorkers: 'block', locale: 'fr-FR', timezoneId: 'Europe/Paris', isMobile: true, hasTouch: true });
   for (const n of ['app', 'auth', 'firestore']) await ctx.route(`https://www.gstatic.com/firebasejs/10.8.1/firebase-${n}.js`, r => r.fulfill({ contentType: 'application/javascript', body: STUB(`firebase-${n}.js`) }));
-  await ctx.addInitScript(() => {
+  await ctx.addInitScript(({ store, news }) => {
     if (sessionStorage.getItem('__init')) return;
     sessionStorage.setItem('__init', '1');
     localStorage.clear();
     localStorage.setItem('__fbuser', JSON.stringify({ uid: 'demo', email: 'camille@exemple.fr', displayName: 'Camille Durand' }));
-  });
+    if (store) { localStorage.setItem('__fbstore', JSON.stringify({ 'users/demo/thesis/main': store })); localStorage.setItem('jdb_whatsnew', news); }
+  }, { store, news: NEWS });
   const p = await ctx.newPage();
   const errs = [];
   p.on('pageerror', e => errs.push(e.message));
@@ -49,7 +56,13 @@ async function capture(base) {
   const clean = () => p.evaluate(() => document.querySelectorAll('.toast').forEach(t => t.remove()));
   const rect = async (name, sel) => { rects[name] = await p.evaluate(s => { const e = document.querySelector(s); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; }, sel); };
   const shot = name => p.screenshot({ path: path.join(SHOTS, name + '.png') });
+  const close = async () => { await b.close(); if (errs.length) throw new Error('erreurs dans la page : ' + errs.join(' | ')); };
+  return { p, rects, clean, rect, shot, close };
+}
 
+/* Captures des vidéos 1 et 2 : un compte tout neuf qui dépose sa thèse. */
+async function capture(base) {
+  const { p, rects, clean, rect, shot, close } = await openPhone(base);
   await p.goto(base);
   await p.waitForSelector('.onboarding');
   await p.evaluate(() => document.fonts.ready);
@@ -98,8 +111,7 @@ async function capture(base) {
   await clean();
   await shot('06-etagere');
   await rect('shelf', '#shelfBooks');
-  await b.close();
-  if (errs.length) throw new Error('erreurs dans la page : ' + errs.join(' | '));
+  await close();
   return rects;
 }
 
@@ -135,10 +147,10 @@ const boil = i => [11, 29, 47][i % 3];                           // le trait « 
 const growth = [0, 1, 2, 4, 7, 14, 21, 30];                      // la plante de la fin, étape par étape
 
 /** Fabrique la vidéo numéro num : captures, images, MP4 et couverture (l'image numéro cover). */
-async function make(num, storyboard, { cover = 0 } = {}) {
+async function make(num, storyboard, { cover = 0, shoot = capture } = {}) {
   const srv = await serve();
   const base = `http://localhost:${srv.address().port}/`;
-  const rects = await capture(base);
+  const rects = await shoot(base);
   const scenes = [];
   storyboard(rects, (n, fn) => scenes.push({ n, fn }));
   const frames = path.join(OUT, String(num), 'frames');
@@ -151,4 +163,4 @@ async function make(num, storyboard, { cover = 0 } = {}) {
   console.log(`${n} images (${(n / 8).toFixed(2)} s) → ${path.relative(ROOT, mp4)}`);
 }
 
-module.exports = { make, SHOT, NB, K, SX, SY, toStage, pad, step, words, boil, growth };
+module.exports = { make, openPhone, SHOT, NB, K, SX, SY, toStage, pad, step, words, boil, growth };

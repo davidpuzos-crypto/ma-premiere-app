@@ -193,7 +193,11 @@ node tests/videos/video-1.cjs
 node tests/videos/video-2.cjs
 ```
 
-Chacune fabrique, image par image (façon stop motion, 8 images par seconde), une vidéo verticale de 1080 × 1920 pour les Reels, TikTok et les Stories : le site filmé sur un téléphone avec un compte de démonstration fictif et la base simulée des tests, des légendes sur un papillon adhésif, puis l'adresse du site. La première montre le dépôt de la thèse (chapitres retrouvés, pages comptées, étagère) ; la seconde, sur fond sombre, part de la question du repas de famille (« Et ta thèse, ça avance ? ») et y répond au dessert. Le résultat, avec une image de couverture, va dans `tests/.tmp/videos/`. Il faut Playwright et ffmpeg. Relancée après une mise à jour, elle montre la nouvelle version du site.
+```bash
+node tests/videos/video-3.cjs
+```
+
+Chacune fabrique, image par image (façon stop motion, 8 images par seconde), une vidéo verticale de 1080 × 1920 pour les Reels, TikTok et les Stories : le site filmé sur un téléphone avec un compte de démonstration fictif et la base simulée des tests, des légendes sur un papillon adhésif, puis l'adresse du site. La première montre le dépôt de la thèse (chapitres retrouvés, pages comptées, étagère) ; la seconde, sur fond sombre, part de la question du repas de famille (« Et ta thèse, ça avance ? ») et y répond au dessert ; la troisième, sur fond safran, montre la date de fin qui avance à chaque page notée, jusqu'à effacer un retard (compte de démonstration avec cinq mois de suivi). Le résultat, avec une image de couverture, va dans `tests/.tmp/videos/`. Il faut Playwright et ffmpeg. Relancée après une mise à jour, elle montre la nouvelle version du site.
 
 La thèse de démonstration (`tests/videos/these-demo.docx`, « Les ponts suspendus en France au XIXe siècle ») est fictive ; `these-demo.py` la refait. La scène où sont composées les images est `tests/videos/scene.html` ; les outils communs (captures, composition, encodage) sont dans `tests/videos/commun.cjs`, et chaque vidéo n'est plus qu'un scénario.
 
