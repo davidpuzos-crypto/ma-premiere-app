@@ -982,7 +982,9 @@ const clone = o => JSON.parse(JSON.stringify(o));
     page.on('pageerror', e => errors.push(e.message));
     await page.goto(BASE);
     await page.waitForSelector('.onboarding');
-    await page.waitForFunction(async () => { const r = await navigator.serviceWorker.getRegistration(); return !!(r && r.active && r.active.state === 'activated'); }, null, { timeout: 20000 });
+    // (un prédicat asynchrone n'est pas attendu par waitForFunction : on interroge la page nous-mêmes)
+    const until = async (fn, timeout = 40000) => { for (const t0 = Date.now(); !(await page.evaluate(fn)); await page.waitForTimeout(200)) if (Date.now() - t0 > timeout) throw new Error('attente dépassée'); };
+    await until(async () => { const r = await navigator.serviceWorker.getRegistration(); return !!(r && r.active && r.active.state === 'activated'); });
     await page.reload();
     await page.waitForSelector('.onboarding');
     assert.equal(await page.evaluate(() => !!navigator.serviceWorker.controller), true, 'la page est servie par le service worker');
@@ -2797,9 +2799,17 @@ const clone = o => JSON.parse(JSON.stringify(o));
     }
     await page.click('#docxModal >> text=Fermer');
 
-    // Deux documents déposés ensemble (un fichier par chapitre) : lus l'un après l'autre
-    await send([['these.docx', DOCX, fs.readFileSync(FIX('these.docx'))], ['discussion.docx', DOCX, fs.readFileSync(FIX('discussion.docx'))]]);
+    // Deux documents déposés ensemble (un fichier par chapitre) : lus l'un après l'autre. Le premier est long à lire
+    // (gros fichier, réseau lent) et la fenêtre vient d'être fermée : le second attend quand même son tour.
+    await page.evaluate(({ a, b }) => {
+      const bin = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+      const first = new File([bin(a)], 'these.docx');
+      const read = first.arrayBuffer.bind(first);
+      first.arrayBuffer = () => new Promise(done => setTimeout(() => done(read()), 1300));
+      window.handleDocxFiles([first, new File([bin(b)], 'discussion.docx')]);
+    }, { a: fs.readFileSync(FIX('these.docx')).toString('base64'), b: fs.readFileSync(FIX('discussion.docx')).toString('base64') });
     [sum] = await preview();
+    assert.equal(await page.textContent('#docxError'), '', 'le second fichier n\'a pas été lu avant la fin du premier');
     assert.match(sum, /^these\.docx : /);
     assert.match((await toasts(page)).join('|'), /2 fichiers : ils sont lus l'un après l'autre/);
     await page.click('#docxApply');

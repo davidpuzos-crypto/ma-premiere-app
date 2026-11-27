@@ -17,7 +17,7 @@
    APP_VERSION dans app.js et data-app-version dans index.html).
 ============================================================ */
 
-const VERSION = '5.0.0';
+const VERSION = '5.0.1';
 const CACHE_NAME = 'journal-de-bord-' + VERSION;
 const SHARE_CACHE = 'journal-de-bord-partage';   // document reçu par « Partager », en attente de la page
 
