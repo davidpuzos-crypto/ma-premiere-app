@@ -35,13 +35,14 @@ function serve() {
 /**
  * Un téléphone (390 × 844, écran Retina) qui ouvre le site avec un compte de démonstration fictif et la base simulée.
  * store : le journal de ce compte (absent : un compte tout neuf). now : la date du téléphone (absente : maintenant).
+ * dpr : la densité de l'écran (3 pour des agrandissements nets). dir : le dossier des captures.
  * Renvoie de quoi le piloter et le photographier.
  */
-async function openPhone(base, { store = null, now = null } = {}) {
-  fs.mkdirSync(SHOTS, { recursive: true });
+async function openPhone(base, { store = null, now = null, dpr = 2, dir = SHOTS } = {}) {
+  fs.mkdirSync(dir, { recursive: true });
   // Champs de date au format français (jj/mm/aaaa) : nouveau mode sans fenêtre et langue du système
   const b = await chromium.launch({ channel: 'chromium', args: ['--lang=fr-FR'], env: { ...process.env, LANG: 'fr_FR.UTF-8', LANGUAGE: 'fr' } });
-  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, serviceWorkers: 'block', locale: 'fr-FR', timezoneId: 'Europe/Paris', isMobile: true, hasTouch: true });
+  const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: dpr, serviceWorkers: 'block', locale: 'fr-FR', timezoneId: 'Europe/Paris', isMobile: true, hasTouch: true });
   if (now) await ctx.clock.install({ time: now });              // l'heure part de là, puis avance normalement
   for (const n of ['app', 'auth', 'firestore']) await ctx.route(`https://www.gstatic.com/firebasejs/10.8.1/firebase-${n}.js`, r => r.fulfill({ contentType: 'application/javascript', body: STUB(`firebase-${n}.js`) }));
   await ctx.addInitScript(({ store, news }) => {
@@ -57,7 +58,7 @@ async function openPhone(base, { store = null, now = null } = {}) {
   const rects = {};
   const clean = () => p.evaluate(() => document.querySelectorAll('.toast').forEach(t => t.remove()));
   const rect = async (name, sel) => { rects[name] = await p.evaluate(s => { const e = document.querySelector(s); if (!e) return null; const r = e.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; }, sel); };
-  const shot = name => p.screenshot({ path: path.join(SHOTS, name + '.png') });
+  const shot = name => p.screenshot({ path: path.join(dir, name + '.png') });
   const close = async () => { await b.close(); if (errs.length) throw new Error('erreurs dans la page : ' + errs.join(' | ')); };
   return { p, rects, clean, rect, shot, close };
 }
@@ -84,9 +85,9 @@ function demoJournal(now = new Date()) {
   };
 }
 
-/* Captures des vidéos 1 et 2 : un compte tout neuf qui dépose sa thèse. */
-async function capture(base) {
-  const { p, rects, clean, rect, shot, close } = await openPhone(base);
+/* Captures des vidéos 1 et 2 (et des carrousels) : un compte tout neuf qui dépose sa thèse. opts : voir openPhone. */
+async function capture(base, opts = {}) {
+  const { p, rects, clean, rect, shot, close } = await openPhone(base, opts);
   await p.goto(base);
   await p.waitForSelector('.onboarding');
   await p.evaluate(() => document.fonts.ready);
@@ -191,4 +192,4 @@ async function make(num, storyboard, { cover = 0, shoot = capture } = {}) {
   console.log(`${n} images (${(n / 8).toFixed(2)} s) → ${path.relative(ROOT, mp4)}`);
 }
 
-module.exports = { make, openPhone, demoJournal, SHOT, NB, K, SX, SY, toStage, pad, step, words, boil, growth };
+module.exports = { make, serve, capture, openPhone, demoJournal, chromium, SHOT, NB, K, SX, SY, toStage, pad, step, words, boil, growth };

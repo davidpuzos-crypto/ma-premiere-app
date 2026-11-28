@@ -205,6 +205,14 @@ Chacune fabrique, image par image (façon stop motion, 8 images par seconde), un
 
 La thèse de démonstration (`tests/videos/these-demo.docx`, « Les ponts suspendus en France au XIXe siècle ») est fictive ; `these-demo.py` la refait. La scène où sont composées les images est `tests/videos/scene.html` ; les outils communs (captures, compte de démonstration, composition, encodage) sont dans `tests/videos/commun.cjs`, et chaque vidéo n'est plus qu'un scénario.
 
+## Carrousels pour les réseaux sociaux
+
+```bash
+node tests/carrousels/carrousels.cjs
+```
+
+Fabrique trois carrousels de slides au format 4:5 (1080 × 1350), celui d'Instagram et de LinkedIn : la présentation du Journal (8 slides), « 5 signes que votre thèse a besoin d'un journal de bord » (7 slides) et le bingo du doctorant de la semaine (6 slides). Le site y est photographié sur un téléphone, avec la thèse de démonstration et le compte de démonstration des vidéos (sans marge avant le dépôt, pour que le verdict se lise directement sur une image fixe), réglé sur le lundi 30 novembre 2026 ; les chiffres des slides sont lus sur l'écran. Pour chaque carrousel, `tests/.tmp/carrousels/` reçoit les PNG numérotés, un PDF (LinkedIn publie les carrousels en document) et un ZIP des PNG (Instagram). `ONLY=bingo` n'en refait qu'un ; `SEMAINE=2026-12-07` fait le bingo d'une autre semaine (n'importe quel jour de cette semaine) ; `REUSE=1` reprend les captures déjà faites, pour retoucher les textes. Le gabarit des slides est `tests/carrousels/slide.html` ; les outils de capture sont ceux des vidéos (`tests/videos/commun.cjs`).
+
 ## Publier une nouvelle version
 
 1. Augmenter la version aux trois endroits, avec la même valeur : `VERSION` dans `sw.js`, `APP_VERSION` dans `app.js`, `data-app-version` en tête de `index.html`. Un test vérifie qu'elles concordent.

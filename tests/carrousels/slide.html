@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="fr"><head>
+<!-- Gabarit des slides des carrousels (1080 × 1350, voir tests/carrousels/carrousels.cjs). Rien ici n'est chargé par le site. -->
+<meta charset="utf-8"><title>Slides des carrousels</title>
+<style>
+@font-face { font-family: 'Fraunces'; font-style: normal; font-weight: 400 800; src: url('/fonts/fraunces-latin.woff2') format('woff2'); }
+@font-face { font-family: 'Fraunces'; font-style: italic; font-weight: 400 700; src: url('/fonts/fraunces-italic-latin.woff2') format('woff2'); }
+@font-face { font-family: 'DM Sans'; font-style: normal; font-weight: 400 800; src: url('/fonts/dm-sans-latin.woff2') format('woff2'); }
+:root { --ink:#16282A; --ink2:#44575A; --ink3:#5A6A67; --paper:#F5EFE3; --card:#FFFDF8; --line2:#D2C4A8; --cream:#FBF3E2; --cream2:#C5D6D1;
+  --teal9:#122423; --teal8:#17302F; --teal7:#1F4140; --teal6:#2B5654; --saf:#F0AE3C; --saf3:#F3C566; --saf2:#F8D996; --saf1:#FCEBC8;
+  --saf6:#C47C12; --saf7:#96590B; --red:#C8372D; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1080px; height: 1350px; overflow: hidden; }
+body { font-family: 'DM Sans', sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; font-optical-sizing: auto; }
+#slide { position: relative; width: 1080px; height: 1350px; overflow: hidden; }
+
+/* Les fonds */
+#slide.creme { background:
+  radial-gradient(circle at 1.5px 1.5px, rgba(22,40,42,.10) 1.5px, transparent 0) 0 0 / 28px 28px,
+  radial-gradient(900px 700px at 0% 0%, rgba(240,174,60,.17), transparent 70%),
+  radial-gradient(800px 700px at 100% 100%, rgba(43,86,84,.09), transparent 70%), var(--paper); }
+#slide.nuit { color: var(--cream); background:
+  radial-gradient(circle at 1.5px 1.5px, rgba(251,243,226,.07) 1.5px, transparent 0) 0 0 / 28px 28px,
+  radial-gradient(900px 760px at 0% 0%, rgba(240,174,60,.20), transparent 70%),
+  radial-gradient(800px 700px at 100% 100%, rgba(58,111,108,.36), transparent 70%), var(--teal9); }
+#slide.safran { background:
+  radial-gradient(circle at 1.5px 1.5px, rgba(22,40,42,.12) 1.5px, transparent 0) 0 0 / 28px 28px,
+  radial-gradient(900px 700px at 0% 0%, rgba(251,243,226,.45), transparent 70%),
+  radial-gradient(800px 700px at 100% 100%, rgba(196,124,18,.34), transparent 70%), var(--saf); }
+/* Page de cahier à grands carreaux, marge rouge : le texte commence après la marge */
+#slide.cahier { background:
+  linear-gradient(90deg, transparent 118px, rgba(214,80,80,.55) 118px, rgba(214,80,80,.55) 121px, transparent 121px),
+  linear-gradient(90deg, rgba(96,104,190,.20) 1.5px, transparent 1.5px) 0 0 / 60px 60px,
+  linear-gradient(rgba(96,104,190,.24) 1.5px, transparent 1.5px) 0 0 / 60px 60px,
+  linear-gradient(rgba(96,104,190,.10) 1px, transparent 1px) 0 0 / 15px 15px, #FDFBF6; }
+
+/* En-tête : la marque, le numéro de la slide */
+.top { position: absolute; top: 58px; left: 80px; right: 80px; display: flex; align-items: center; justify-content: space-between; z-index: 8; }
+.cahier .top, .cahier .text { left: 156px; }
+.brand { display: flex; align-items: center; gap: 16px; font-family: 'Fraunces', serif; font-weight: 650; font-size: 31px; letter-spacing: -.01em; }
+.brand img { width: 52px; height: 52px; border-radius: 13px; box-shadow: 0 8px 16px -10px rgba(22,40,42,.7); }
+.count { font-size: 27px; font-weight: 700; letter-spacing: .06em; opacity: .72; font-variant-numeric: tabular-nums; }
+
+/* Le texte */
+.text { position: absolute; top: 168px; left: 80px; right: 80px; z-index: 6; }
+.kicker { display: block; font-size: 25px; font-weight: 800; letter-spacing: .16em; text-transform: uppercase; color: var(--saf7); margin-bottom: 22px; }
+.nuit .kicker { color: var(--saf3); }
+.safran .kicker { color: var(--ink); opacity: .8; }
+.cahier .kicker { color: var(--red); }
+h1 { font-family: 'Fraunces', serif; font-weight: 700; font-size: 86px; line-height: 1.04; letter-spacing: -.028em; }
+h1.m { font-size: 74px; line-height: 1.06; }
+h1.s { font-size: 64px; line-height: 1.08; }
+.hl { background: linear-gradient(transparent 58%, var(--saf3) 58%, var(--saf3) 92%, transparent 92%); padding: 0 .05em; margin: 0 -.05em;
+  -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.nuit .hl { background: linear-gradient(transparent 60%, rgba(240,174,60,.62) 60%, rgba(240,174,60,.62) 92%, transparent 92%); }
+.safran .hl { background: linear-gradient(transparent 58%, rgba(251,243,226,.92) 58%, rgba(251,243,226,.92) 92%, transparent 92%); }
+.sub { margin-top: 28px; font-size: 37px; line-height: 1.34; font-weight: 500; color: var(--ink2); max-width: 910px; }
+.sub b { font-weight: 700; color: var(--ink); }
+.nuit .sub { color: var(--cream2); } .nuit .sub b { color: var(--cream); }
+.safran .sub { color: var(--ink); }
+
+/* Le téléphone : une capture du site dans son cadre */
+.phone { position: absolute; padding: 14px; border-radius: 70px; background: #0C1919; z-index: 2;
+  box-shadow: 0 46px 80px -34px rgba(22,40,42,.8), inset 0 0 0 3px var(--teal6); }
+.nuit .phone { box-shadow: 0 46px 90px -30px rgba(0,0,0,.9), inset 0 0 0 3px rgba(251,243,226,.28); }
+.phone .screen { position: relative; border-radius: 57px; overflow: hidden; background: #fff; }
+.phone .screen img { display: block; width: 100%; }
+
+/* La loupe : un morceau de l'écran, agrandi, scotché sur la page */
+.loupe { position: absolute; z-index: 4; background: var(--card); border: 5px solid var(--ink); border-radius: 30px; box-shadow: 0 34px 54px -26px rgba(22,40,42,.65); }
+.nuit .loupe { border-color: var(--cream); box-shadow: 0 34px 60px -24px rgba(0,0,0,.85); }
+.loupe .crop { position: relative; overflow: hidden; border-radius: 25px; }
+.loupe .crop img { position: absolute; left: 0; top: 0; display: block; max-width: none; }
+.tape { position: absolute; width: 176px; height: 50px; background: rgba(243,197,102,.78); box-shadow: 0 1px 3px rgba(22,40,42,.15); z-index: 5; }
+.cahier .tape { background: rgba(251,243,226,.8); }
+.safran .tape { background: rgba(251,243,226,.82); }
+
+/* Étiquettes */
+.pill { position: absolute; display: inline-flex; align-items: center; gap: 14px; padding: 16px 30px; border-radius: 999px; background: var(--ink); color: var(--cream);
+  font-size: 30px; font-weight: 700; z-index: 7; box-shadow: 0 16px 30px -18px rgba(0,0,0,.7); white-space: nowrap; }
+.pill.saf { background: var(--saf); color: var(--ink); }
+.pill.cream { background: var(--cream); color: var(--ink); }
+.pill svg { width: 34px; height: 34px; flex: none; }
+.swipe { right: 80px; bottom: 62px; background: var(--saf); color: var(--ink); font-weight: 800; }
+.safran .swipe { background: var(--ink); color: var(--cream); }
+.nuit .swipe { background: var(--saf); }
+
+/* Les formats, en pastilles */
+.chips { position: absolute; display: flex; flex-wrap: wrap; gap: 14px 14px; z-index: 5; }
+.chip { padding: 13px 26px; border-radius: 999px; background: var(--card); border: 3px solid var(--ink); font-weight: 700; font-size: 30px; }
+
+/* Le grand numéro (5 signes) */
+.num { position: absolute; font-family: 'Fraunces', serif; font-weight: 800; line-height: .78; letter-spacing: -.05em; z-index: 1; color: var(--ink); }
+.answer { position: absolute; left: 80px; right: 80px; padding: 32px 40px 34px 40px; background: var(--card); border-radius: 28px; z-index: 6;
+  font-size: 37px; font-weight: 600; line-height: 1.3; box-shadow: 0 26px 44px -24px rgba(22,40,42,.55); }
+.answer .lead { display: block; margin-bottom: 8px; font-size: 24px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--saf7); }
+
+/* La grille du bingo, en grand */
+.grid9 { position: absolute; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; z-index: 4; }
+.grid9 .cell { position: relative; display: flex; align-items: center; justify-content: center; text-align: center; padding: 16px 14px; border-radius: 24px;
+  background: var(--card); border: 3px solid var(--line2); box-shadow: 0 6px 0 var(--line2); font-size: 31px; font-weight: 700; line-height: 1.2; }
+.grid9 .cell.on { background: var(--saf3); border-color: var(--saf6); box-shadow: 0 6px 0 var(--saf6); }
+
+/* Les résultats du bingo */
+.scores { position: absolute; z-index: 5; }
+.score { display: grid; grid-template-columns: 250px 1fr; gap: 26px; align-items: baseline; padding: 30px 0; border-top: 3px dashed rgba(22,40,42,.22); }
+.score:last-child { border-bottom: 3px dashed rgba(22,40,42,.22); }
+.score b { font-size: 34px; font-weight: 800; }
+.score span { font-family: 'Fraunces', serif; font-style: italic; font-size: 44px; line-height: 1.18; }
+
+/* La fin */
+.cta { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; text-align: center; z-index: 5; }
+.cta .icon { width: 236px; height: 236px; border-radius: 56px; box-shadow: 0 34px 56px -28px rgba(0,0,0,.85); }
+.cta .name { margin-top: 48px; font-family: 'Fraunces', serif; font-weight: 700; font-size: 100px; line-height: 1; letter-spacing: -.03em; }
+.cta .tag { margin-top: 24px; font-family: 'Fraunces', serif; font-style: italic; font-size: 48px; color: var(--cream2); }
+.creme .cta .tag, .safran .cta .tag, .cahier .cta .tag { color: var(--ink2); }
+.cta ul { margin-top: 54px; list-style: none; display: grid; gap: 20px; text-align: left; }
+.cta li { display: flex; align-items: center; gap: 20px; font-size: 38px; font-weight: 600; }
+.cta li svg { width: 46px; height: 46px; flex: none; }
+.cta .url { margin-top: 58px; padding: 20px 48px 24px; border-radius: 999px; background: var(--saf); color: var(--ink); font-family: 'Fraunces', serif; font-weight: 700; font-size: 60px; letter-spacing: -.015em; }
+.safran .cta .url { background: var(--ink); color: var(--cream); }
+.cta .foot { margin-top: 44px; font-size: 33px; font-weight: 600; line-height: 1.35; max-width: 860px; }
+.cta .foot b { font-weight: 800; }
+
+/* La pastille ronde, collée de travers */
+.sticker { position: absolute; z-index: 7; width: 230px; height: 230px; border-radius: 50%; display: flex; align-items: center; justify-content: center; text-align: center;
+  background: var(--saf); color: var(--ink); font-family: 'Fraunces', serif; font-weight: 750; font-size: 40px; line-height: 1.02; letter-spacing: -.01em;
+  box-shadow: 0 22px 36px -18px rgba(0,0,0,.7), inset 0 0 0 6px rgba(251,243,226,.55); }
+
+.abs { position: absolute; }
+svg.draw { position: absolute; overflow: visible; z-index: 6; pointer-events: none; }
+</style></head>
+<body>
+<div id="slide"></div>
+<script>
+// Pose une slide : son fond (thème) et son contenu, puis attend que polices et images soient prêtes
+window.render = async (theme, html) => {
+  const s = document.getElementById('slide');
+  s.className = theme;
+  s.innerHTML = html;
+  await Promise.all([...s.querySelectorAll('img')].map(im => (im.complete && im.naturalWidth) ? null : im.decode().catch(() => null)));
+  await document.fonts.ready;
+  fit(s);
+  return true;
+};
+
+/* Les loupes « data-fit » prennent la place libre entre le texte (ou data-top) et le bas (data-bottom, ou l'encadré du bas) :
+   aussi larges que possible (data-wmax), sans déborder, centrées dans l'espace qui reste. data-fit : le morceau d'image, x,y,l,h. */
+function fit(s) {
+  const t = s.querySelector('.text'), a = s.querySelector('.answer');
+  const textBottom = t ? t.getBoundingClientRect().bottom : 150;
+  const answerTop = a ? a.getBoundingClientRect().top : 1350;
+  for (const L of s.querySelectorAll('.loupe[data-fit]')) {
+    const [cx, cy, cw, ch] = L.dataset.fit.split(',').map(Number);
+    const base = Number(L.dataset.base || 390);
+    const top = L.dataset.top ? Number(L.dataset.top) : textBottom + Number(L.dataset.gap || 64);
+    const bottom = Math.min(Number(L.dataset.bottom || 1290), answerTop - 48);
+    const room = bottom - top - 10;
+    let w = Number(L.dataset.wmax), h = ch * w / cw;
+    if (h > room) { h = room; w = h * cw / ch; }
+    const k = w / cw, crop = L.querySelector('.crop'), img = crop.querySelector('img');
+    Object.assign(crop.style, { width: `${w}px`, height: `${h}px` });
+    Object.assign(img.style, { width: `${base * k}px`, left: `${-cx * k}px`, top: `${-cy * k}px` });
+    L.style.left = `${L.dataset.left ? Number(L.dataset.left) : 540 - (w + 10) / 2}px`;
+    L.style.top = `${L.dataset.top ? top : top + Math.max(0, (room - h) / 2)}px`;
+  }
+}
+window.ready = true;
+</script>
+</body></html>
